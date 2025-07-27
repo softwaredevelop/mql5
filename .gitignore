@@ -33,7 +33,7 @@
 # Market Watch symbol sets
 *.set
 # Chart templates
-*.tpl
+# *.tpl
 # Chart settings files (can be generated when saving templates or profiles)
 *.chr
 
