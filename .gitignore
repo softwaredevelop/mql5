@@ -31,7 +31,7 @@
 # Market Watch sets and profiles
 # User-specific lists of symbols in Market Watch, and terminal profiles.
 # Market Watch symbol sets
-*.set
+# *.set
 # Chart templates
 # *.tpl
 # Chart settings files (can be generated when saving templates or profiles)
