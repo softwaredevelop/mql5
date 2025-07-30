@@ -35,7 +35,7 @@
 # Chart templates
 # *.tpl
 # Chart settings files (can be generated when saving templates or profiles)
-*.chr
+# *.chr
 
 # External libraries (DLLs)
 # If you use custom DLLs, you might want to ignore them if they are built separately
