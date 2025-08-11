@@ -8,8 +8,13 @@
 #property version     "1.03" // Corrected HA calculation and ADX initialization
 #property description "Average Directional Movement Index by Welles Wilder on Heiken Ashi"
 
+// --- Standard Includes ---
+#include <MovingAverages.mqh>
+// --- Custom Toolkit Include ---
+#include <MyInclude\HA_Tools.mqh>
+
 #property indicator_separate_window
-#property indicator_buffers 11 // ADX, +DI, -DI, and 8 calculation buffers
+#property indicator_buffers 7 // ADX, +DI, -DI, and 4 calculation buffers
 #property indicator_plots   3
 
 //--- Plot 1: ADX line
@@ -45,13 +50,10 @@ double    BufferSmoothed_PDM[]; // Smoothed +DM
 double    BufferSmoothed_NDM[]; // Smoothed -DM
 double    BufferSmoothed_TR[];  // Smoothed True Range (ATR)
 double    BufferDX[];           // Directional Index
-// Heiken Ashi Buffers
-double    BufferHA_Open[];
-double    BufferHA_High[];
-double    BufferHA_Low[];
-double    BufferHA_Close[];
 
-int       ExtADXPeriod;
+//--- Global Variables ---
+int             ExtADXPeriod;
+CHA_Calculator  ha_calculator; // Global instance of our Heiken Ashi calculator class
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function                         |
@@ -60,6 +62,7 @@ void OnInit()
   {
    ExtADXPeriod = (InpPeriodADX < 1) ? 1 : InpPeriodADX;
 
+// Map only the buffers needed for this indicator's logic
    SetIndexBuffer(0, BufferHA_ADX,   INDICATOR_DATA);
    SetIndexBuffer(1, BufferHA_PDI,   INDICATOR_DATA);
    SetIndexBuffer(2, BufferHA_NDI,   INDICATOR_DATA);
@@ -67,16 +70,12 @@ void OnInit()
    SetIndexBuffer(4, BufferSmoothed_NDM, INDICATOR_CALCULATIONS);
    SetIndexBuffer(5, BufferSmoothed_TR,  INDICATOR_CALCULATIONS);
    SetIndexBuffer(6, BufferDX,       INDICATOR_CALCULATIONS);
-   SetIndexBuffer(7, BufferHA_Open,  INDICATOR_CALCULATIONS);
-   SetIndexBuffer(8, BufferHA_High,  INDICATOR_CALCULATIONS);
-   SetIndexBuffer(9, BufferHA_Low,   INDICATOR_CALCULATIONS);
-   SetIndexBuffer(10,BufferHA_Close, INDICATOR_CALCULATIONS);
 
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtADXPeriod * 2 - 1);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtADXPeriod - 1);
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, ExtADXPeriod - 1);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_ADX Wilder(%d)", ExtADXPeriod));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_ADXW(%d)", ExtADXPeriod));
   }
 
 //+------------------------------------------------------------------+
@@ -93,89 +92,97 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < ExtADXPeriod * 2) // Need enough data for the full calculation
+   if(rates_total < ExtADXPeriod + 1)
       return(0);
 
-//====== STEP 1: CALCULATE HEIKEN ASHI BARS ======
-// This part is not optimized, it recalculates all HA bars every time for simplicity and stability
-   BufferHA_Open[0]  = (open[0] + close[0]) / 2.0;
-   BufferHA_Close[0] = (open[0] + high[0] + low[0] + close[0]) / 4.0;
-   BufferHA_High[0]  = high[0];
-   BufferHA_Low[0]   = low[0];
-
-   for(int i = 1; i < rates_total; i++)
+//====== STEP 1: CALCULATE HEIKEN ASHI BARS using our toolkit ======
+   if(!ha_calculator.Calculate(rates_total, prev_calculated, open, high, low, close))
      {
-      BufferHA_Open[i]  = (BufferHA_Open[i-1] + BufferHA_Close[i-1]) / 2.0;
-      BufferHA_Close[i] = (open[i] + high[i] + low[i] + close[i]) / 4.0;
-      BufferHA_High[i]  = MathMax(high[i], MathMax(BufferHA_Open[i], BufferHA_Close[i]));
-      BufferHA_Low[i]   = MathMin(low[i], MathMin(BufferHA_Open[i], BufferHA_Close[i]));
+      Print("Heiken Ashi calculation failed. Indicator will stop.");
+      return(0);
      }
 
-//====== STEP 2: CALCULATE ADX FROM SCRATCH ON EVERY CALL ======
+//====== STEP 2: CALCULATE ADX using the results from the HA calculator ======
+   int start_adx;
+   if(prev_calculated > ExtADXPeriod)
+      start_adx = prev_calculated - 1;
+   else
+      start_adx = ExtADXPeriod;
 
-// --- Calculate raw PDM, NDM, TR for all bars ---
-   double PDM[], NDM[], TR[];
-   ArrayResize(PDM, rates_total);
-   ArrayResize(NDM, rates_total);
-   ArrayResize(TR, rates_total);
-
-   for(int i = 1; i < rates_total; i++)
+//--- Main calculation loop
+   for(int i = start_adx; i < rates_total; i++)
      {
-      double pdm = BufferHA_High[i] - BufferHA_High[i-1];
-      double ndm = BufferHA_Low[i-1] - BufferHA_Low[i];
+      //--- Get Heiken Ashi values from the calculator's public buffers
+      double ha_high       = ha_calculator.ha_high[i];
+      double prev_ha_high  = ha_calculator.ha_high[i-1];
+      double ha_low        = ha_calculator.ha_low[i];
+      double prev_ha_low   = ha_calculator.ha_low[i-1];
+      double prev_ha_close = ha_calculator.ha_close[i-1];
+
+      // Calculate raw +DM, -DM, and TR
+      double pdm = ha_high - prev_ha_high;
+      double ndm = prev_ha_low - ha_low;
       if(pdm < 0 || pdm < ndm)
          pdm = 0;
       if(ndm < 0 || ndm < pdm)
          ndm = 0;
-      PDM[i] = pdm;
-      NDM[i] = ndm;
-      TR[i] = MathMax(BufferHA_High[i], BufferHA_Close[i-1]) - MathMin(BufferHA_Low[i], BufferHA_Close[i-1]);
-     }
 
-// --- Calculate first smoothed values ---
-   double sum_pdm=0, sum_ndm=0, sum_tr=0;
-   for(int i = 1; i <= ExtADXPeriod; i++)
-     {
-      sum_pdm += PDM[i];
-      sum_ndm += NDM[i];
-      sum_tr += TR[i];
-     }
-   BufferSmoothed_PDM[ExtADXPeriod] = sum_pdm;
-   BufferSmoothed_NDM[ExtADXPeriod] = sum_ndm;
-   BufferSmoothed_TR[ExtADXPeriod] = sum_tr;
+      double tr = MathMax(ha_high, prev_ha_close) - MathMin(ha_low, prev_ha_close);
 
-// --- Smooth subsequent values ---
-   for(int i = ExtADXPeriod + 1; i < rates_total; i++)
-     {
-      BufferSmoothed_PDM[i] = BufferSmoothed_PDM[i-1] - (BufferSmoothed_PDM[i-1] / ExtADXPeriod) + PDM[i];
-      BufferSmoothed_NDM[i] = BufferSmoothed_NDM[i-1] - (BufferSmoothed_NDM[i-1] / ExtADXPeriod) + NDM[i];
-      BufferSmoothed_TR[i]  = BufferSmoothed_TR[i-1] - (BufferSmoothed_TR[i-1] / ExtADXPeriod) + TR[i];
-     }
+      // Smooth PDM, NDM, and TR (Wilder's Smoothing)
+      if(i == ExtADXPeriod) // First calculation: simple sum
+        {
+         double sum_pdm=0, sum_ndm=0, sum_tr=0;
+         for(int j=1; j<=ExtADXPeriod; j++)
+           {
+            double p_pdm = ha_calculator.ha_high[j] - ha_calculator.ha_high[j-1];
+            double p_ndm = ha_calculator.ha_low[j-1] - ha_calculator.ha_low[j];
+            if(p_pdm < 0 || p_pdm < p_ndm)
+               p_pdm = 0;
+            if(p_ndm < 0 || p_ndm < p_pdm)
+               p_ndm = 0;
+            sum_pdm += p_pdm;
+            sum_ndm += p_ndm;
+            sum_tr += MathMax(ha_calculator.ha_high[j], ha_calculator.ha_close[j-1]) - MathMin(ha_calculator.ha_low[j], ha_calculator.ha_close[j-1]);
+           }
+         BufferSmoothed_PDM[i] = sum_pdm;
+         BufferSmoothed_NDM[i] = sum_ndm;
+         BufferSmoothed_TR[i] = sum_tr;
+        }
+      else // Subsequent calculations: recursive smoothing
+        {
+         BufferSmoothed_PDM[i] = BufferSmoothed_PDM[i-1] - (BufferSmoothed_PDM[i-1] / ExtADXPeriod) + pdm;
+         BufferSmoothed_NDM[i] = BufferSmoothed_NDM[i-1] - (BufferSmoothed_NDM[i-1] / ExtADXPeriod) + ndm;
+         BufferSmoothed_TR[i]  = BufferSmoothed_TR[i-1] - (BufferSmoothed_TR[i-1] / ExtADXPeriod) + tr;
+        }
 
-// --- Calculate DI and DX ---
-   for(int i = ExtADXPeriod; i < rates_total; i++)
-     {
+      // Calculate +DI and -DI
       if(BufferSmoothed_TR[i] != 0.0)
         {
          BufferHA_PDI[i] = (BufferSmoothed_PDM[i] / BufferSmoothed_TR[i]) * 100.0;
          BufferHA_NDI[i] = (BufferSmoothed_NDM[i] / BufferSmoothed_TR[i]) * 100.0;
         }
+
+      // Calculate DX
       double di_sum = BufferHA_PDI[i] + BufferHA_NDI[i];
       if(di_sum != 0.0)
          BufferDX[i] = MathAbs(BufferHA_PDI[i] - BufferHA_NDI[i]) / di_sum * 100.0;
-     }
+      else
+         BufferDX[i] = 0.0;
 
-// --- Calculate ADX ---
-   double sum_dx = 0;
-   for(int i = ExtADXPeriod; i < ExtADXPeriod * 2; i++)
-     {
-      sum_dx += BufferDX[i];
-     }
-   BufferHA_ADX[ExtADXPeriod * 2 - 1] = sum_dx / ExtADXPeriod;
-
-   for(int i = ExtADXPeriod * 2; i < rates_total; i++)
-     {
-      BufferHA_ADX[i] = (BufferHA_ADX[i-1] * (ExtADXPeriod - 1) + BufferDX[i]) / ExtADXPeriod;
+      // Smooth DX to get ADX
+      if(i == ExtADXPeriod * 2 - 1) // First ADX value is a simple average of DX
+        {
+         double sum_dx = 0;
+         for(int j=i-ExtADXPeriod+1; j<=i; j++)
+            sum_dx += BufferDX[j];
+         BufferHA_ADX[i] = sum_dx / ExtADXPeriod;
+        }
+      else
+         if(i > ExtADXPeriod * 2 - 1)  // Subsequent ADX values are smoothed
+           {
+            BufferHA_ADX[i] = (BufferHA_ADX[i-1] * (ExtADXPeriod - 1) + BufferDX[i]) / ExtADXPeriod;
+           }
      }
 
    return(rates_total);
