@@ -1,77 +1,79 @@
 //+------------------------------------------------------------------+
-//|                                                        RSIMa.mq5 |
+//|                                                        RSIMA.mq5 |
 //|                        Copyright 2018, MetaQuotes Software Corp. |
-//|                                                 https://mql5.com |
+//|                                                 https://www.mql5.com |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2018, MetaQuotes Software Corp."
-#property link      "https://mql5.com"
-#property version   "1.03" // Final robust version with manual calculation loop
-#property description "Oscillator based on the Moving Average of RSI."
+#property link      "https://www.mql5.com"
+#property version   "1.10" // Added robust data availability check
+#property description "Oscillator based on the Moving Average of a standard RSI."
 
+// --- Standard Includes ---
+#include <MovingAverages.mqh>
+
+//--- Indicator Window and Level Properties ---
 #property indicator_separate_window
 #property indicator_level1 30.0
 #property indicator_level2 50.0
 #property indicator_level3 70.0
 
+//--- Buffers and Plots ---
 #property indicator_buffers 2
 #property indicator_plots   2
 
-//--- plot RSIMA (Smoothed RSI)
+//--- Plot 1: RSIMA (Smoothed RSI)
 #property indicator_label1  "RSIMA"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrDodgerBlue
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
-//--- plot RSI (Raw RSI)
+//--- Plot 2: RSI (Raw RSI)
 #property indicator_label2  "RSI"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrGreen
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
-//--- input parameters
-input uint                 InpPeriodRSI      = 14;          // RSI period
-input ENUM_APPLIED_PRICE   InpAppliedPrice   = PRICE_CLOSE; // RSI applied price
-input uint                 InpPeriodMA       = 14;          // Smoothing period
-input ENUM_MA_METHOD       InpMethod         = MODE_SMA;    // Smoothing method
+//--- Input Parameters ---
+input uint                 InpPeriodRSI      = 14;          // Period for RSI
+input ENUM_APPLIED_PRICE   InpAppliedPrice   = PRICE_CLOSE; // Applied price for RSI
+input uint                 InpPeriodMA       = 14;          // Period for Moving Average
+input ENUM_MA_METHOD       InpMethod         = MODE_SMA;    // Method for Moving Average
 
-//--- indicator buffers
-double         BufferRSIMA[];    // Buffer for the smoothed RSI line (Plot 1)
-double         BufferRawRSI[];   // Buffer for the raw RSI values (Plot 2)
+//--- Indicator Buffers ---
+double    BufferRSIMA[];    // Buffer for the smoothed RSI line (Plot 1)
+double    BufferRawRSI[];   // Buffer for the raw RSI values (Plot 2)
 
-//--- global variables
-int            handle_rsi;
-
-//--- includes
-#include <MovingAverages.mqh>
+//--- Global Variables ---
+int       ExtPeriodRSI;
+int       ExtPeriodMA;
+int       handle_rsi;       // Handle for the standard RSI indicator
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function                         |
+//| Custom indicator initialization function.                        |
+//| Called once when the indicator is first loaded.                  |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   int period_rsi = (int)InpPeriodRSI;
-   if(period_rsi < 1)
-      period_rsi = 1;
+//--- Validate and store input periods
+   ExtPeriodRSI = (int)(InpPeriodRSI < 1 ? 1 : InpPeriodRSI);
+   ExtPeriodMA  = (int)(InpPeriodMA < 1 ? 1 : InpPeriodMA);
 
-   int period_ma = (int)InpPeriodMA;
-   if(period_ma < 1)
-      period_ma = 1;
-
+//--- Map the buffers to the indicator's internal memory
    SetIndexBuffer(0, BufferRSIMA,  INDICATOR_DATA);
    SetIndexBuffer(1, BufferRawRSI, INDICATOR_DATA);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSIMA(%d, %d)", period_rsi, period_ma));
+//--- Set indicator display properties
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSIMA(%d, %d)", ExtPeriodRSI, ExtPeriodMA));
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, period_rsi + period_ma - 1);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtPeriodRSI + ExtPeriodMA - 1);
    PlotIndexSetString(0, PLOT_LABEL, "RSIMA");
-
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, period_rsi - 1);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtPeriodRSI - 1);
    PlotIndexSetString(1, PLOT_LABEL, "RSI");
 
-   handle_rsi = iRSI(_Symbol, _Period, period_rsi, InpAppliedPrice);
+//--- Create a handle to the standard iRSI indicator
+   handle_rsi = iRSI(_Symbol, _Period, ExtPeriodRSI, InpAppliedPrice);
    if(handle_rsi == INVALID_HANDLE)
      {
       PrintFormat("Failed to create iRSI handle. Error %d", GetLastError());
@@ -82,7 +84,8 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function                              |
+//| Custom indicator calculation function.                           |
+//| Called on every new tick or new bar.                             |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -95,73 +98,64 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   int period_rsi = (int)InpPeriodRSI;
-   if(period_rsi < 1)
-      period_rsi = 1;
-
-   int period_ma = (int)InpPeriodMA;
-   if(period_ma < 1)
-      period_ma = 1;
-
-   if(rates_total < period_rsi)
+//--- Check if there is enough data for the initial calculation
+   if(rates_total < ExtPeriodRSI)
       return(0);
+
+//--- FIX: Check if the source indicator (iRSI) has calculated its data ---
+// This prevents "Error copying buffer" when changing timeframes or on first load.
+   int calculated_rsi = BarsCalculated(handle_rsi);
+   if(calculated_rsi < rates_total)
+     {
+      // Not all data is ready yet, wait for the next OnCalculate call
+      return(0);
+     }
 
 //--- Get all available RSI values into our buffer ---
-   if(CopyBuffer(handle_rsi, 0, 0, rates_total, BufferRawRSI) != rates_total)
+   if(CopyBuffer(handle_rsi, 0, 0, rates_total, BufferRawRSI) <= 0)
      {
-      Print("Error copying RSI buffer.");
+      // This might still happen occasionally, but the check above reduces it.
+      Print("Error copying RSI buffer. LastError: ", GetLastError());
       return(0);
      }
 
-//--- Manual calculation loop for robustness ---
-   int start_pos;
-// Determine the starting bar for calculation
-   if(prev_calculated > 0)
-     {
-      // On subsequent calls, start from the last calculated bar
-      start_pos = prev_calculated - 1;
-     }
-   else
-     {
-      // On the first call, start from the first bar where MA can be calculated
-      start_pos = period_rsi + period_ma - 2;
-     }
-
+//--- Calculate the Moving Average on the RSI buffer ---
 // The MA functions need non-timeseries arrays
    ArraySetAsSeries(BufferRawRSI, false);
+   ArraySetAsSeries(BufferRSIMA, false); // Also set the target buffer
+
+   int start_pos;
+   if(prev_calculated > 1)
+      start_pos = prev_calculated - 1;
+   else
+      start_pos = ExtPeriodRSI + ExtPeriodMA - 2; // Start from the first valid bar
 
 // Loop through the bars that need calculation
    for(int i = start_pos; i < rates_total; i++)
      {
-      // Check if we have enough data for the MA calculation at this position
-      if(i < period_rsi + period_ma - 2)
-        {
-         BufferRSIMA[i] = EMPTY_VALUE;
-         continue;
-        }
+      if(i < ExtPeriodRSI + ExtPeriodMA - 2)
+         continue; // Skip bars with insufficient data for MA
 
-      // Calculate the MA value for the current bar 'i'
       switch(InpMethod)
         {
          case MODE_EMA:
-            // For EMA, we need the previous EMA value
-            BufferRSIMA[i] = ExponentialMA(i, period_ma, BufferRSIMA[i-1], BufferRawRSI);
+            BufferRSIMA[i] = ExponentialMA(i, ExtPeriodMA, BufferRSIMA[i-1], BufferRawRSI);
             break;
          case MODE_SMMA:
-            // For SMMA, we also need the previous SMMA value
-            BufferRSIMA[i] = SmoothedMA(i, period_ma, BufferRSIMA[i-1], BufferRawRSI);
+            BufferRSIMA[i] = SmoothedMA(i, ExtPeriodMA, BufferRSIMA[i-1], BufferRawRSI);
             break;
          case MODE_LWMA:
-            BufferRSIMA[i] = LinearWeightedMA(i, period_ma, BufferRawRSI);
+            BufferRSIMA[i] = LinearWeightedMA(i, ExtPeriodMA, BufferRawRSI);
             break;
          default: // MODE_SMA
-            BufferRSIMA[i] = SimpleMA(i, period_ma, BufferRawRSI);
+            BufferRSIMA[i] = SimpleMA(i, ExtPeriodMA, BufferRawRSI);
             break;
         }
      }
 
-// Restore the timeseries property for the raw RSI buffer if needed elsewhere
+// It's good practice to restore the series state if other parts of the code might expect it
    ArraySetAsSeries(BufferRawRSI, true);
+   ArraySetAsSeries(BufferRSIMA, true);
 
    return(rates_total);
   }
