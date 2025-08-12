@@ -1,14 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                              RSI_HeikenAshi.mq5  |
-//|            Copyright 2024, Your Name (Based on MetaQuotes RSI)   |
+//|             Copyright 2025, xxxxxxxx (Based on MetaQuotes RSI)   |
 //|                                                                  |
 //+------------------------------------------------------------------+
-#property copyright   "Copyright 2024, Your Name"
+#property copyright   "Copyright 2025, xxxxxxxx"
 #property link        ""
-#property version     "1.00"
-#property description "RSI calculated on Heiken Ashi Close prices, with a Moving Average."
+#property version     "2.00" // Refactored to use HA_Tools.mqh
+#property description "RSI on Heiken Ashi prices, with a Moving Average."
 
-//--- Indicator settings
+// --- Standard Includes ---
+#include <MovingAverages.mqh>
+// --- Custom Toolkit Includes ---
+#include <MyIncludes\HA_Tools.mqh>
+
+//--- Indicator Window and Level Properties ---
 #property indicator_separate_window
 #property indicator_minimum 0
 #property indicator_maximum 100
@@ -16,9 +21,9 @@
 #property indicator_level2 50.0
 #property indicator_level3 70.0
 
-//--- Buffers and Plots
-#property indicator_buffers 5 // HA_RSI_MA, HA_RSI, Pos, Neg, HA_Close (all calculations)
-#property indicator_plots   2 // We only plot HA_RSI_MA and HA_RSI
+//--- Buffers and Plots ---
+#property indicator_buffers 4 // HA_RSI_MA, HA_RSI, Pos, Neg
+#property indicator_plots   2
 
 //--- Plot 1: RSI MA line (smoothed)
 #property indicator_label1  "HA_RSIMA"
@@ -34,62 +39,54 @@
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
-//--- Input parameters
+//--- Input Parameters ---
 input int            InpPeriodRSI    = 14;       // RSI Period
 input int            InpPeriodMA     = 14;       // MA Period
 input ENUM_MA_METHOD InpMethodMA     = MODE_SMA; // MA Method
 
-//--- Indicator Buffers
+//--- Indicator Buffers ---
 // Plotted buffers
 double    BufferHARSI_MA[]; // Smoothed Heiken Ashi RSI
 double    BufferHARSI[];    // Raw Heiken Ashi RSI
 // Calculation buffers
 double    BufferPos[];      // For RSI calculation (average gain)
 double    BufferNeg[];      // For RSI calculation (average loss)
-double    BufferHAClose[];  // To store Heiken Ashi Close prices
 
-//--- Global variables
-int       ExtPeriodRSI;
-int       ExtPeriodMA;
-
-//--- Include for MA calculations
-#include <MovingAverages.mqh>
+//--- Global Objects and Variables ---
+int              ExtPeriodRSI;
+int              ExtPeriodMA;
+CHA_Calculator   g_ha_calculator; // Global instance of our Heiken Ashi calculator
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function                         |
+//| Custom indicator initialization function.                        |
+//| Called once when the indicator is first loaded.                  |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Validate inputs
+//--- Validate and store input periods
    ExtPeriodRSI = (InpPeriodRSI < 1) ? 1 : InpPeriodRSI;
    ExtPeriodMA  = (InpPeriodMA < 1) ? 1 : InpPeriodMA;
 
-//--- Indicator buffers mapping
+//--- Map the buffers to the indicator's internal memory
    SetIndexBuffer(0, BufferHARSI_MA, INDICATOR_DATA);
    SetIndexBuffer(1, BufferHARSI,    INDICATOR_DATA);
    SetIndexBuffer(2, BufferPos,      INDICATOR_CALCULATIONS);
    SetIndexBuffer(3, BufferNeg,      INDICATOR_CALCULATIONS);
-   SetIndexBuffer(4, BufferHAClose,  INDICATOR_CALCULATIONS);
 
-//--- Set accuracy
+//--- Set indicator properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-
-//--- Set drawing start positions
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtPeriodRSI + ExtPeriodMA);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtPeriodRSI + ExtPeriodMA - 1);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtPeriodRSI);
-
-//--- Set labels for DataWindow
    PlotIndexSetString(0, PLOT_LABEL, "HA_RSIMA");
    PlotIndexSetString(1, PLOT_LABEL, "HA_RSI");
-
-//--- Set indicator short name
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_RSI(%d, %d)", ExtPeriodRSI, ExtPeriodMA));
 
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
+//| Custom indicator calculation function.                           |
+//| Called on every new tick or new bar.                             |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -102,48 +99,28 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Check if there is enough data
+//--- Check if there is enough historical data
    if(rates_total < ExtPeriodRSI)
       return(0);
 
-//====== STEP 1: CALCULATE HEIKEN ASHI BARS ======
-   double ha_open, ha_close;
-
-// Calculate the very first HA bar
-   ha_open = (open[0] + close[0]) / 2.0;
-   ha_close = (open[0] + high[0] + low[0] + close[0]) / 4.0;
-   BufferHAClose[0] = ha_close;
-
-// Loop to calculate all HA bars
-   for(int i = 1; i < rates_total; i++)
+//--- STEP 1: Calculate Heiken Ashi bars using our toolkit
+   if(!g_ha_calculator.Calculate(rates_total, prev_calculated, open, high, low, close))
      {
-      // Previous HA values are needed
-      double prev_ha_open = ha_open;
-      double prev_ha_close = ha_close;
-
-      // Calculate current HA values
-      ha_close = (open[i] + high[i] + low[i] + close[i]) / 4.0;
-      ha_open = (prev_ha_open + prev_ha_close) / 2.0;
-
-      // We only need the HA Close for RSI, so we store it in our buffer
-      BufferHAClose[i] = ha_close;
+      Print("Heiken Ashi calculation failed.");
+      return(0);
      }
 
-//====== STEP 2: CALCULATE RSI BASED ON HEIKEN ASHI CLOSE PRICES ======
-// This part is adapted from the standard RSI indicator code
-
+//--- STEP 2: Calculate RSI based on the Heiken Ashi Close prices
    int start_pos;
    if(prev_calculated > 0)
       start_pos = prev_calculated - 1;
    else
       start_pos = 0;
 
-// --- First-time calculation setup ---
+//--- First-time calculation setup
    if(start_pos == 0)
      {
-      double sum_pos = 0.0;
-      double sum_neg = 0.0;
-
+      double sum_pos = 0.0, sum_neg = 0.0;
       // Initialize first period values to zero
       for(int i = 0; i < ExtPeriodRSI; i++)
         {
@@ -151,32 +128,30 @@ int OnCalculate(const int rates_total,
          BufferPos[i] = 0.0;
          BufferNeg[i] = 0.0;
         }
-
       // Calculate initial sums for the first visible RSI value
       for(int i = 1; i <= ExtPeriodRSI; i++)
         {
-         double diff = BufferHAClose[i] - BufferHAClose[i-1];
+         // Use the HA Close from our calculator object
+         double diff = g_ha_calculator.ha_close[i] - g_ha_calculator.ha_close[i-1];
          sum_pos += (diff > 0 ? diff : 0);
          sum_neg += (diff < 0 ? -diff : 0);
         }
-
       // Calculate first visible value
       BufferPos[ExtPeriodRSI] = sum_pos / ExtPeriodRSI;
       BufferNeg[ExtPeriodRSI] = sum_neg / ExtPeriodRSI;
-
       if(BufferNeg[ExtPeriodRSI] != 0.0)
          BufferHARSI[ExtPeriodRSI] = 100.0 - (100.0 / (1.0 + BufferPos[ExtPeriodRSI] / BufferNeg[ExtPeriodRSI]));
       else
          BufferHARSI[ExtPeriodRSI] = (BufferPos[ExtPeriodRSI] != 0.0) ? 100.0 : 50.0;
-
       // Set the starting position for the main loop
       start_pos = ExtPeriodRSI + 1;
      }
 
-// --- Main RSI calculation loop ---
+//--- Main RSI calculation loop
    for(int i = start_pos; i < rates_total; i++)
      {
-      double diff = BufferHAClose[i] - BufferHAClose[i-1];
+      // Use the HA Close from our calculator object
+      double diff = g_ha_calculator.ha_close[i] - g_ha_calculator.ha_close[i-1];
       BufferPos[i] = (BufferPos[i-1] * (ExtPeriodRSI - 1) + (diff > 0.0 ? diff : 0.0)) / ExtPeriodRSI;
       BufferNeg[i] = (BufferNeg[i-1] * (ExtPeriodRSI - 1) + (diff < 0.0 ? -diff : 0.0)) / ExtPeriodRSI;
 
@@ -186,17 +161,18 @@ int OnCalculate(const int rates_total,
          BufferHARSI[i] = (BufferPos[i] != 0.0) ? 100.0 : 50.0;
      }
 
-//====== STEP 3: CALCULATE MOVING AVERAGE ON THE HEIKEN ASHI RSI BUFFER ======
-// We use the robust manual loop from our final RSIMA indicator
-
+//--- STEP 3: Calculate Moving Average on the Heiken Ashi RSI buffer
    if(rates_total < ExtPeriodRSI + ExtPeriodMA)
-      return(rates_total); // Not enough data for MA yet
+      return(rates_total);
 
 // Determine starting bar for MA calculation
    if(prev_calculated > 0)
       start_pos = prev_calculated - 1;
    else
       start_pos = ExtPeriodRSI + ExtPeriodMA - 2;
+
+// The MA functions need non-timeseries arrays
+   ArraySetAsSeries(BufferHARSI, false);
 
 // Loop through bars that need MA calculation
    for(int i = start_pos; i < rates_total; i++)
@@ -206,7 +182,6 @@ int OnCalculate(const int rates_total,
          BufferHARSI_MA[i] = EMPTY_VALUE;
          continue;
         }
-
       switch(InpMethodMA)
         {
          case MODE_EMA:
@@ -223,6 +198,8 @@ int OnCalculate(const int rates_total,
             break;
         }
      }
+// Restore timeseries property for the next call
+   ArraySetAsSeries(BufferHARSI, true);
 
    return(rates_total);
   }
