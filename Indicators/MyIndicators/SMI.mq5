@@ -123,29 +123,55 @@ int OnCalculate(const int rates_total,
       BufferRelativeRange[i]      = close[i] - (BufferHighestHigh[i] + BufferLowestLow[i]) / 2.0;
      }
 
-//--- STEP 5: Double EMA Smoothing
-// First EMA pass
-   double temp_ema1[], temp_ema2[];
-   ArrayResize(temp_ema1, rates_total);
-   ArrayResize(temp_ema2, rates_total);
+//--- STEP 5: Double EMA Smoothing (Robust Manual Calculation)
+// Temporary buffers for the first EMA pass
+   double temp_ema_relative[], temp_ema_range[];
+   ArrayResize(temp_ema_relative, rates_total);
+   ArrayResize(temp_ema_range, rates_total);
 
+   double pr = 2.0 / (ExtLengthD + 1.0); // EMA smoothing factor
+
+// --- First EMA Pass ---
    for(int i = 1; i < rates_total; i++)
      {
       if(i < ExtLengthK - 1)
-         continue;
-      // EMA on RelativeRange
-      temp_ema1[i] = ExponentialMA(i, ExtLengthD, temp_ema1[i-1], BufferRelativeRange);
-      // EMA on HighestLowestRange
-      temp_ema2[i] = ExponentialMA(i, ExtLengthD, temp_ema2[i-1], BufferHighestLowestRange);
+         continue; // Not enough data for ranges yet
+
+      if(i == ExtLengthK - 1) // First EMA value is the raw value itself
+        {
+         temp_ema_relative[i] = BufferRelativeRange[i];
+         temp_ema_range[i] = BufferHighestLowestRange[i];
+        }
+      else // Subsequent values are calculated recursively
+        {
+         temp_ema_relative[i] = BufferRelativeRange[i] * pr + temp_ema_relative[i-1] * (1.0 - pr);
+         temp_ema_range[i] = BufferHighestLowestRange[i] * pr + temp_ema_range[i-1] * (1.0 - pr);
+        }
      }
 
-// Second EMA pass (EMA of EMA)
+// --- Second EMA Pass (EMA of EMA) ---
    for(int i = 1; i < rates_total; i++)
      {
       if(i < ExtLengthK + ExtLengthD - 2)
-         continue;
-      BufferEmaEma_Relative[i] = ExponentialMA(i, ExtLengthD, BufferEmaEma_Relative[i-1], temp_ema1);
-      BufferEmaEma_Range[i]    = ExponentialMA(i, ExtLengthD, BufferEmaEma_Range[i-1], temp_ema2);
+         continue; // Not enough data for the second pass
+
+      if(i == ExtLengthK + ExtLengthD - 2) // First double EMA value
+        {
+         // To be robust, the first value is a simple average of the first EMA buffer
+         double sum_rel=0, sum_ran=0;
+         for(int j=i-ExtLengthD+1; j<=i; j++)
+           {
+            sum_rel += temp_ema_relative[j];
+            sum_ran += temp_ema_range[j];
+           }
+         BufferEmaEma_Relative[i] = sum_rel / ExtLengthD;
+         BufferEmaEma_Range[i] = sum_ran / ExtLengthD;
+        }
+      else // Subsequent values are calculated recursively
+        {
+         BufferEmaEma_Relative[i] = temp_ema_relative[i] * pr + BufferEmaEma_Relative[i-1] * (1.0 - pr);
+         BufferEmaEma_Range[i]    = temp_ema_range[i] * pr + BufferEmaEma_Range[i-1] * (1.0 - pr);
+        }
      }
 
 //--- STEP 6: Calculate final SMI value
@@ -158,9 +184,23 @@ int OnCalculate(const int rates_total,
      }
 
 //--- STEP 7: Calculate the signal line (EMA of SMI)
-   for(int i = ExtLengthK + ExtLengthD + ExtLengthEMA - 3; i < rates_total; i++)
+   double pr_signal = 2.0 / (ExtLengthEMA + 1.0);
+   for(int i = 1; i < rates_total; i++)
      {
-      BufferSignal[i] = ExponentialMA(i, ExtLengthEMA, BufferSignal[i-1], BufferSMI);
+      if(i < ExtLengthK + ExtLengthD + ExtLengthEMA - 3)
+         continue;
+
+      if(i == ExtLengthK + ExtLengthD + ExtLengthEMA - 3) // First signal value is an SMA of SMI
+        {
+         double sum_smi=0;
+         for(int j=i-ExtLengthEMA+1; j<=i; j++)
+            sum_smi += BufferSMI[j];
+         BufferSignal[i] = sum_smi / ExtLengthEMA;
+        }
+      else
+        {
+         BufferSignal[i] = BufferSMI[i] * pr_signal + BufferSignal[i-1] * (1.0 - pr_signal);
+        }
      }
 
    return(rates_total);
