@@ -14,8 +14,8 @@
 #property indicator_plots   2
 #property indicator_level1 20.0
 #property indicator_level2 80.0
-#property indicator_minimum 0.0
-#property indicator_maximum 100.0
+#property indicator_minimum -10.0
+#property indicator_maximum 110.0
 
 //--- Plot 1: %K line (Slow)
 #property indicator_label1  "HA_%K"
