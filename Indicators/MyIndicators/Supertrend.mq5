@@ -107,40 +107,26 @@ int OnCalculate(const int rates_total,
       else
          BufferLowerBand[i] = BufferLowerBand[i-1];
 
-      // --- Trend direction
+      // --- Trend direction and final Supertrend value ---
       int trend = 0;
       if(BufferSupertrend[i-1] == BufferUpperBand[i-1])
-         trend = (close[i] > BufferUpperBand[i]) ? 1 : -1; // Previous was Down
+         trend = (close[i] > BufferUpperBand[i]) ? 1 : -1;
       else
-         trend = (close[i] < BufferLowerBand[i]) ? -1 : 1; // Previous was Up
+         trend = (close[i] < BufferLowerBand[i]) ? -1 : 1;
 
-      // --- Set final Supertrend value and color
-      if(trend == 1) // Current trend is UP
+      if(trend == 1) // Uptrend
         {
          BufferSupertrend[i] = BufferLowerBand[i];
          BufferColor[i] = 0; // Green
-
-         // --- FIX: Create the gap on trend change ---
-         // If the previous trend was DOWN, invalidate its last point
-         if(BufferSupertrend[i-1] == BufferUpperBand[i-1])
-           {
-            BufferSupertrend[i-1] = EMPTY_VALUE;
-           }
         }
-      else // Current trend is DOWN
+      else // Downtrend
         {
          BufferSupertrend[i] = BufferUpperBand[i];
          BufferColor[i] = 1; // Red
-
-         // --- FIX: Create the gap on trend change ---
-         // If the previous trend was UP, invalidate its last point
-         if(BufferSupertrend[i-1] == BufferLowerBand[i-1])
-           {
-            BufferSupertrend[i-1] = EMPTY_VALUE;
-           }
         }
      }
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
