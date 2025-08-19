@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                              StochasticFast.mq5  |
+//|                                             StochasticFast.mq5   |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00" // Refactored for stability and clarity
 #property description "Fast Stochastic Oscillator"
 
 //--- Indicator Window and Level Properties ---
@@ -34,14 +34,13 @@
 //--- Input Parameters ---
 input int InpKPeriod = 14; // %K Period (Stochastic period)
 input int InpDPeriod = 3;  // %D Period (signal line smoothing)
-// Note: There is no "Slowing" parameter in the Fast Stochastic
 
 //--- Indicator Buffers ---
 double    BufferK[]; // Plotted buffer for the main %K line
 double    BufferD[]; // Plotted buffer for the signal %D line
 
 //--- Global Variables ---
-int       ExtKPeriod, ExtDPeriod;
+int       g_ExtKPeriod, g_ExtDPeriod;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -49,13 +48,12 @@ double Lowest(const double &array[], int period, int current_pos);
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
-//| Called once when the indicator is first loaded.                  |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
 //--- Validate and store input periods
-   ExtKPeriod = (InpKPeriod < 1) ? 1 : InpKPeriod;
-   ExtDPeriod = (InpDPeriod < 1) ? 1 : InpDPeriod;
+   g_ExtKPeriod = (InpKPeriod < 1) ? 1 : InpKPeriod;
+   g_ExtDPeriod = (InpDPeriod < 1) ? 1 : InpDPeriod;
 
 //--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferK, INDICATOR_DATA);
@@ -65,14 +63,15 @@ void OnInit()
 
 //--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtKPeriod - 1);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtKPeriod + ExtDPeriod - 2);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Fast Stoch(%d,%d)", ExtKPeriod, ExtDPeriod));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtKPeriod - 1);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtDPeriod - 2);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Fast Stoch(%d,%d)", g_ExtKPeriod, g_ExtDPeriod));
+
+   return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
 //| Fast Stochastic Oscillator calculation function.                 |
-//| Performs a full recalculation on every call for stability.       |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -86,45 +85,35 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
 //--- Check if there is enough historical data
-   if(rates_total < ExtKPeriod + ExtDPeriod)
+   int start_pos = g_ExtKPeriod + g_ExtDPeriod - 1;
+   if(rates_total <= start_pos)
       return(0);
 
-//--- Main calculation loop, iterating from past to present
-   for(int i = 0; i < rates_total; i++)
+//--- STEP 1: Calculate %K (Fast %K)
+   for(int i = g_ExtKPeriod - 1; i < rates_total; i++)
      {
-      //--- STEP 1: Calculate Raw %K (this is the main line in Fast Stoch) ---
-      if(i >= ExtKPeriod - 1)
-        {
-         double highest_high = Highest(high, ExtKPeriod, i);
-         double lowest_low   = Lowest(low, ExtKPeriod, i);
+      double highest_high = Highest(high, g_ExtKPeriod, i);
+      double lowest_low   = Lowest(low, g_ExtKPeriod, i);
 
-         double range = highest_high - lowest_low;
-         if(range > 0)
-            BufferK[i] = (close[i] - lowest_low) / range * 100.0;
-         else
-            BufferK[i] = (i > 0) ? BufferK[i-1] : 50.0; // Avoid division by zero
-        }
+      double range = highest_high - lowest_low;
+      if(range > 0)
+         BufferK[i] = (close[i] - lowest_low) / range * 100.0;
       else
-        {
-         BufferK[i] = 0; // Not enough data yet
-        }
-
-      //--- STEP 2: Calculate %D (Signal Line) as an SMA of %K ---
-      if(i >= ExtKPeriod + ExtDPeriod - 2)
-        {
-         double sum = 0;
-         for(int j = 0; j < ExtDPeriod; j++)
-           {
-            sum += BufferK[i-j];
-           }
-         BufferD[i] = sum / ExtDPeriod;
-        }
-      else
-        {
-         BufferD[i] = 0; // Not enough data yet
-        }
+         BufferK[i] = (i > 0) ? BufferK[i-1] : 50.0;
      }
-//--- Return value of prev_calculated for next call
+
+//--- STEP 2: Calculate %D (Signal Line) as an SMA of %K
+   int d_start_pos = g_ExtKPeriod + g_ExtDPeriod - 2;
+   for(int i = d_start_pos; i < rates_total; i++)
+     {
+      double sum = 0;
+      for(int j = 0; j < g_ExtDPeriod; j++)
+        {
+         sum += BufferK[i-j];
+        }
+      BufferD[i] = sum / g_ExtDPeriod;
+     }
+
    return(rates_total);
   }
 
