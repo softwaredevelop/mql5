@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                                StochRSI_Slow.mq5 |
+//|                                               StochRSI_Slow.mq5  |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.01" // Corrected calculation loops to prevent array errors
+#property version   "2.00" // Refactored for stability and clarity
 #property description "Slow Stochastic RSI Oscillator"
 
 //--- Indicator Window and Level Properties ---
@@ -45,8 +45,8 @@ double    BufferRSI[];
 double    BufferRawStochK[];
 
 //--- Global Variables ---
-int       ExtLengthRSI, ExtLengthStoch, ExtSlowing, ExtSmoothD;
-int       handle_rsi;
+int       g_ExtLengthRSI, g_ExtLengthStoch, g_ExtSlowing, g_ExtSmoothD;
+int       g_handle_rsi;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -55,12 +55,12 @@ double Lowest(const double &array[], int period, int current_pos);
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
-   ExtLengthRSI   = (InpLengthRSI < 1) ? 1 : InpLengthRSI;
-   ExtLengthStoch = (InpLengthStoch < 1) ? 1 : InpLengthStoch;
-   ExtSlowing     = (InpSlowing < 1) ? 1 : InpSlowing;
-   ExtSmoothD     = (InpSmoothD < 1) ? 1 : InpSmoothD;
+   g_ExtLengthRSI   = (InpLengthRSI < 1) ? 1 : InpLengthRSI;
+   g_ExtLengthStoch = (InpLengthStoch < 1) ? 1 : InpLengthStoch;
+   g_ExtSlowing     = (InpSlowing < 1) ? 1 : InpSlowing;
+   g_ExtSmoothD     = (InpSmoothD < 1) ? 1 : InpSmoothD;
 
    SetIndexBuffer(0, BufferK,         INDICATOR_DATA);
    SetIndexBuffer(1, BufferD,         INDICATOR_DATA);
@@ -72,14 +72,28 @@ void OnInit()
    ArraySetAsSeries(BufferRSI,       false);
    ArraySetAsSeries(BufferRawStochK, false);
 
-   handle_rsi = iRSI(_Symbol, _Period, ExtLengthRSI, InpAppliedPrice);
-   if(handle_rsi == INVALID_HANDLE)
+   g_handle_rsi = iRSI(_Symbol, _Period, g_ExtLengthRSI, InpAppliedPrice);
+   if(g_handle_rsi == INVALID_HANDLE)
+     {
       Print("Error creating iRSI handle.");
+      return(INIT_FAILED);
+     }
 
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtLengthRSI + ExtLengthStoch + ExtSlowing - 3);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtLengthRSI + ExtLengthStoch + ExtSlowing + ExtSmoothD - 4);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Slow StochRSI(%d,%d,%d,%d)", ExtLengthRSI, ExtLengthStoch, ExtSlowing, ExtSmoothD));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing - 3);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing + g_ExtSmoothD - 4);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Slow StochRSI(%d,%d,%d,%d)", g_ExtLengthRSI, g_ExtLengthStoch, g_ExtSlowing, g_ExtSmoothD));
+
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function.                      |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//--- Release the indicator handle
+   IndicatorRelease(g_handle_rsi);
   }
 
 //+------------------------------------------------------------------+
@@ -96,65 +110,55 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < ExtLengthRSI + ExtLengthStoch)
+   int start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing + g_ExtSmoothD - 3;
+   if(rates_total <= start_pos)
       return(0);
 
 //--- STEP 1: Get RSI values from the standard indicator
-   if(BarsCalculated(handle_rsi) < rates_total)
-      return(0);
-   if(CopyBuffer(handle_rsi, 0, 0, rates_total, BufferRSI) <= 0)
-      return(0);
-
-//--- Main calculation loop
-   for(int i = 0; i < rates_total; i++)
+   if(CopyBuffer(g_handle_rsi, 0, 0, rates_total, BufferRSI) < rates_total)
      {
-      //--- STEP 2: Calculate Raw Stochastic %K on the RSI buffer ---
-      if(i >= ExtLengthRSI + ExtLengthStoch - 2)
-        {
-         double highest_rsi = Highest(BufferRSI, ExtLengthStoch, i);
-         double lowest_rsi  = Lowest(BufferRSI, ExtLengthStoch, i);
-
-         double range = highest_rsi - lowest_rsi;
-         if(range > 0.00001)
-            BufferRawStochK[i] = (BufferRSI[i] - lowest_rsi) / range * 100.0;
-         else
-            BufferRawStochK[i] = (i > 0) ? BufferRawStochK[i-1] : 50.0;
-        }
-      else
-        {
-         BufferRawStochK[i] = 0;
-        }
-
-      //--- STEP 3: Calculate Slow %K (Main Line) by smoothing Raw %K ---
-      if(i >= ExtLengthRSI + ExtLengthStoch + ExtSlowing - 3)
-        {
-         double sum = 0;
-         for(int j = 0; j < ExtSlowing; j++)
-           {
-            sum += BufferRawStochK[i-j];
-           }
-         BufferK[i] = sum / ExtSlowing;
-        }
-      else
-        {
-         BufferK[i] = 0;
-        }
-
-      //--- STEP 4: Calculate %D (Signal Line) by smoothing Slow %K ---
-      if(i >= ExtLengthRSI + ExtLengthStoch + ExtSlowing + ExtSmoothD - 4)
-        {
-         double sum = 0;
-         for(int j = 0; j < ExtSmoothD; j++)
-           {
-            sum += BufferK[i-j];
-           }
-         BufferD[i] = sum / ExtSmoothD;
-        }
-      else
-        {
-         BufferD[i] = 0;
-        }
+      Print("Error copying iRSI buffer data.");
      }
+
+//--- STEP 2: Calculate Raw Stochastic %K on the RSI buffer
+   int raw_k_start_pos = g_ExtLengthRSI + g_ExtLengthStoch - 2;
+   for(int i = raw_k_start_pos; i < rates_total; i++)
+     {
+      double highest_rsi = Highest(BufferRSI, g_ExtLengthStoch, i);
+      double lowest_rsi  = Lowest(BufferRSI, g_ExtLengthStoch, i);
+
+      double range = highest_rsi - lowest_rsi;
+      if(range > 0.00001)
+         BufferRawStochK[i] = (BufferRSI[i] - lowest_rsi) / range * 100.0;
+      else
+         BufferRawStochK[i] = (i > 0) ? BufferRawStochK[i-1] : 50.0;
+     }
+
+//--- STEP 3: Calculate Slow %K (Main Line) by smoothing Raw %K
+   int k_slow_start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing - 3;
+   for(int i = k_slow_start_pos; i < rates_total; i++)
+     {
+      double sum = 0;
+      for(int j = 0; j < g_ExtSlowing; j++)
+        {
+         sum += BufferRawStochK[i-j];
+        }
+      BufferK[i] = sum / g_ExtSlowing;
+     }
+
+//--- STEP 4: Calculate %D (Signal Line) by smoothing Slow %K
+   int d_start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing + g_ExtSmoothD - 4;
+   for(int i = d_start_pos; i < rates_total; i++)
+     {
+      double sum = 0;
+      for(int j = 0; j < g_ExtSmoothD; j++)
+        {
+         // --- FIX: Source for %D is the %K buffer, not itself ---
+         sum += BufferK[i-j];
+        }
+      BufferD[i] = sum / g_ExtSmoothD;
+     }
+
    return(rates_total);
   }
 
