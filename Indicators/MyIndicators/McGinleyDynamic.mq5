@@ -1,14 +1,12 @@
 //+------------------------------------------------------------------+
-//|                                           McGinleyDynamic.mq5    |
+//|                                          McGinleyDynamic.mq5     |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "2.01" // Corrected array handling for MQL5 syntax
 #property description "McGinley Dynamic Indicator"
-
-#include <MovingAverages.mqh>
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_chart_window
@@ -23,42 +21,33 @@
 #property indicator_width1  2
 
 //--- Input Parameters ---
-input int                InpLength = 14;      // Period
+input int                InpLength       = 14;      // Period
 input ENUM_APPLIED_PRICE InpAppliedPrice = PRICE_CLOSE; // Applied Price
 
 //--- Indicator Buffers ---
 double    BufferMcGinley[];
-double    BufferPrice[];
 
 //--- Global Variables ---
-int       ExtLength;
-int       price_handle;
+int       g_ExtLength;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
 //--- Validate and store input
-   ExtLength = (InpLength < 1) ? 1 : InpLength;
+   g_ExtLength = (InpLength < 1) ? 1 : InpLength;
 
-//--- Map the buffers and set as non-timeseries
+//--- Map the buffer and set as non-timeseries
    SetIndexBuffer(0, BufferMcGinley, INDICATOR_DATA);
-   SetIndexBuffer(1, BufferPrice,    INDICATOR_CALCULATIONS);
    ArraySetAsSeries(BufferMcGinley, false);
-   ArraySetAsSeries(BufferPrice,    false);
-
-//--- Create a handle to get the source price data
-   price_handle = iMA(_Symbol, _Period, 1, 0, MODE_SMA, InpAppliedPrice);
-   if(price_handle == INVALID_HANDLE)
-     {
-      Print("Error creating price source handle (iMA).");
-     }
 
 //--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtLength);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("McGinley(%d)", ExtLength));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 1);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("McGinley(%d)", g_ExtLength));
+
+   return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
@@ -75,60 +64,76 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Check for enough data
-   if(rates_total < ExtLength)
+   if(rates_total < 2)
       return(0);
 
-//--- Check if the source indicator is ready
-   if(BarsCalculated(price_handle) < rates_total)
-      return(0);
+//--- STEP 1: Prepare the source price array
+   double price_source[];
+   ArrayResize(price_source, rates_total);
 
-//--- Copy the source price data into our buffer
-   if(CopyBuffer(price_handle, 0, 0, rates_total, BufferPrice) != rates_total)
-      return(0);
-
-//--- Main calculation loop (full recalculation for stability)
-   for(int i = 1; i < rates_total; i++) // Start from 1 to access i-1
+   switch(InpAppliedPrice)
      {
-      // Skip until we have enough data
-      if(i < ExtLength)
-        {
-         BufferMcGinley[i] = EMPTY_VALUE;
-         continue;
-        }
+      case PRICE_OPEN:
+         ArrayCopy(price_source, open, 0, 0, rates_total);
+         break;
+      case PRICE_HIGH:
+         ArrayCopy(price_source, high, 0, 0, rates_total);
+         break;
+      case PRICE_LOW:
+         ArrayCopy(price_source, low, 0, 0, rates_total);
+         break;
+      case PRICE_MEDIAN:
+      case PRICE_TYPICAL:
+      case PRICE_WEIGHTED:
+         for(int i=0; i<rates_total; i++)
+           {
+            switch(InpAppliedPrice)
+              {
+               case PRICE_MEDIAN:
+                  price_source[i] = (high[i] + low[i]) / 2.0;
+                  break;
+               case PRICE_TYPICAL:
+                  price_source[i] = (high[i] + low[i] + close[i]) / 3.0;
+                  break;
+               case PRICE_WEIGHTED:
+                  price_source[i] = (high[i] + low[i] + 2*close[i]) / 4.0;
+                  break;
+              }
+           }
+         break;
+      default: // PRICE_CLOSE
+         ArrayCopy(price_source, close, 0, 0, rates_total);
+         break;
+     }
 
+//--- STEP 2: Main calculation loop for McGinley Dynamic
+   for(int i = 0; i < rates_total; i++)
+     {
       // --- Initialization Step ---
-      // The first McGinley value is an EMA of the source price
-      if(i == ExtLength)
+      if(i == 0)
         {
-         // To calculate the first EMA, we need an SMA as a starting point
-         BufferMcGinley[i] = SimpleMA(i, ExtLength, BufferPrice);
-         continue; // Move to the next bar
+         BufferMcGinley[i] = price_source[i];
+         continue;
         }
 
       // --- Recursive Calculation Step ---
       double prev_mg = BufferMcGinley[i-1];
-      double source = BufferPrice[i];
 
-      // Avoid division by zero if previous value is 0
       if(prev_mg == 0)
         {
-         BufferMcGinley[i] = source; // Fallback to the current price
+         BufferMcGinley[i] = price_source[i];
          continue;
         }
 
-      // The core McGinley Dynamic formula
-      double ratio = source / prev_mg;
-      double denominator = ExtLength * MathPow(ratio, 4);
+      double denominator = g_ExtLength * MathPow(price_source[i] / prev_mg, 4);
 
-      // Another check to avoid division by zero
       if(denominator == 0)
         {
-         BufferMcGinley[i] = prev_mg; // Keep the previous value
+         BufferMcGinley[i] = prev_mg;
          continue;
         }
 
-      BufferMcGinley[i] = prev_mg + (source - prev_mg) / denominator;
+      BufferMcGinley[i] = prev_mg + (price_source[i] - prev_mg) / denominator;
      }
 
    return(rates_total);
