@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                             StochasticSlow.mq5   |
+//|                                            StochasticSlow.mq5    |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00" // Refactored for stability and clarity
 #property description "Slow Stochastic Oscillator"
 
 //--- Indicator Window and Level Properties ---
@@ -42,7 +42,7 @@ double    BufferD[];    // Plotted buffer for the signal %D line
 double    BufferRawK[]; // Calculation buffer for raw %K before slowing
 
 //--- Global Variables ---
-int       ExtKPeriod, ExtDPeriod, ExtSlowing;
+int       g_ExtKPeriod, g_ExtDPeriod, g_ExtSlowing;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -51,12 +51,12 @@ double Lowest(const double &array[], int period, int current_pos);
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
 //--- Validate and store input periods
-   ExtKPeriod = (InpKPeriod < 1) ? 1 : InpKPeriod;
-   ExtDPeriod = (InpDPeriod < 1) ? 1 : InpDPeriod;
-   ExtSlowing = (InpSlowing < 1) ? 1 : InpSlowing;
+   g_ExtKPeriod = (InpKPeriod < 1) ? 1 : InpKPeriod;
+   g_ExtDPeriod = (InpDPeriod < 1) ? 1 : InpDPeriod;
+   g_ExtSlowing = (InpSlowing < 1) ? 1 : InpSlowing;
 
 //--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferK,    INDICATOR_DATA);
@@ -69,9 +69,11 @@ void OnInit()
 
 //--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtKPeriod + ExtSlowing - 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtKPeriod + ExtSlowing + ExtDPeriod - 3);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Slow Stoch(%d,%d,%d)", ExtKPeriod, ExtDPeriod, ExtSlowing));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtSlowing - 2);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtSlowing + g_ExtDPeriod - 3);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Slow Stoch(%d,%d,%d)", g_ExtKPeriod, g_ExtDPeriod, g_ExtSlowing));
+
+   return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
@@ -89,60 +91,47 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
 //--- Check if there is enough historical data
-   if(rates_total < ExtKPeriod + ExtSlowing + ExtDPeriod)
+   int start_pos = g_ExtKPeriod + g_ExtSlowing + g_ExtDPeriod - 2;
+   if(rates_total <= start_pos)
       return(0);
 
-//--- Main calculation loop, iterating from past to present
-   for(int i = 0; i < rates_total; i++)
+//--- STEP 1: Calculate Raw %K (Fast %K)
+   for(int i = g_ExtKPeriod - 1; i < rates_total; i++)
      {
-      //--- STEP 1: Calculate Raw %K ---
-      if(i >= ExtKPeriod - 1)
-        {
-         double highest_high = Highest(high, ExtKPeriod, i);
-         double lowest_low   = Lowest(low, ExtKPeriod, i);
+      double highest_high = Highest(high, g_ExtKPeriod, i);
+      double lowest_low   = Lowest(low, g_ExtKPeriod, i);
 
-         double range = highest_high - lowest_low;
-         if(range > 0)
-            BufferRawK[i] = (close[i] - lowest_low) / range * 100.0;
-         else
-            BufferRawK[i] = (i > 0) ? BufferRawK[i-1] : 50.0;
-        }
+      double range = highest_high - lowest_low;
+      if(range > 0)
+         BufferRawK[i] = (close[i] - lowest_low) / range * 100.0;
       else
-        {
-         BufferRawK[i] = 0;
-        }
-
-      //--- STEP 2: Calculate Slow %K (Main Line) by smoothing Raw %K ---
-      if(i >= ExtKPeriod + ExtSlowing - 2)
-        {
-         double sum = 0;
-         for(int j = 0; j < ExtSlowing; j++)
-           {
-            sum += BufferRawK[i-j];
-           }
-         BufferK[i] = sum / ExtSlowing;
-        }
-      else
-        {
-         BufferK[i] = 0;
-        }
-
-      //--- STEP 3: Calculate %D (Signal Line) by smoothing Slow %K ---
-      if(i >= ExtKPeriod + ExtSlowing + ExtDPeriod - 3)
-        {
-         double sum = 0;
-         for(int j = 0; j < ExtDPeriod; j++)
-           {
-            sum += BufferK[i-j];
-           }
-         BufferD[i] = sum / ExtDPeriod;
-        }
-      else
-        {
-         BufferD[i] = 0;
-        }
+         BufferRawK[i] = (i > 0) ? BufferRawK[i-1] : 50.0;
      }
-//--- Return value of prev_calculated for next call
+
+//--- STEP 2: Calculate Slow %K (Main Line) by smoothing Raw %K
+   int k_slow_start_pos = g_ExtKPeriod + g_ExtSlowing - 2;
+   for(int i = k_slow_start_pos; i < rates_total; i++)
+     {
+      double sum = 0;
+      for(int j = 0; j < g_ExtSlowing; j++)
+        {
+         sum += BufferRawK[i-j];
+        }
+      BufferK[i] = sum / g_ExtSlowing;
+     }
+
+//--- STEP 3: Calculate %D (Signal Line) by smoothing Slow %K
+   int d_start_pos = g_ExtKPeriod + g_ExtSlowing + g_ExtDPeriod - 3;
+   for(int i = d_start_pos; i < rates_total; i++)
+     {
+      double sum = 0;
+      for(int j = 0; j < g_ExtDPeriod; j++)
+        {
+         sum += BufferK[i-j];
+        }
+      BufferD[i] = sum / g_ExtDPeriod;
+     }
+
    return(rates_total);
   }
 
