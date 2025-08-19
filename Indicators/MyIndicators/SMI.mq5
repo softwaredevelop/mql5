@@ -5,21 +5,17 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00" // Refactored for stability and clarity
 #property description "Stochastic Momentum Index (SMI)"
-
-#include <MovingAverages.mqh>
 
 //--- Indicator Window and Level Properties ---
 #property indicator_separate_window
+#property indicator_buffers 8 // SMI, Signal, and 6 calculation buffers
+#property indicator_plots   2
 #property indicator_level1  40.0
 #property indicator_level2  0.0
 #property indicator_level3 -40.0
 #property indicator_levelstyle STYLE_DOT
-
-//--- Buffers and Plots ---
-#property indicator_buffers 8 // SMI, Signal, and 6 calculation buffers
-#property indicator_plots   2
 
 //--- Plot 1: SMI line
 #property indicator_label1  "SMI"
@@ -42,18 +38,17 @@ input int InpLengthEMA = 3;  // EMA Length (for signal line)
 input ENUM_APPLIED_PRICE InpAppliedPrice = PRICE_CLOSE; // Applied Price
 
 //--- Indicator Buffers ---
-double    BufferSMI[];          // Final SMI line
-double    BufferSignal[];       // Signal line (EMA of SMI)
-// Calculation buffers
-double    BufferHighestHigh[];
-double    BufferLowestLow[];
+double    BufferSMI[];
+double    BufferSignal[];
 double    BufferHighestLowestRange[];
 double    BufferRelativeRange[];
-double    BufferEmaEma_Relative[];  // Double EMA of Relative Range
-double    BufferEmaEma_Range[];     // Double EMA of Highest-Lowest Range
+double    BufferEma_Relative[];
+double    BufferEma_Range[];
+double    BufferEmaEma_Relative[];
+double    BufferEmaEma_Range[];
 
 //--- Global Variables ---
-int       ExtLengthK, ExtLengthD, ExtLengthEMA;
+int       g_ExtLengthK, g_ExtLengthD, g_ExtLengthEMA;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -62,38 +57,41 @@ double Lowest(const double &array[], int period, int current_pos);
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
 //--- Validate and store inputs
-   ExtLengthK   = (InpLengthK < 1) ? 1 : InpLengthK;
-   ExtLengthD   = (InpLengthD < 1) ? 1 : InpLengthD;
-   ExtLengthEMA = (InpLengthEMA < 1) ? 1 : InpLengthEMA;
+   g_ExtLengthK   = (InpLengthK < 1) ? 1 : InpLengthK;
+   g_ExtLengthD   = (InpLengthD < 1) ? 1 : InpLengthD;
+   g_ExtLengthEMA = (InpLengthEMA < 1) ? 1 : InpLengthEMA;
 
 //--- Map the buffers
    SetIndexBuffer(0, BufferSMI,                INDICATOR_DATA);
    SetIndexBuffer(1, BufferSignal,             INDICATOR_DATA);
-   SetIndexBuffer(2, BufferHighestHigh,        INDICATOR_CALCULATIONS);
-   SetIndexBuffer(3, BufferLowestLow,          INDICATOR_CALCULATIONS);
-   SetIndexBuffer(4, BufferHighestLowestRange, INDICATOR_CALCULATIONS);
-   SetIndexBuffer(5, BufferRelativeRange,      INDICATOR_CALCULATIONS);
+   SetIndexBuffer(2, BufferHighestLowestRange, INDICATOR_CALCULATIONS);
+   SetIndexBuffer(3, BufferRelativeRange,      INDICATOR_CALCULATIONS);
+   SetIndexBuffer(4, BufferEma_Relative,       INDICATOR_CALCULATIONS);
+   SetIndexBuffer(5, BufferEma_Range,          INDICATOR_CALCULATIONS);
    SetIndexBuffer(6, BufferEmaEma_Relative,    INDICATOR_CALCULATIONS);
    SetIndexBuffer(7, BufferEmaEma_Range,       INDICATOR_CALCULATIONS);
 
-//--- FIX: Set all buffers to non-timeseries manually ---
+//--- Set all buffers to non-timeseries
    ArraySetAsSeries(BufferSMI,                false);
    ArraySetAsSeries(BufferSignal,             false);
-   ArraySetAsSeries(BufferHighestHigh,        false);
-   ArraySetAsSeries(BufferLowestLow,          false);
    ArraySetAsSeries(BufferHighestLowestRange, false);
    ArraySetAsSeries(BufferRelativeRange,      false);
+   ArraySetAsSeries(BufferEma_Relative,       false);
+   ArraySetAsSeries(BufferEma_Range,          false);
    ArraySetAsSeries(BufferEmaEma_Relative,    false);
    ArraySetAsSeries(BufferEmaEma_Range,       false);
 
 //--- Set indicator properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtLengthK + ExtLengthD - 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtLengthK + ExtLengthD + ExtLengthEMA - 3);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("SMI(%d,%d,%d)", ExtLengthK, ExtLengthD, ExtLengthEMA));
+   int smi_draw_begin = g_ExtLengthK + g_ExtLengthD + g_ExtLengthD - 3; // K + D + (D-1) for 2nd EMA
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, smi_draw_begin);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, smi_draw_begin + g_ExtLengthEMA - 1);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("SMI(%d,%d,%d)", g_ExtLengthK, g_ExtLengthD, g_ExtLengthEMA));
+
+   return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
@@ -110,97 +108,82 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Check for enough data
-   if(rates_total < ExtLengthK + ExtLengthD)
+   int start_pos = g_ExtLengthK + g_ExtLengthD + g_ExtLengthD + g_ExtLengthEMA - 4;
+   if(rates_total <= start_pos)
       return(0);
 
-//--- STEP 1-4: Calculate Highest, Lowest, and Ranges
-   for(int i = ExtLengthK - 1; i < rates_total; i++)
+//--- STEP 1: Calculate Highest, Lowest, and Ranges
+   for(int i = g_ExtLengthK - 1; i < rates_total; i++)
      {
-      BufferHighestHigh[i]        = Highest(high, ExtLengthK, i);
-      BufferLowestLow[i]          = Lowest(low, ExtLengthK, i);
-      BufferHighestLowestRange[i] = BufferHighestHigh[i] - BufferLowestLow[i];
-      BufferRelativeRange[i]      = close[i] - (BufferHighestHigh[i] + BufferLowestLow[i]) / 2.0;
+      double highest_high = Highest(high, g_ExtLengthK, i);
+      double lowest_low   = Lowest(low, g_ExtLengthK, i);
+      BufferHighestLowestRange[i] = highest_high - lowest_low;
+      BufferRelativeRange[i]      = close[i] - (highest_high + lowest_low) / 2.0;
      }
 
-//--- STEP 5: Double EMA Smoothing (Robust Manual Calculation)
-// Temporary buffers for the first EMA pass
-   double temp_ema_relative[], temp_ema_range[];
-   ArrayResize(temp_ema_relative, rates_total);
-   ArrayResize(temp_ema_range, rates_total);
+//--- STEP 2-6: Calculate all smoothed values and final SMI in a single loop
+   double pr_d = 2.0 / (g_ExtLengthD + 1.0);
+   double pr_ema = 2.0 / (g_ExtLengthEMA + 1.0);
 
-   double pr = 2.0 / (ExtLengthD + 1.0); // EMA smoothing factor
+   int ema1_start = g_ExtLengthK + g_ExtLengthD - 2;
+   int ema2_start = ema1_start + g_ExtLengthD - 1;
+   int signal_start = ema2_start + g_ExtLengthEMA - 1;
 
-// --- First EMA Pass ---
-   for(int i = 1; i < rates_total; i++)
+   for(int i = g_ExtLengthK - 1; i < rates_total; i++)
      {
-      if(i < ExtLengthK - 1)
-         continue; // Not enough data for ranges yet
-
-      if(i == ExtLengthK - 1) // First EMA value is the raw value itself
+      // --- 1st EMA Smoothing ---
+      if(i == g_ExtLengthK - 1) // Initialization
         {
-         temp_ema_relative[i] = BufferRelativeRange[i];
-         temp_ema_range[i] = BufferHighestLowestRange[i];
+         BufferEma_Relative[i] = BufferRelativeRange[i];
+         BufferEma_Range[i] = BufferHighestLowestRange[i];
         }
-      else // Subsequent values are calculated recursively
+      else // Recursive
         {
-         temp_ema_relative[i] = BufferRelativeRange[i] * pr + temp_ema_relative[i-1] * (1.0 - pr);
-         temp_ema_range[i] = BufferHighestLowestRange[i] * pr + temp_ema_range[i-1] * (1.0 - pr);
+         BufferEma_Relative[i] = BufferRelativeRange[i] * pr_d + BufferEma_Relative[i-1] * (1.0 - pr_d);
+         BufferEma_Range[i] = BufferHighestLowestRange[i] * pr_d + BufferEma_Range[i-1] * (1.0 - pr_d);
         }
-     }
 
-// --- Second EMA Pass (EMA of EMA) ---
-   for(int i = 1; i < rates_total; i++)
-     {
-      if(i < ExtLengthK + ExtLengthD - 2)
-         continue; // Not enough data for the second pass
-
-      if(i == ExtLengthK + ExtLengthD - 2) // First double EMA value
+      // --- 2nd EMA Smoothing ---
+      if(i == ema2_start) // Initialization with manual SMA
         {
-         // To be robust, the first value is a simple average of the first EMA buffer
          double sum_rel=0, sum_ran=0;
-         for(int j=i-ExtLengthD+1; j<=i; j++)
+         for(int j=0; j<g_ExtLengthD; j++)
            {
-            sum_rel += temp_ema_relative[j];
-            sum_ran += temp_ema_range[j];
+            sum_rel += BufferEma_Relative[i-j];
+            sum_ran += BufferEma_Range[i-j];
            }
-         BufferEmaEma_Relative[i] = sum_rel / ExtLengthD;
-         BufferEmaEma_Range[i] = sum_ran / ExtLengthD;
+         BufferEmaEma_Relative[i] = sum_rel / g_ExtLengthD;
+         BufferEmaEma_Range[i] = sum_ran / g_ExtLengthD;
         }
-      else // Subsequent values are calculated recursively
-        {
-         BufferEmaEma_Relative[i] = temp_ema_relative[i] * pr + BufferEmaEma_Relative[i-1] * (1.0 - pr);
-         BufferEmaEma_Range[i]    = temp_ema_range[i] * pr + BufferEmaEma_Range[i-1] * (1.0 - pr);
-        }
-     }
-
-//--- STEP 6: Calculate final SMI value
-   for(int i = ExtLengthK + ExtLengthD - 2; i < rates_total; i++)
-     {
-      if(BufferEmaEma_Range[i] != 0)
-         BufferSMI[i] = 200 * (BufferEmaEma_Relative[i] / BufferEmaEma_Range[i]);
       else
-         BufferSMI[i] = 0;
-     }
+         if(i > ema2_start) // Recursive
+           {
+            BufferEmaEma_Relative[i] = BufferEma_Relative[i] * pr_d + BufferEmaEma_Relative[i-1] * (1.0 - pr_d);
+            BufferEmaEma_Range[i] = BufferEma_Range[i] * pr_d + BufferEmaEma_Range[i-1] * (1.0 - pr_d);
+           }
 
-//--- STEP 7: Calculate the signal line (EMA of SMI)
-   double pr_signal = 2.0 / (ExtLengthEMA + 1.0);
-   for(int i = 1; i < rates_total; i++)
-     {
-      if(i < ExtLengthK + ExtLengthD + ExtLengthEMA - 3)
-         continue;
+      // --- Final SMI Value ---
+      if(i >= ema2_start)
+        {
+         if(BufferEmaEma_Range[i] != 0)
+            BufferSMI[i] = 100 * (BufferEmaEma_Relative[i] / (BufferEmaEma_Range[i] / 2.0));
+         else
+            BufferSMI[i] = 0;
+        }
 
-      if(i == ExtLengthK + ExtLengthD + ExtLengthEMA - 3) // First signal value is an SMA of SMI
+      // --- Signal Line ---
+      if(i == signal_start) // Initialization with manual SMA
         {
          double sum_smi=0;
-         for(int j=i-ExtLengthEMA+1; j<=i; j++)
-            sum_smi += BufferSMI[j];
-         BufferSignal[i] = sum_smi / ExtLengthEMA;
+         for(int j=0; j<g_ExtLengthEMA; j++)
+            sum_smi += BufferSMI[i-j];
+         BufferSignal[i] = sum_smi / g_ExtLengthEMA;
         }
       else
-        {
-         BufferSignal[i] = BufferSMI[i] * pr_signal + BufferSignal[i-1] * (1.0 - pr_signal);
-        }
+         if(i > signal_start) // Recursive
+           {
+            BufferSignal[i] = BufferSMI[i] * pr_ema + BufferSignal[i-1] * (1.0 - pr_ema);
+           }
      }
 
    return(rates_total);
