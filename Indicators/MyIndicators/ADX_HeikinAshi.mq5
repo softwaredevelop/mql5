@@ -9,7 +9,7 @@
 #property description "ADX by Welles Wilder on Heikin Ashi data."
 
 // --- Standard and Custom Includes ---
-#include <MyIncludes\HeikinAshiCalculator.mqh>
+#include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //--- Indicator Window and Level Properties ---
 #property indicator_separate_window
