@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                                StochRSI_Fast.mq5 |
+//|                                               StochRSI_Fast.mq5  |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00" // Refactored for stability and clarity
 #property description "Fast Stochastic RSI Oscillator"
 
 //--- Indicator Window and Level Properties ---
@@ -43,8 +43,8 @@ double    BufferD[];
 double    BufferRSI[];
 
 //--- Global Variables ---
-int       ExtLengthRSI, ExtLengthStoch, ExtSmoothD;
-int       handle_rsi;
+int       g_ExtLengthRSI, g_ExtLengthStoch, g_ExtSmoothD;
+int       g_handle_rsi;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -53,11 +53,11 @@ double Lowest(const double &array[], int period, int current_pos);
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
-   ExtLengthRSI   = (InpLengthRSI < 1) ? 1 : InpLengthRSI;
-   ExtLengthStoch = (InpLengthStoch < 1) ? 1 : InpLengthStoch;
-   ExtSmoothD     = (InpSmoothD < 1) ? 1 : InpSmoothD;
+   g_ExtLengthRSI   = (InpLengthRSI < 1) ? 1 : InpLengthRSI;
+   g_ExtLengthStoch = (InpLengthStoch < 1) ? 1 : InpLengthStoch;
+   g_ExtSmoothD     = (InpSmoothD < 1) ? 1 : InpSmoothD;
 
    SetIndexBuffer(0, BufferK,   INDICATOR_DATA);
    SetIndexBuffer(1, BufferD,   INDICATOR_DATA);
@@ -67,14 +67,28 @@ void OnInit()
    ArraySetAsSeries(BufferD,   false);
    ArraySetAsSeries(BufferRSI, false);
 
-   handle_rsi = iRSI(_Symbol, _Period, ExtLengthRSI, InpAppliedPrice);
-   if(handle_rsi == INVALID_HANDLE)
+   g_handle_rsi = iRSI(_Symbol, _Period, g_ExtLengthRSI, InpAppliedPrice);
+   if(g_handle_rsi == INVALID_HANDLE)
+     {
       Print("Error creating iRSI handle.");
+      return(INIT_FAILED);
+     }
 
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtLengthRSI + ExtLengthStoch - 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtLengthRSI + ExtLengthStoch + ExtSmoothD - 3);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Fast StochRSI(%d,%d,%d)", ExtLengthRSI, ExtLengthStoch, ExtSmoothD));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtLengthRSI + g_ExtLengthStoch - 2);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSmoothD - 3);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Fast StochRSI(%d,%d,%d)", g_ExtLengthRSI, g_ExtLengthStoch, g_ExtSmoothD));
+
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function.                      |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//--- Release the indicator handle
+   IndicatorRelease(g_handle_rsi);
   }
 
 //+------------------------------------------------------------------+
@@ -91,51 +105,42 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < ExtLengthRSI + ExtLengthStoch)
+   int start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSmoothD - 2;
+   if(rates_total <= start_pos)
       return(0);
 
 //--- STEP 1: Get RSI values from the standard indicator
-   if(BarsCalculated(handle_rsi) < rates_total)
-      return(0);
-   if(CopyBuffer(handle_rsi, 0, 0, rates_total, BufferRSI) <= 0)
-      return(0);
-
-//--- Main calculation loop
-   for(int i = 0; i < rates_total; i++)
+   if(CopyBuffer(g_handle_rsi, 0, 0, rates_total, BufferRSI) < rates_total)
      {
-      //--- STEP 2: Calculate Fast %K on the RSI buffer ---
-      if(i >= ExtLengthRSI + ExtLengthStoch - 2)
-        {
-         // Since RSI is both high, low, and close, we use it for all
-         double highest_rsi = Highest(BufferRSI, ExtLengthStoch, i);
-         double lowest_rsi  = Lowest(BufferRSI, ExtLengthStoch, i);
-
-         double range = highest_rsi - lowest_rsi;
-         if(range > 0.00001) // Use a small tolerance for floating point numbers
-            BufferK[i] = (BufferRSI[i] - lowest_rsi) / range * 100.0;
-         else
-            BufferK[i] = (i > 0) ? BufferK[i-1] : 50.0;
-        }
-      else
-        {
-         BufferK[i] = 0;
-        }
-
-      //--- STEP 3: Calculate %D (Signal Line) as an SMA of %K ---
-      if(i >= ExtLengthRSI + ExtLengthStoch + ExtSmoothD - 3)
-        {
-         double sum = 0;
-         for(int j = 0; j < ExtSmoothD; j++)
-           {
-            sum += BufferK[i-j];
-           }
-         BufferD[i] = sum / ExtSmoothD;
-        }
-      else
-        {
-         BufferD[i] = 0;
-        }
+      Print("Error copying iRSI buffer data.");
      }
+
+//--- STEP 2: Calculate Fast %K on the RSI buffer
+   int k_start_pos = g_ExtLengthRSI + g_ExtLengthStoch - 2;
+   for(int i = k_start_pos; i < rates_total; i++)
+     {
+      double highest_rsi = Highest(BufferRSI, g_ExtLengthStoch, i);
+      double lowest_rsi  = Lowest(BufferRSI, g_ExtLengthStoch, i);
+
+      double range = highest_rsi - lowest_rsi;
+      if(range > 0.00001)
+         BufferK[i] = (BufferRSI[i] - lowest_rsi) / range * 100.0;
+      else
+         BufferK[i] = (i > 0) ? BufferK[i-1] : 50.0;
+     }
+
+//--- STEP 3: Calculate %D (Signal Line) as an SMA of %K
+   int d_start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSmoothD - 3;
+   for(int i = d_start_pos; i < rates_total; i++)
+     {
+      double sum = 0;
+      for(int j = 0; j < g_ExtSmoothD; j++)
+        {
+         sum += BufferK[i-j];
+        }
+      BufferD[i] = sum / g_ExtSmoothD;
+     }
+
    return(rates_total);
   }
 
