@@ -5,10 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.00" // Refactored to use direct calculation, no handles
+#property version   "3.00" // Fully manual, self-contained, and accurate
 #property description "Hull Moving Average (HMA)"
-
-#include <MovingAverages.mqh>
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_chart_window
@@ -31,33 +29,32 @@ double    BufferHMA[];
 double    BufferWMA_Half[];
 double    BufferWMA_Full[];
 double    BufferRawHMA[];
-double    BufferPrice[]; // Buffer for the source price data
 
 //--- Global Variables ---
-int       ExtPeriodHMA;
+int       g_ExtPeriodHMA;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
-   ExtPeriodHMA = (InpPeriodHMA < 1) ? 1 : InpPeriodHMA;
+   g_ExtPeriodHMA = (InpPeriodHMA < 1) ? 1 : InpPeriodHMA;
 
    SetIndexBuffer(0, BufferHMA,      INDICATOR_DATA);
    SetIndexBuffer(1, BufferWMA_Half, INDICATOR_CALCULATIONS);
    SetIndexBuffer(2, BufferWMA_Full, INDICATOR_CALCULATIONS);
    SetIndexBuffer(3, BufferRawHMA,   INDICATOR_CALCULATIONS);
-   SetIndexBuffer(4, BufferPrice,    INDICATOR_CALCULATIONS);
 
    ArraySetAsSeries(BufferHMA,      false);
    ArraySetAsSeries(BufferWMA_Half, false);
    ArraySetAsSeries(BufferWMA_Full, false);
    ArraySetAsSeries(BufferRawHMA,   false);
-   ArraySetAsSeries(BufferPrice,    false);
 
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtPeriodHMA + (int)MathFloor(MathSqrt(ExtPeriodHMA)) - 1);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HMA(%d)", ExtPeriodHMA));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtPeriodHMA + (int)MathFloor(MathSqrt(g_ExtPeriodHMA)) - 2);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HMA(%d)", g_ExtPeriodHMA));
+
+   return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
@@ -74,48 +71,90 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < ExtPeriodHMA)
+   int start_pos = g_ExtPeriodHMA + (int)MathFloor(MathSqrt(g_ExtPeriodHMA)) - 2;
+   if(rates_total <= start_pos)
       return(0);
 
-//--- STEP 1: Get the source price data ---
-// This replaces the iMA handle logic
-   switch(InpAppliedPrice)
+//--- STEP 1: Prepare the source price array
+   double price_source[];
+   ArrayResize(price_source, rates_total);
+   for(int i=0; i<rates_total; i++)
      {
-      case PRICE_OPEN:
-         ArrayCopy(BufferPrice, open);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(BufferPrice, high);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(BufferPrice, low);
-         break;
-      default:
-         ArrayCopy(BufferPrice, close);
-         break;
+      switch(InpAppliedPrice)
+        {
+         case PRICE_OPEN:
+            price_source[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            price_source[i] = high[i];
+            break;
+         case PRICE_LOW:
+            price_source[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
+            price_source[i] = (high[i] + low[i]) / 2.0;
+            break;
+         case PRICE_TYPICAL:
+            price_source[i] = (high[i] + low[i] + close[i]) / 3.0;
+            break;
+         case PRICE_WEIGHTED:
+            price_source[i]= (high[i] + low[i] + 2*close[i]) / 4.0;
+            break;
+         default:
+            price_source[i] = close[i];
+            break;
+        }
      }
 
-//--- STEP 2: Calculate the two base WMAs
-   int period_half = (int)MathMax(1, MathRound(ExtPeriodHMA / 2.0));
-   for(int i = 0; i < rates_total; i++)
-     {
-      if(i >= period_half - 1)
-         BufferWMA_Half[i] = LinearWeightedMA(i, period_half, BufferPrice);
-      if(i >= ExtPeriodHMA - 1)
-         BufferWMA_Full[i] = LinearWeightedMA(i, ExtPeriodHMA, BufferPrice);
-     }
+//--- STEP 2: Calculate all HMA components
+   int period_half = (int)MathMax(1, MathRound(g_ExtPeriodHMA / 2.0));
+   int period_sqrt = (int)MathMax(1, MathRound(MathSqrt(g_ExtPeriodHMA)));
 
-//--- STEP 3: Calculate the raw HMA data
-   for(int i = ExtPeriodHMA - 1; i < rates_total; i++)
+// --- First Pass: Calculate base WMAs and Raw HMA ---
+   for(int i = g_ExtPeriodHMA - 1; i < rates_total; i++)
      {
+      // Manual WMA for half period
+      double lwma_sum_half = 0;
+      double weight_sum_half = 0;
+      for(int j=0; j<period_half; j++)
+        {
+         int weight = period_half - j;
+         lwma_sum_half += price_source[i-j] * weight;
+         weight_sum_half += weight;
+        }
+      if(weight_sum_half > 0)
+         BufferWMA_Half[i] = lwma_sum_half / weight_sum_half;
+
+      // Manual WMA for full period
+      double lwma_sum_full = 0;
+      double weight_sum_full = 0;
+      for(int j=0; j<g_ExtPeriodHMA; j++)
+        {
+         int weight = g_ExtPeriodHMA - j;
+         lwma_sum_full += price_source[i-j] * weight;
+         weight_sum_full += weight;
+        }
+      if(weight_sum_full > 0)
+         BufferWMA_Full[i] = lwma_sum_full / weight_sum_full;
+
+      // Calculate Raw HMA
       BufferRawHMA[i] = 2 * BufferWMA_Half[i] - BufferWMA_Full[i];
      }
 
-//--- STEP 4: Smooth the raw HMA with the final WMA
-   int period_sqrt = (int)MathMax(1, MathRound(MathSqrt(ExtPeriodHMA)));
-   for(int i = ExtPeriodHMA + period_sqrt - 2; i < rates_total; i++)
+// --- Second Pass: Calculate final HMA ---
+   for(int i = start_pos; i < rates_total; i++)
      {
-      BufferHMA[i] = LinearWeightedMA(i, period_sqrt, BufferRawHMA);
+      // Manual WMA for sqrt period on Raw HMA data
+      double lwma_sum_sqrt = 0;
+      double weight_sum_sqrt = 0;
+      for(int j=0; j<period_sqrt; j++)
+        {
+         int weight = period_sqrt - j;
+         lwma_sum_sqrt += BufferRawHMA[i-j] * weight;
+         weight_sum_sqrt += weight;
+        }
+      if(weight_sum_sqrt > 0)
+         BufferHMA[i] = lwma_sum_sqrt / weight_sum_sqrt;
      }
 
    return(rates_total);
