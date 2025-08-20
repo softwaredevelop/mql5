@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                                CutlerRSI_MA.mq5  |
+//|                                               CutlerRSI_MA.mq5   |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00" // Refactored for stability and efficiency
 #property description "Cutler's RSI (SMA-based) with a signal line."
 
 #include <MovingAverages.mqh>
@@ -19,7 +19,7 @@
 #property indicator_level3 70.0
 
 //--- Buffers and Plots ---
-#property indicator_buffers 4 // CutlerRSI_MA, CutlerRSI, Pos, Neg
+#property indicator_buffers 2 // CutlerRSI and its MA
 #property indicator_plots   2
 
 //--- Plot 1: MA line (smoothed)
@@ -44,50 +44,41 @@ input int                InpPeriodMA     = 14;       // MA Period
 input ENUM_MA_METHOD     InpMethodMA     = MODE_SMA; // MA Method
 
 //--- Indicator Buffers ---
-double    BufferCutlerRSI_MA[]; // Plotted buffer for the smoothed line
-double    BufferCutlerRSI[];    // Plotted buffer for the raw Cutler's RSI
-// Calculation buffers
-double    BufferAvgPos[];       // SMA of Positive Changes
-double    BufferAvgNeg[];       // SMA of Negative Changes
-double    BufferPrice[];        // To store the source price data
+double    BufferCutlerRSI_MA[];
+double    BufferCutlerRSI[];
 
 //--- Global Variables ---
-int       ExtPeriodRSI;
-int       ExtPeriodMA;
-int       price_handle;
+int       g_ExtPeriodRSI;
+int       g_ExtPeriodMA;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
-void OnInit()
+int OnInit()
   {
-//--- Validate and store inputs
-   ExtPeriodRSI = (InpPeriodRSI < 1) ? 1 : InpPeriodRSI;
-   ExtPeriodMA  = (InpPeriodMA < 1) ? 1 : InpPeriodMA;
+   g_ExtPeriodRSI = (InpPeriodRSI < 1) ? 1 : InpPeriodRSI;
+   g_ExtPeriodMA  = (InpPeriodMA < 1) ? 1 : InpPeriodMA;
 
-//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferCutlerRSI_MA, INDICATOR_DATA);
    SetIndexBuffer(1, BufferCutlerRSI,    INDICATOR_DATA);
-   SetIndexBuffer(2, BufferAvgPos,       INDICATOR_CALCULATIONS);
-   SetIndexBuffer(3, BufferAvgNeg,       INDICATOR_CALCULATIONS);
-   SetIndexBuffer(4, BufferPrice,        INDICATOR_CALCULATIONS);
 
    ArraySetAsSeries(BufferCutlerRSI_MA, false);
    ArraySetAsSeries(BufferCutlerRSI,    false);
-   ArraySetAsSeries(BufferAvgPos,       false);
-   ArraySetAsSeries(BufferAvgNeg,       false);
-   ArraySetAsSeries(BufferPrice,        false);
 
-//--- Create a handle to get the source price data
-   price_handle = iMA(_Symbol, _Period, 1, 0, MODE_SMA, InpAppliedPrice);
-   if(price_handle == INVALID_HANDLE)
-      Print("Error creating price source handle (iMA).");
-
-//--- Set indicator properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, ExtPeriodRSI + ExtPeriodMA - 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, ExtPeriodRSI);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CutlerRSI(%d,%d)", ExtPeriodRSI, ExtPeriodMA));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtPeriodRSI + g_ExtPeriodMA - 1);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtPeriodRSI);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CutlerRSI(%d,%d)", g_ExtPeriodRSI, g_ExtPeriodMA));
+
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function.                      |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+// No handles to release, but good practice to have the function
   }
 
 //+------------------------------------------------------------------+
@@ -104,84 +95,108 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Check for enough data
-   if(rates_total < ExtPeriodRSI)
+   int start_pos = g_ExtPeriodRSI + g_ExtPeriodMA - 1;
+   if(rates_total <= start_pos)
       return(0);
 
-//--- Get source price data
-   if(BarsCalculated(price_handle) < rates_total)
-      return(0);
-   if(CopyBuffer(price_handle, 0, 0, rates_total, BufferPrice) <= 0)
-      return(0);
+//--- STEP 1: Prepare the source price array
+   double price_source[];
+   ArrayResize(price_source, rates_total);
+   for(int i=0; i<rates_total; i++)
+     {
+      switch(InpAppliedPrice)
+        {
+         case PRICE_OPEN:
+            price_source[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            price_source[i] = high[i];
+            break;
+         case PRICE_LOW:
+            price_source[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
+            price_source[i] = (high[i] + low[i]) / 2.0;
+            break;
+         case PRICE_TYPICAL:
+            price_source[i] = (high[i] + low[i] + close[i]) / 3.0;
+            break;
+         case PRICE_WEIGHTED:
+            price_source[i]= (high[i] + low[i] + 2*close[i]) / 4.0;
+            break;
+         default:
+            price_source[i] = close[i];
+            break;
+        }
+     }
 
-//--- Create temporary buffers for raw changes
-   double pos_changes[], neg_changes[];
-   ArrayResize(pos_changes, rates_total);
-   ArrayResize(neg_changes, rates_total);
-
-//--- STEP 1 & 2: Calculate and separate price changes
+//--- STEP 2: Calculate Cutler's RSI (SMA-based) using a sliding window sum
+   double sum_pos = 0, sum_neg = 0;
    for(int i = 1; i < rates_total; i++)
      {
-      double diff = BufferPrice[i] - BufferPrice[i-1];
-      pos_changes[i] = (diff > 0) ? diff : 0;
-      neg_changes[i] = (diff < 0) ? -diff : 0;
-     }
+      double diff = price_source[i] - price_source[i-1];
+      double pos_change = (diff > 0) ? diff : 0;
+      double neg_change = (diff < 0) ? -diff : 0;
 
-//--- STEP 3: Smooth changes with SMA
-   for(int i = ExtPeriodRSI; i < rates_total; i++)
-     {
-      BufferAvgPos[i] = SimpleMA(i, ExtPeriodRSI, pos_changes);
-      BufferAvgNeg[i] = SimpleMA(i, ExtPeriodRSI, neg_changes);
-     }
+      sum_pos += pos_change;
+      sum_neg += neg_change;
 
-//--- STEP 4: Calculate final Cutler's RSI value
-   for(int i = ExtPeriodRSI; i < rates_total; i++)
-     {
-      if(BufferAvgNeg[i] > 0)
+      // Remove the oldest value from the sum once the window is full
+      if(i > g_ExtPeriodRSI)
         {
-         double rs = BufferAvgPos[i] / BufferAvgNeg[i];
-         BufferCutlerRSI[i] = 100.0 - (100.0 / (1.0 + rs));
-        }
-      else
-        {
-         BufferCutlerRSI[i] = 100.0;
-        }
-     }
-
-//--- STEP 5: Calculate the signal line (MA of Cutler's RSI)
-   if(rates_total < ExtPeriodRSI + ExtPeriodMA)
-      return(rates_total);
-
-   for(int i = 1; i < rates_total; i++)
-     {
-      if(i < ExtPeriodRSI + ExtPeriodMA - 2)
-        {
-         BufferCutlerRSI_MA[i] = EMPTY_VALUE;
-         continue;
+         double old_diff = price_source[i - g_ExtPeriodRSI] - price_source[i - g_ExtPeriodRSI - 1];
+         sum_pos -= (old_diff > 0) ? old_diff : 0;
+         sum_neg -= (old_diff < 0) ? -old_diff : 0;
         }
 
+      if(i >= g_ExtPeriodRSI)
+        {
+         if(sum_neg > 0)
+           {
+            double rs = (sum_pos / g_ExtPeriodRSI) / (sum_neg / g_ExtPeriodRSI);
+            BufferCutlerRSI[i] = 100.0 - (100.0 / (1.0 + rs));
+           }
+         else
+           {
+            BufferCutlerRSI[i] = 100.0;
+           }
+        }
+     }
+
+//--- STEP 3: Calculate the signal line (MA of Cutler's RSI)
+   for(int i = start_pos; i < rates_total; i++)
+     {
       switch(InpMethodMA)
         {
          case MODE_EMA:
-            if(i == ExtPeriodRSI + ExtPeriodMA - 2)
-               BufferCutlerRSI_MA[i] = SimpleMA(i, ExtPeriodMA, BufferCutlerRSI);
+         case MODE_SMMA:
+            if(i == start_pos)
+              {
+               double sum = 0;
+               for(int j = 0; j < g_ExtPeriodMA; j++)
+                  sum += BufferCutlerRSI[i - j];
+               BufferCutlerRSI_MA[i] = sum / g_ExtPeriodMA;
+              }
             else
               {
-               double pr = 2.0 / (ExtPeriodMA + 1.0);
-               BufferCutlerRSI_MA[i] = BufferCutlerRSI[i] * pr + BufferCutlerRSI_MA[i-1] * (1.0 - pr);
+               if(InpMethodMA == MODE_EMA)
+                 {
+                  double pr = 2.0 / (g_ExtPeriodMA + 1.0);
+                  BufferCutlerRSI_MA[i] = BufferCutlerRSI[i] * pr + BufferCutlerRSI_MA[i-1] * (1.0 - pr);
+                 }
+               else
+                 {
+                  BufferCutlerRSI_MA[i] = (BufferCutlerRSI_MA[i-1] * (g_ExtPeriodMA - 1) + BufferCutlerRSI[i]) / g_ExtPeriodMA;
+                 }
               }
             break;
-         case MODE_SMMA:
-            if(i == ExtPeriodRSI + ExtPeriodMA - 2)
-               BufferCutlerRSI_MA[i] = SimpleMA(i, ExtPeriodMA, BufferCutlerRSI);
-            else
-               BufferCutlerRSI_MA[i] = (BufferCutlerRSI_MA[i-1] * (ExtPeriodMA - 1) + BufferCutlerRSI[i]) / ExtPeriodMA;
-            break;
          case MODE_LWMA:
-            BufferCutlerRSI_MA[i] = LinearWeightedMA(i, ExtPeriodMA, BufferCutlerRSI);
+            // Standard library function is safe here as it's not recursive
+            BufferCutlerRSI_MA[i] = LinearWeightedMA(i, g_ExtPeriodMA, BufferCutlerRSI);
             break;
          default: // MODE_SMA
-            BufferCutlerRSI_MA[i] = SimpleMA(i, ExtPeriodMA, BufferCutlerRSI);
+            // Standard library function is safe here as it's not recursive
+            BufferCutlerRSI_MA[i] = SimpleMA(i, g_ExtPeriodMA, BufferCutlerRSI);
             break;
         }
      }
