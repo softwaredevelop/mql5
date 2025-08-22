@@ -1,0 +1,5 @@
+name: github-repos
+runtime: go
+description: Pulumi project for provisioning and managing GitHub repositories across various projects
+options:
+  refresh: always
