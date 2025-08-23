@@ -1,17 +1,39 @@
 //+------------------------------------------------------------------+
-//|                                      SymbolInfoDoubleChecker.mq5 |
-//|                                  Copyright 2025, MetaQuotes Ltd. |
-//|                                             https://www.mql5.com |
+//|                                     SymbolInfoDoubleChecker.mq5  |
+//|                      Copyright 2025, xxxxxxxx                    |
+//|                                                                  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, MetaQuotes Ltd."
-#property link      "https://www.mql5.com"
-#property version   "1.02" // Version updated to reflect fixes
+#property copyright "Copyright 2025, xxxxxxxx"
+#property link      ""
+#property version   "2.00" // Refactored into a class-based structure
 #property description "Checks and displays all DOUBLE properties for the current symbol."
 
 #include <Trade\SymbolInfo.mqh>
 
-//--- Array of all double properties to check.
-const ENUM_SYMBOL_INFO_DOUBLE G_DOUBLE_PROPERTIES[] =
+//+------------------------------------------------------------------+
+//| Class to check and display symbol properties                     |
+//+------------------------------------------------------------------+
+class CSymbolPropertyChecker
+  {
+private:
+   CSymbolInfo       m_symbol_info;
+   string            m_symbol_name;
+
+   //--- Array of all double properties to check.
+   static const ENUM_SYMBOL_INFO_DOUBLE S_DOUBLE_PROPERTIES[];
+
+public:
+                     CSymbolPropertyChecker(const string symbol);
+   bool              Run(void);
+
+private:
+   void              PrintHeader(void);
+   void              PrintFooter(void);
+   void              PrintProperty(ENUM_SYMBOL_INFO_DOUBLE property_id);
+  };
+
+//--- Static member initialization
+const ENUM_SYMBOL_INFO_DOUBLE CSymbolPropertyChecker::S_DOUBLE_PROPERTIES[] =
   {
    SYMBOL_BID, SYMBOL_BIDHIGH, SYMBOL_BIDLOW, SYMBOL_ASK, SYMBOL_ASKHIGH,
    SYMBOL_ASKLOW, SYMBOL_LAST, SYMBOL_LASTHIGH, SYMBOL_LASTLOW,
@@ -36,56 +58,89 @@ const ENUM_SYMBOL_INFO_DOUBLE G_DOUBLE_PROPERTIES[] =
   };
 
 //+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CSymbolPropertyChecker::CSymbolPropertyChecker(const string symbol) : m_symbol_name(symbol)
+  {
+// Initialization of m_symbol_info is handled in Run()
+  }
+
+//+------------------------------------------------------------------+
+//| Runs the property check process                                  |
+//+------------------------------------------------------------------+
+bool CSymbolPropertyChecker::Run(void)
+  {
+   if(!m_symbol_info.Name(m_symbol_name))
+     {
+      PrintFormat("Error: Symbol '%s' not found or not available in Market Watch.", m_symbol_name);
+      return false;
+     }
+
+   PrintHeader();
+
+   for(int i = 0; i < ArraySize(S_DOUBLE_PROPERTIES); i++)
+     {
+      PrintProperty(S_DOUBLE_PROPERTIES[i]);
+     }
+
+   PrintFooter();
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Prints a single property's status and value                      |
+//+------------------------------------------------------------------+
+void CSymbolPropertyChecker::PrintProperty(ENUM_SYMBOL_INFO_DOUBLE property_id)
+  {
+   double value;
+   string result_str;
+   string property_name = EnumToString(property_id);
+
+   ResetLastError();
+   bool success = m_symbol_info.InfoDouble(property_id, value);
+   int error = GetLastError();
+
+   if(success)
+     {
+      result_str = StringFormat("%-35s | Status: SUPPORTED | Value: %g",
+                                property_name,
+                                value);
+     }
+   else
+     {
+      result_str = StringFormat("%-35s | Status: FAILED    | Error: %d",
+                                property_name,
+                                error);
+     }
+   Print(result_str);
+  }
+
+//+------------------------------------------------------------------+
+//| Prints the header for the output                                 |
+//+------------------------------------------------------------------+
+void CSymbolPropertyChecker::PrintHeader(void)
+  {
+   Print("--- Symbol Property Checker Started ---");
+   PrintFormat("Checking symbol: %s", m_symbol_name);
+   Print("------------------------------------------------------------------");
+  }
+
+//+------------------------------------------------------------------+
+//| Prints the footer for the output                                 |
+//+------------------------------------------------------------------+
+void CSymbolPropertyChecker::PrintFooter(void)
+  {
+   Print("------------------------------------------------------------------");
+   Print("--- Check Completed ---");
+  }
+
+//+------------------------------------------------------------------+
 //| Script program start function                                    |
 //+------------------------------------------------------------------+
 void OnStart()
   {
-   string symbol = _Symbol;
-
-// Initialize CSymbolInfo. The constructor is parameterless.
-// We must call .Name() to set the symbol.
-   CSymbolInfo m_symbol_info;
-   if(!m_symbol_info.Name(symbol))
-     {
-      PrintFormat("Error: Symbol '%s' not found or not available in Market Watch.", symbol);
-      return;
-     }
-
-   Print("--- Symbol Property Checker Started ---");
-   PrintFormat("Checking symbol: %s", symbol);
-   Print("------------------------------------------------------------------");
-
-   double value;
-   string result_str;
-
-   for(int i = 0; i < ArraySize(G_DOUBLE_PROPERTIES); i++)
-     {
-      ResetLastError();
-      bool success = m_symbol_info.InfoDouble(G_DOUBLE_PROPERTIES[i], value);
-      int error = GetLastError();
-
-      // --- FIX: Using StringFormat with padding for alignment ---
-      // The "%-35s" specifier pads the string to 35 characters, left-aligned.
-      string property_name = EnumToString(G_DOUBLE_PROPERTIES[i]);
-
-      if(success)
-        {
-         // The "%g" specifier provides a general, clean format for double values.
-         result_str = StringFormat("%-35s | Status: SUPPORTED | Value: %g",
-                                   property_name,
-                                   value);
-         Print(result_str);
-        }
-      else
-        {
-         result_str = StringFormat("%-35s | Status: FAILED    | Error: %d",
-                                   property_name,
-                                   error);
-         Print(result_str);
-        }
-     }
-   Print("------------------------------------------------------------------");
-   Print("--- Check Completed ---");
+   CSymbolPropertyChecker checker(_Symbol);
+   checker.Run();
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
