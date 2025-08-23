@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.01" // Added comments and minor fixes
+#property version   "2.00" // Refactored into a class-based structure
 #property script_show_inputs
 #property description "Exports historical candle data for the current chart to a CSV file."
 #property description "The file is saved in the terminal's MQL5/Files/ folder."
@@ -16,93 +16,183 @@ input string InpFileName        = "";      // CSV file name. If empty, it will b
 input string InpDelimiter       = ",";     // Delimiter for the CSV file (e.g., comma or semicolon)
 
 //+------------------------------------------------------------------+
-//| Script program start function.                                   |
-//| This is the main entry point for the script.                     |
+//| CCandleExporter Class                                            |
+//| Encapsulates all logic for exporting candle data to a CSV file.  |
 //+------------------------------------------------------------------+
-void OnStart()
+class CCandleExporter
   {
-//--- 1. Validate Input Parameters ---
-   if(InpCandlesToExport <= 0)
+private:
+   //--- Export settings
+   int               m_candles_to_export;
+   string            m_file_name;
+   char              m_delimiter;
+   string            m_symbol;
+   ENUM_TIMEFRAMES   m_period;
+
+   //--- Internal state
+   int               m_file_handle;
+
+public:
+   //--- Constructor
+                     CCandleExporter(int candles, string file_name, string delimiter);
+   //--- Destructor
+                    ~CCandleExporter(void);
+   //--- Main execution method
+   bool              Run(void);
+
+private:
+   //--- Helper methods
+   bool              PrepareFileName(void);
+   bool              OpenFile(void);
+   int               CopyData(MqlRates &rates[]);
+   bool              WriteData(const MqlRates &rates[], int count);
+   void              CloseFile(void);
+  };
+
+//+------------------------------------------------------------------+
+//| Constructor: Initializes the exporter with settings              |
+//+------------------------------------------------------------------+
+CCandleExporter::CCandleExporter(int candles, string file_name, string delimiter)
+  {
+   m_candles_to_export = (candles > 0) ? candles : 1;
+   m_file_name         = file_name;
+   m_delimiter         = (char)StringGetCharacter(delimiter, 0);
+   m_symbol            = _Symbol;
+   m_period            = _Period;
+   m_file_handle       = INVALID_HANDLE;
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor: Ensures the file is always closed                    |
+//+------------------------------------------------------------------+
+CCandleExporter::~CCandleExporter(void)
+  {
+   CloseFile();
+  }
+
+//+------------------------------------------------------------------+
+//| Main execution method                                            |
+//+------------------------------------------------------------------+
+bool CCandleExporter::Run(void)
+  {
+   if(!PrepareFileName())
+      return false;
+
+   if(!OpenFile())
+      return false;
+
+   MqlRates rates[];
+   int copied_count = CopyData(rates);
+   if(copied_count <= 0)
      {
-      Print("Error: Number of candles to export must be greater than 0.");
-      return;
+      CloseFile();
+      return false;
      }
 
-//--- 2. Prepare File Name ---
-   string file_name = InpFileName;
-// Auto-generate a descriptive file name if the user left it empty
-   if(file_name == "")
+   if(!WriteData(rates, copied_count))
      {
-      file_name = StringFormat("%s_%s_Candles.csv", _Symbol, EnumToString(_Period));
+      CloseFile();
+      return false;
      }
 
-// Ensure the file name ends with .csv
-   if(StringFind(file_name, ".csv", StringLen(file_name) - 4) == -1)
+   CloseFile();
+   PrintFormat("Successfully exported %d candles to '%s'.", copied_count, m_file_name);
+   Print("You can find the file in the terminal's Data Folder under MQL5/Files/.");
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Prepares and validates the file name                             |
+//+------------------------------------------------------------------+
+bool CCandleExporter::PrepareFileName(void)
+  {
+   if(m_file_name == "")
      {
-      file_name = file_name + ".csv";
+      m_file_name = StringFormat("%s_%s_Candles.csv", m_symbol, EnumToString(m_period));
      }
 
-   PrintFormat("Starting export of %d candles for %s on %s...", InpCandlesToExport, _Symbol, EnumToString(_Period));
-   PrintFormat("Target file: MQL5\\Files\\%s", file_name);
+   if(StringFind(m_file_name, ".csv", StringLen(m_file_name) - 4) == -1)
+     {
+      m_file_name += ".csv";
+     }
 
-//--- 3. Open File for Writing ---
+   PrintFormat("Starting export of %d candles for %s on %s...", m_candles_to_export, m_symbol, EnumToString(m_period));
+   PrintFormat("Target file: MQL5\\Files\\%s", m_file_name);
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Opens the target file for writing                                |
+//+------------------------------------------------------------------+
+bool CCandleExporter::OpenFile(void)
+  {
    ResetLastError();
-// FIX: Use StringGetCharacter for safety, as InpDelimiter is a string
-   char separator = (char)StringGetCharacter(InpDelimiter, 0);
-   int file_handle = FileOpen(file_name, FILE_WRITE | FILE_CSV | FILE_ANSI, separator);
+   m_file_handle = FileOpen(m_file_name, FILE_WRITE | FILE_CSV | FILE_ANSI, m_delimiter);
 
-   if(file_handle == INVALID_HANDLE)
+   if(m_file_handle == INVALID_HANDLE)
      {
-      PrintFormat("Error opening file '%s'. Error code: %d", file_name, GetLastError());
-      return;
+      PrintFormat("Error opening file '%s'. Error code: %d", m_file_name, GetLastError());
+      return false;
      }
+   return true;
+  }
 
-//--- 4. Copy Historical Data ---
-   MqlRates rates[]; // Array to store candle data
-
-// Set array as non-timeseries to get data in chronological order (oldest first)
+//+------------------------------------------------------------------+
+//| Copies historical rate data from the terminal                    |
+//+------------------------------------------------------------------+
+int CCandleExporter::CopyData(MqlRates &rates[])
+  {
    ArraySetAsSeries(rates, false);
 
-// Request rate data from the terminal
-   int copied_count = CopyRates(_Symbol, _Period, 0, InpCandlesToExport, rates);
+   int copied_count = CopyRates(m_symbol, m_period, 0, m_candles_to_export, rates);
    if(copied_count <= 0)
      {
       PrintFormat("Error: Could not copy any candle data. Error code: %d", GetLastError());
-      FileClose(file_handle);
-      return;
+      return 0;
      }
 
-   if(copied_count < InpCandlesToExport)
+   if(copied_count < m_candles_to_export)
      {
-      PrintFormat("Warning: Could only copy %d candles, less than the requested %d.", copied_count, InpCandlesToExport);
+      PrintFormat("Warning: Could only copy %d candles, less than the requested %d.", copied_count, m_candles_to_export);
      }
+   return copied_count;
+  }
 
-//--- 5. Write Data to CSV File ---
-// Write the header row first
-   FileWrite(file_handle, "time", "open", "high", "low", "close", "tick_volume", "real_volume", "spread");
+//+------------------------------------------------------------------+
+//| Writes the header and candle data to the opened CSV file         |
+//+------------------------------------------------------------------+
+bool CCandleExporter::WriteData(const MqlRates &rates[], int count)
+  {
+   FileWrite(m_file_handle, "time", "open", "high", "low", "close", "tick_volume", "real_volume", "spread");
 
-// Loop through the copied rates and write each candle to a new line
-   for(int i = 0; i < copied_count; i++)
+   for(int i = 0; i < count; i++)
      {
-      // Convert Unix timestamp to a human-readable string for better readability in the CSV
       string time_str = TimeToString(rates[i].time, TIME_DATE | TIME_MINUTES | TIME_SECONDS);
-
-      // Write one line to the CSV file
-      FileWrite(file_handle,
-                time_str,
-                rates[i].open,
-                rates[i].high,
-                rates[i].low,
-                rates[i].close,
-                rates[i].tick_volume,
-                rates[i].real_volume,
-                rates[i].spread);
+      FileWrite(m_file_handle, time_str, rates[i].open, rates[i].high, rates[i].low,
+                rates[i].close, rates[i].tick_volume, rates[i].real_volume, rates[i].spread);
      }
+   return true;
+  }
 
-//--- 6. Finalize and Clean Up ---
-   FileClose(file_handle);
-   PrintFormat("Successfully exported %d candles to '%s'.", copied_count, file_name);
-   Print("You can find the file in the terminal's Data Folder under MQL5/Files/.");
+//+------------------------------------------------------------------+
+//| Closes the file handle if it's open                              |
+//+------------------------------------------------------------------+
+void CCandleExporter::CloseFile(void)
+  {
+   if(m_file_handle != INVALID_HANDLE)
+     {
+      FileClose(m_file_handle);
+      m_file_handle = INVALID_HANDLE;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Script program start function                                    |
+//+------------------------------------------------------------------+
+void OnStart()
+  {
+   CCandleExporter exporter(InpCandlesToExport, InpFileName, InpDelimiter);
+   exporter.Run();
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
