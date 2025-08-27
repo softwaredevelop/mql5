@@ -188,6 +188,7 @@ int OnCalculate(const int rates_total,
    int signal_start_pos = ema2_start_pos + g_ExtSignalPeriod - 1;
    for(int i = signal_start_pos; i < rates_total; i++)
      {
+      // --- FIX: Full, robust switch block for all MA types ---
       switch(InpSignalMAType)
         {
          case MODE_EMA:
@@ -207,7 +208,7 @@ int OnCalculate(const int rates_total,
                   BufferSignal[i] = BufferTSI[i]*pr + BufferSignal[i-1]*(1.0-pr);
                  }
                else
-                  BufferSignal[i] = (BufferTSI[i-1]*(g_ExtSignalPeriod-1)+BufferTSI[i])/g_ExtSignalPeriod;
+                  BufferSignal[i] = (BufferSignal[i-1]*(g_ExtSignalPeriod-1)+BufferTSI[i])/g_ExtSignalPeriod;
               }
             break;
          case MODE_LWMA:
