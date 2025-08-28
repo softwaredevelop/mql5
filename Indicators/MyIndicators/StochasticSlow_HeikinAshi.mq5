@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.00" // Refactored for full recalculation and stability
+#property version   "2.01" // Harmonized input parameter names
 #property description "Slow Stochastic Oscillator on Heikin Ashi data"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
@@ -34,24 +34,18 @@
 #property indicator_width2  1
 
 //--- Input Parameters ---
-input int InpKPeriod = 5;  // %K Period
-input int InpDPeriod = 3;  // %D Period (signal line smoothing)
-input int InpSlowing = 3;  // Slowing (initial %K smoothing)
+input int InpKPeriod       = 5;
+input int InpSlowingPeriod = 3;
+input int InpDPeriod       = 3;
 
 //--- Indicator Buffers ---
-double    BufferHA_K[];    // Plotted buffer for the main (Slow) %K line
-double    BufferHA_D[];    // Plotted buffer for the signal %D line
-double    BufferRawK[];    // Calculation buffer for raw %K before slowing
-
-//--- Intermediate Heikin Ashi Buffers ---
-double    ExtHaOpenBuffer[];
-double    ExtHaHighBuffer[];
-double    ExtHaLowBuffer[];
-double    ExtHaCloseBuffer[];
+double    BufferHA_K[];
+double    BufferHA_D[];
+double    BufferRawK[];
 
 //--- Global Objects and Variables ---
-int                       g_ExtKPeriod, g_ExtDPeriod, g_ExtSlowing;
-CHeikinAshi_Calculator   *g_ha_calculator; // Pointer to our Heikin Ashi calculator
+int                       g_ExtKPeriod, g_ExtDPeriod, g_ExtSlowingPeriod;
+CHeikinAshi_Calculator   *g_ha_calculator;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -62,12 +56,10 @@ double Lowest(const double &array[], int period, int current_pos);
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Validate and store input periods
-   g_ExtKPeriod = (InpKPeriod < 1) ? 1 : InpKPeriod;
-   g_ExtDPeriod = (InpDPeriod < 1) ? 1 : InpDPeriod;
-   g_ExtSlowing = (InpSlowing < 1) ? 1 : InpSlowing;
+   g_ExtKPeriod       = (InpKPeriod < 1) ? 1 : InpKPeriod;
+   g_ExtDPeriod       = (InpDPeriod < 1) ? 1 : InpDPeriod;
+   g_ExtSlowingPeriod = (InpSlowingPeriod < 1) ? 1 : InpSlowingPeriod;
 
-//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferHA_K,    INDICATOR_DATA);
    SetIndexBuffer(1, BufferHA_D,    INDICATOR_DATA);
    SetIndexBuffer(2, BufferRawK,    INDICATOR_CALCULATIONS);
@@ -76,20 +68,17 @@ int OnInit()
    ArraySetAsSeries(BufferHA_D,    false);
    ArraySetAsSeries(BufferRawK,    false);
 
-//--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtSlowing - 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtSlowing + g_ExtDPeriod - 3);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_Slow_Stoch(%d,%d,%d)", g_ExtKPeriod, g_ExtDPeriod, g_ExtSlowing));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtSlowingPeriod - 2);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtKPeriod + g_ExtSlowingPeriod + g_ExtDPeriod - 3);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_Slow_Stoch(%d,%d,%d)", g_ExtKPeriod, g_ExtSlowingPeriod, g_ExtDPeriod));
 
-//--- Create the calculator instance
    g_ha_calculator = new CHeikinAshi_Calculator();
    if(CheckPointer(g_ha_calculator) == POINTER_INVALID)
      {
       Print("Error creating CHeikinAshi_Calculator object");
       return(INIT_FAILED);
      }
-
    return(INIT_SUCCEEDED);
   }
 
@@ -98,7 +87,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object
    if(CheckPointer(g_ha_calculator) != POINTER_INVALID)
      {
       delete g_ha_calculator;
@@ -120,47 +108,46 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Check if there is enough historical data
-   if(rates_total < g_ExtKPeriod + g_ExtSlowing + g_ExtDPeriod - 2)
+   int start_pos = g_ExtKPeriod + g_ExtSlowingPeriod + g_ExtDPeriod - 2;
+   if(rates_total <= start_pos)
       return(0);
 
-//--- Resize intermediate buffers
-   ArrayResize(ExtHaOpenBuffer, rates_total);
-   ArrayResize(ExtHaHighBuffer, rates_total);
-   ArrayResize(ExtHaLowBuffer, rates_total);
-   ArrayResize(ExtHaCloseBuffer, rates_total);
+//--- Intermediate Heikin Ashi Buffers
+   double ha_open[], ha_high[], ha_low[], ha_close[];
+   ArrayResize(ha_open, rates_total);
+   ArrayResize(ha_high, rates_total);
+   ArrayResize(ha_low, rates_total);
+   ArrayResize(ha_close, rates_total);
 
 //--- STEP 1: Calculate Heikin Ashi bars
-   g_ha_calculator.Calculate(rates_total, open, high, low, close,
-                             ExtHaOpenBuffer, ExtHaHighBuffer, ExtHaLowBuffer, ExtHaCloseBuffer);
+   g_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-//--- STEP 2: Calculate Raw %K (Fast %K) using Heiken Ashi data
+//--- STEP 2: Calculate Raw %K (Fast %K) using Heikin Ashi data
    for(int i = g_ExtKPeriod - 1; i < rates_total; i++)
      {
-      double highest_ha_high = Highest(ExtHaHighBuffer, g_ExtKPeriod, i);
-      double lowest_ha_low   = Lowest(ExtHaLowBuffer, g_ExtKPeriod, i);
-
+      double highest_ha_high = Highest(ha_high, g_ExtKPeriod, i);
+      double lowest_ha_low   = Lowest(ha_low, g_ExtKPeriod, i);
       double range = highest_ha_high - lowest_ha_low;
       if(range > 0)
-         BufferRawK[i] = (ExtHaCloseBuffer[i] - lowest_ha_low) / range * 100.0;
+         BufferRawK[i] = (ha_close[i] - lowest_ha_low) / range * 100.0;
       else
          BufferRawK[i] = (i > 0) ? BufferRawK[i-1] : 50.0;
      }
 
 //--- STEP 3: Calculate Slow %K (Main Line) by smoothing Raw %K
-   int k_slow_start_pos = g_ExtKPeriod + g_ExtSlowing - 2;
+   int k_slow_start_pos = g_ExtKPeriod + g_ExtSlowingPeriod - 2;
    for(int i = k_slow_start_pos; i < rates_total; i++)
      {
       double sum = 0;
-      for(int j = 0; j < g_ExtSlowing; j++)
+      for(int j = 0; j < g_ExtSlowingPeriod; j++)
         {
          sum += BufferRawK[i-j];
         }
-      BufferHA_K[i] = sum / g_ExtSlowing;
+      BufferHA_K[i] = sum / g_ExtSlowingPeriod;
      }
 
 //--- STEP 4: Calculate %D (Signal Line) by smoothing Slow %K
-   int d_start_pos = g_ExtKPeriod + g_ExtSlowing + g_ExtDPeriod - 3;
+   int d_start_pos = g_ExtKPeriod + g_ExtSlowingPeriod + g_ExtDPeriod - 3;
    for(int i = d_start_pos; i < rates_total; i++)
      {
       double sum = 0;
