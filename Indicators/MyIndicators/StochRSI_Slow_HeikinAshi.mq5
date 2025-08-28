@@ -1,14 +1,13 @@
 //+------------------------------------------------------------------+
-//|                                    StochRSI_Slow_HeikinAshi.mq5  |
+//|                                   StochRSI_Slow_HeikinAshi.mq5   |
 //|                      Copyright 2025, xxxxxxxx                    |
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.00" // Refactored to be self-contained, no iCustom
+#property version   "2.01" // Harmonized input parameter names
 #property description "Slow Stochastic on a Heikin Ashi based RSI"
 
-//--- Custom Toolkit Include ---
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //--- Indicator Window and Level Properties ---
@@ -35,10 +34,10 @@
 #property indicator_width2  1
 
 //--- Input Parameters ---
-input int InpLengthRSI   = 14; // RSI Length
-input int InpLengthStoch = 14; // Stochastic %K Period
-input int InpSlowing     = 3;  // Slowing Period
-input int InpSmoothD     = 3;  // %D Smoothing Period
+input int InpRSIPeriod     = 14;
+input int InpKPeriod       = 14;
+input int InpSlowingPeriod = 3;
+input int InpDPeriod       = 3;
 
 //--- Indicator Buffers ---
 double    BufferK[];
@@ -47,8 +46,8 @@ double    BufferHA_RSI[];
 double    BufferRawStochK[];
 
 //--- Global Objects and Variables ---
-int                           g_ExtLengthRSI, g_ExtLengthStoch, g_ExtSlowing, g_ExtSmoothD;
-CHeikinAshi_RSI_Calculator   *g_ha_rsi_calculator; // Pointer to our HA_RSI calculator
+int                           g_ExtRSIPeriod, g_ExtKPeriod, g_ExtSlowingPeriod, g_ExtDPeriod;
+CHeikinAshi_RSI_Calculator   *g_ha_rsi_calculator;
 
 //--- Forward declarations for helper functions ---
 double Highest(const double &array[], int period, int current_pos);
@@ -59,10 +58,10 @@ double Lowest(const double &array[], int period, int current_pos);
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_ExtLengthRSI   = (InpLengthRSI < 1) ? 1 : InpLengthRSI;
-   g_ExtLengthStoch = (InpLengthStoch < 1) ? 1 : InpLengthStoch;
-   g_ExtSlowing     = (InpSlowing < 1) ? 1 : InpSlowing;
-   g_ExtSmoothD     = (InpSmoothD < 1) ? 1 : InpSmoothD;
+   g_ExtRSIPeriod     = (InpRSIPeriod < 1) ? 1 : InpRSIPeriod;
+   g_ExtKPeriod       = (InpKPeriod < 1) ? 1 : InpKPeriod;
+   g_ExtSlowingPeriod = (InpSlowingPeriod < 1) ? 1 : InpSlowingPeriod;
+   g_ExtDPeriod       = (InpDPeriod < 1) ? 1 : InpDPeriod;
 
    SetIndexBuffer(0, BufferK,         INDICATOR_DATA);
    SetIndexBuffer(1, BufferD,         INDICATOR_DATA);
@@ -75,18 +74,16 @@ int OnInit()
    ArraySetAsSeries(BufferRawStochK, false);
 
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing - 3);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing + g_ExtSmoothD - 4);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_StochRSI_Slow(%d,%d,%d,%d)", g_ExtLengthRSI, g_ExtLengthStoch, g_ExtSlowing, g_ExtSmoothD));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_ExtRSIPeriod + g_ExtKPeriod + g_ExtSlowingPeriod - 3);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_ExtRSIPeriod + g_ExtKPeriod + g_ExtSlowingPeriod + g_ExtDPeriod - 4);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("HA_StochRSI_Slow(%d,%d,%d,%d)", g_ExtRSIPeriod, g_ExtKPeriod, g_ExtSlowingPeriod, g_ExtDPeriod));
 
-//--- Create the calculator instance
    g_ha_rsi_calculator = new CHeikinAshi_RSI_Calculator();
    if(CheckPointer(g_ha_rsi_calculator) == POINTER_INVALID)
      {
       Print("Error creating CHeikinAshi_RSI_Calculator object");
       return(INIT_FAILED);
      }
-
    return(INIT_SUCCEEDED);
   }
 
@@ -95,7 +92,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object
    if(CheckPointer(g_ha_rsi_calculator) != POINTER_INVALID)
      {
       delete g_ha_rsi_calculator;
@@ -117,24 +113,23 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   int start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing + g_ExtSmoothD - 3;
+   int start_pos = g_ExtRSIPeriod + g_ExtKPeriod + g_ExtSlowingPeriod + g_ExtDPeriod - 3;
    if(rates_total <= start_pos)
       return(0);
 
 //--- STEP 1: Calculate Heikin Ashi RSI values using our toolkit
-   if(!g_ha_rsi_calculator.Calculate(rates_total, g_ExtLengthRSI, open, high, low, close, BufferHA_RSI))
+   if(!g_ha_rsi_calculator.Calculate(rates_total, g_ExtRSIPeriod, open, high, low, close, BufferHA_RSI))
      {
       Print("Heikin Ashi RSI calculation failed.");
       return(0);
      }
 
 //--- STEP 2: Calculate Raw Stochastic %K on the HA_RSI buffer
-   int raw_k_start_pos = g_ExtLengthRSI + g_ExtLengthStoch - 2;
+   int raw_k_start_pos = g_ExtRSIPeriod + g_ExtKPeriod - 2;
    for(int i = raw_k_start_pos; i < rates_total; i++)
      {
-      double highest_ha_rsi = Highest(BufferHA_RSI, g_ExtLengthStoch, i);
-      double lowest_ha_rsi  = Lowest(BufferHA_RSI, g_ExtLengthStoch, i);
-
+      double highest_ha_rsi = Highest(BufferHA_RSI, g_ExtKPeriod, i);
+      double lowest_ha_rsi  = Lowest(BufferHA_RSI, g_ExtKPeriod, i);
       double range = highest_ha_rsi - lowest_ha_rsi;
       if(range > 0.00001)
          BufferRawStochK[i] = (BufferHA_RSI[i] - lowest_ha_rsi) / range * 100.0;
@@ -143,27 +138,27 @@ int OnCalculate(const int rates_total,
      }
 
 //--- STEP 3: Calculate Slow %K (Main Line) by smoothing Raw %K
-   int k_slow_start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing - 3;
+   int k_slow_start_pos = g_ExtRSIPeriod + g_ExtKPeriod + g_ExtSlowingPeriod - 3;
    for(int i = k_slow_start_pos; i < rates_total; i++)
      {
       double sum = 0;
-      for(int j = 0; j < g_ExtSlowing; j++)
+      for(int j = 0; j < g_ExtSlowingPeriod; j++)
         {
          sum += BufferRawStochK[i-j];
         }
-      BufferK[i] = sum / g_ExtSlowing;
+      BufferK[i] = sum / g_ExtSlowingPeriod;
      }
 
 //--- STEP 4: Calculate %D (Signal Line) by smoothing Slow %K
-   int d_start_pos = g_ExtLengthRSI + g_ExtLengthStoch + g_ExtSlowing + g_ExtSmoothD - 4;
+   int d_start_pos = g_ExtRSIPeriod + g_ExtKPeriod + g_ExtSlowingPeriod + g_ExtDPeriod - 4;
    for(int i = d_start_pos; i < rates_total; i++)
      {
       double sum = 0;
-      for(int j = 0; j < g_ExtSmoothD; j++)
+      for(int j = 0; j < g_ExtDPeriod; j++)
         {
          sum += BufferK[i-j];
         }
-      BufferD[i] = sum / g_ExtSmoothD;
+      BufferD[i] = sum / g_ExtDPeriod;
      }
 
    return(rates_total);
