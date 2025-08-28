@@ -164,40 +164,53 @@ int OnCalculate(const int rates_total,
      }
 
 //--- STEP 3: Calculate the signal line (MA of Cutler's RSI)
-   for(int i = start_pos; i < rates_total; i++)
+   int ma_start_pos = g_ExtPeriodRSI + g_ExtPeriodMA - 1;
+   for(int i = ma_start_pos; i < rates_total; i++)
      {
+      // --- FIX: Full, robust switch block for all MA types ---
       switch(InpMethodMA)
         {
          case MODE_EMA:
          case MODE_SMMA:
-            if(i == start_pos)
+            if(i == ma_start_pos)
               {
-               double sum = 0;
-               for(int j = 0; j < g_ExtPeriodMA; j++)
-                  sum += BufferCutlerRSI[i - j];
-               BufferCutlerRSI_MA[i] = sum / g_ExtPeriodMA;
+               double sum=0;
+               for(int j=0; j<g_ExtPeriodMA; j++)
+                  sum+=BufferCutlerRSI[i-j];
+               BufferCutlerRSI_MA[i] = sum/g_ExtPeriodMA;
               }
             else
               {
                if(InpMethodMA == MODE_EMA)
                  {
-                  double pr = 2.0 / (g_ExtPeriodMA + 1.0);
-                  BufferCutlerRSI_MA[i] = BufferCutlerRSI[i] * pr + BufferCutlerRSI_MA[i-1] * (1.0 - pr);
+                  double pr=2.0/(g_ExtPeriodMA+1.0);
+                  BufferCutlerRSI_MA[i] = BufferCutlerRSI[i]*pr + BufferCutlerRSI_MA[i-1]*(1.0-pr);
                  }
                else
-                 {
-                  BufferCutlerRSI_MA[i] = (BufferCutlerRSI_MA[i-1] * (g_ExtPeriodMA - 1) + BufferCutlerRSI[i]) / g_ExtPeriodMA;
-                 }
+                  BufferCutlerRSI_MA[i] = (BufferCutlerRSI_MA[i-1]*(g_ExtPeriodMA-1)+BufferCutlerRSI[i])/g_ExtPeriodMA;
               }
             break;
          case MODE_LWMA:
-            // Standard library function is safe here as it's not recursive
-            BufferCutlerRSI_MA[i] = LinearWeightedMA(i, g_ExtPeriodMA, BufferCutlerRSI);
-            break;
+           {
+            double lwma_sum=0, weight_sum=0;
+            for(int j=0; j<g_ExtPeriodMA; j++)
+              {
+               int weight=g_ExtPeriodMA-j;
+               lwma_sum+=BufferCutlerRSI[i-j]*weight;
+               weight_sum+=weight;
+              }
+            if(weight_sum>0)
+               BufferCutlerRSI_MA[i]=lwma_sum/weight_sum;
+           }
+         break;
          default: // MODE_SMA
-            // Standard library function is safe here as it's not recursive
-            BufferCutlerRSI_MA[i] = SimpleMA(i, g_ExtPeriodMA, BufferCutlerRSI);
-            break;
+           {
+            double sum=0;
+            for(int j=0; j<g_ExtPeriodMA; j++)
+               sum+=BufferCutlerRSI[i-j];
+            BufferCutlerRSI_MA[i] = sum/g_ExtPeriodMA;
+           }
+         break;
         }
      }
 
