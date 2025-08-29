@@ -121,43 +121,53 @@ int OnCalculate(const int rates_total,
      }
 
 //--- STEP 2: Calculate the Moving Average on the RSI buffer
-   for(int i = start_pos; i < rates_total; i++)
+   int ma_start_pos = g_ExtPeriodRSI + g_ExtPeriodMA - 1; // Correct start pos
+   for(int i = ma_start_pos; i < rates_total; i++)
      {
+      // --- FIX: Full, robust switch block for all MA types ---
       switch(InpMethod)
         {
          case MODE_EMA:
-            if(i == start_pos) // Initialization with manual SMA
-              {
-               double sum = 0;
-               for(int j = 0; j < g_ExtPeriodMA; j++)
-                  sum += BufferRawRSI[i - j];
-               BufferRSIMA[i] = sum / g_ExtPeriodMA;
-              }
-            else // Recursive calculation
-              {
-               double pr = 2.0 / (g_ExtPeriodMA + 1.0);
-               BufferRSIMA[i] = BufferRawRSI[i] * pr + BufferRSIMA[i-1] * (1.0 - pr);
-              }
-            break;
          case MODE_SMMA:
-            if(i == start_pos) // Initialization with manual SMA
+            if(i == ma_start_pos)
               {
-               double sum = 0;
-               for(int j = 0; j < g_ExtPeriodMA; j++)
-                  sum += BufferRawRSI[i - j];
-               BufferRSIMA[i] = sum / g_ExtPeriodMA;
+               double sum=0;
+               for(int j=0; j<g_ExtPeriodMA; j++)
+                  sum+=BufferRawRSI[i-j];
+               BufferRSIMA[i] = sum/g_ExtPeriodMA;
               }
-            else // Recursive calculation
+            else
               {
-               BufferRSIMA[i] = (BufferRSIMA[i-1] * (g_ExtPeriodMA - 1) + BufferRawRSI[i]) / g_ExtPeriodMA;
+               if(InpMethod == MODE_EMA)
+                 {
+                  double pr=2.0/(g_ExtPeriodMA+1.0);
+                  BufferRSIMA[i] = BufferRawRSI[i]*pr + BufferRSIMA[i-1]*(1.0-pr);
+                 }
+               else
+                  BufferRSIMA[i] = (BufferRSIMA[i-1]*(g_ExtPeriodMA-1)+BufferRawRSI[i])/g_ExtPeriodMA;
               }
             break;
          case MODE_LWMA:
-            BufferRSIMA[i] = LinearWeightedMA(i, g_ExtPeriodMA, BufferRawRSI);
-            break;
+           {
+            double lwma_sum=0, weight_sum=0;
+            for(int j=0; j<g_ExtPeriodMA; j++)
+              {
+               int weight=g_ExtPeriodMA-j;
+               lwma_sum+=BufferRawRSI[i-j]*weight;
+               weight_sum+=weight;
+              }
+            if(weight_sum>0)
+               BufferRSIMA[i]=lwma_sum/weight_sum;
+           }
+         break;
          default: // MODE_SMA
-            BufferRSIMA[i] = SimpleMA(i, g_ExtPeriodMA, BufferRawRSI);
-            break;
+           {
+            double sum=0;
+            for(int j=0; j<g_ExtPeriodMA; j++)
+               sum+=BufferRawRSI[i-j];
+            BufferRSIMA[i] = sum/g_ExtPeriodMA;
+           }
+         break;
         }
      }
 
