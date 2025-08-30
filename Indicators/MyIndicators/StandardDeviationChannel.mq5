@@ -5,18 +5,19 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
+#property version   "1.01" // Added color selection
 #property description "Draws a Standard Deviation Channel (based on Linear Regression)."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
 
 //--- Input Parameters ---
-input int    InpRegressionPeriod = 100;   // Period for the regression calculation
-input double InpDeviations       = 2.0;     // Number of standard deviations for the channel
+input int    InpRegressionPeriod = 100;
+input double InpDeviations       = 2.0;
+input color  InpChannelColor     = clrRed; // Channel color
 input group  "Channel Extensions"
-input bool   InpRayRight         = false;   // Extend channel to the right
-input bool   InpRayLeft          = false;   // Extend channel to the left
+input bool   InpRayRight         = false;
+input bool   InpRayLeft          = false;
 
 //--- Global Variables ---
 int       g_ExtPeriod;
@@ -106,7 +107,6 @@ void UpdateChannel()
          return;
         }
 
-      ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, clrRed);
       ObjectSetInteger(0, g_channel_name, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, g_channel_name, OBJPROP_FILL, false);
       ObjectSetInteger(0, g_channel_name, OBJPROP_SELECTABLE, false);
@@ -117,9 +117,8 @@ void UpdateChannel()
    ObjectSetDouble(0, g_channel_name, OBJPROP_DEVIATION, g_ExtDeviations);
    ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
    ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
-
-// The OBJ_STDDEVCHANNEL object uses PRICE_CLOSE and its own internal period for the regression
-// We don't need to set OBJPROP_PERIOD as it's implicitly handled by the time coordinates.
+// --- FIX: Set color based on input ---
+   ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, InpChannelColor);
 
    ChartRedraw();
   }
