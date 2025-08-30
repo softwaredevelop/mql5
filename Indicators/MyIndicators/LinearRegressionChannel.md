@@ -40,24 +40,23 @@ For the last `N` bars at any given point in time:
 
 Our MQL5 implementation is designed to be highly efficient and visually clean by leveraging MetaTrader 5's built-in graphical objects.
 
-- **Object-Based Plotting:** Instead of using indicator buffers and `DRAW_LINE`, our indicator uses a single, built-in `OBJ_REGRESSION` graphical object. This object is managed by the MetaTrader terminal, which handles the complex regression and standard deviation calculations internally using highly optimized code.
+- **Object-Based Plotting:** Instead of using indicator buffers, our indicator uses a single, built-in `OBJ_REGRESSION` graphical object. This object is managed by the MetaTrader terminal, which handles the complex regression and standard deviation calculations internally using highly optimized code.
 
-- **Clean, Non-Continuous Display:** To provide the clearest possible visual, the indicator only displays the **single, most current** regression channel calculated on the last `N` bars. It does not draw a continuous, historical line. This is achieved by:
+- **Clean, Non-Continuous Display:** By default, the indicator only displays the **single, most current** regression channel calculated on the last `N` bars. This provides a clean, uncluttered view of the present market structure.
 
-  - Setting the object's `OBJPROP_RAY_RIGHT` property to `false`.
-  - Updating the object's start and end time coordinates on each new bar.
-
-- **Efficient "On New Bar" Updates:** The indicator is designed to be extremely light on terminal resources. Instead of recalculating on every tick, it uses a simple time-check within `OnCalculate`. The channel object is only updated **once per bar**, when a new candle forms. This is achieved by comparing the current bar's time to a stored `g_last_update_time`.
+- **Efficient "On New Bar" Updates:** The indicator is designed to be extremely light on terminal resources. It uses a simple time-check within `OnCalculate`. The channel object is only updated **once per bar**, when a new candle forms, preventing unnecessary recalculations on every tick.
 
 - **Automatic Cleanup (RAII):** The graphical object is given a unique name upon creation. The `OnDeinit` function ensures that this object is always deleted from the chart when the indicator is removed, leaving no visual artifacts behind.
 
-- **Heikin Ashi Variant:** A "pure" Heikin Ashi version can be created by first calculating the Heikin Ashi prices into an array and then manually performing the regression calculation on that array (as the built-in `OBJ_REGRESSION` object cannot be pointed to a custom data source).
+- **Heikin Ashi Variant:** A "pure" Heikin Ashi version can be created by calculating the Heikin Ashi prices into an array and then manually performing the regression calculation on that array (as the built-in `OBJ_REGRESSION` object cannot be pointed to a custom data source).
 
 ## 4. Parameters
 
 - **Regression Period (`InpRegressionPeriod`):** The number of bars to include in the regression calculation. A longer period creates a more stable, long-term trendline, while a shorter period is more responsive to recent price action. Default is `100`.
 - **Deviations (`InpDeviations`):** The multiplier for the standard deviation, which determines the width of the channel. Default is `2.0`.
-- **Applied Price:** This implementation uses `PRICE_CLOSE` by default, as this is the standard for the `OBJ_REGRESSION` object.
+- **Channel Extensions:**
+  - **`InpRayRight`**: If `true`, the calculated channel will be extended indefinitely into the future, which can be used to project potential future support and resistance levels. Default is `false`.
+  - **`InpRayLeft`**: If `true`, the channel will be extended indefinitely into the past. Default is `false`.
 
 ## 5. Usage and Interpretation
 
