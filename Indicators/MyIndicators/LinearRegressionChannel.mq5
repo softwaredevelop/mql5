@@ -5,17 +5,18 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00" // Final version using OBJ_REGRESSION
+#property version   "1.01" // Added color selection
 #property description "Draws a Linear Regression Channel where width is based on max deviation."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
 
 //--- Input Parameters ---
-input int  InpRegressionPeriod = 100;   // Period for the regression calculation
+input int   InpRegressionPeriod = 100;   // Period for the regression calculation
+input color InpChannelColor     = clrRed;  // Channel color
 input group "Channel Extensions"
-input bool InpRayRight         = false; // Extend channel to the right
-input bool InpRayLeft          = false; // Extend channel to the left
+input bool  InpRayRight         = false; // Extend channel to the right
+input bool  InpRayLeft          = false; // Extend channel to the left
 
 //--- Global Variables ---
 int       g_ExtPeriod;
@@ -104,17 +105,18 @@ void UpdateChannel()
         }
 
       // Set visual properties only once on creation
-      ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, clrGreen);
       ObjectSetInteger(0, g_channel_name, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, g_channel_name, OBJPROP_FILL, false);
       ObjectSetInteger(0, g_channel_name, OBJPROP_SELECTABLE, false);
      }
 
-// Update properties on every call
+// Update properties on every call to allow for dynamic changes
    ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 0, time1);
    ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 1, time2);
    ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
    ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
+// --- FIX: Set color based on input ---
+   ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, InpChannelColor);
 
    ChartRedraw();
   }
