@@ -5,22 +5,24 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.00" // Final version using OBJ_REGRESSION with smart update
-#property description "Draws a clean Linear Regression Channel, updated on new bars."
+#property version   "2.02" // Added selectable ray extensions
+#property description "Draws a Linear Regression Channel with optional extensions."
 #property indicator_chart_window
-#property indicator_buffers 0 // No buffers needed for plotting
-#property indicator_plots   0 // No plots needed
+#property indicator_buffers 0
+#property indicator_plots   0
 
 //--- Input Parameters ---
 input int    InpRegressionPeriod = 100;
 input double InpDeviations       = 2.0;
-// Note: OBJ_REGRESSION always uses PRICE_CLOSE, so InpAppliedPrice is not needed.
+input group  "Channel Extensions"
+input bool   InpRayRight         = false; // Extend channel to the right
+input bool   InpRayLeft          = false; // Extend channel to the left
 
 //--- Global Variables ---
 int       g_ExtPeriod;
 double    g_ExtDeviations;
 string    g_channel_name;
-datetime  g_last_update_time; // To track the time of the last update
+datetime  g_last_update_time;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
@@ -35,6 +37,8 @@ int OnInit()
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("LinReg(%d, %.1f)", g_ExtPeriod, g_ExtDeviations));
 
+   EventSetTimer(1);
+
    return(INIT_SUCCEEDED);
   }
 
@@ -43,9 +47,17 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-// Clean up the chart object
+   EventKillTimer();
    ObjectDelete(0, g_channel_name);
    ChartRedraw();
+  }
+
+//+------------------------------------------------------------------+
+//| Timer event handler.                                             |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   UpdateRegressionChannel();
   }
 
 //+------------------------------------------------------------------+
@@ -62,14 +74,15 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < g_ExtPeriod)
-      return(0);
+   if(prev_calculated == 0)
+     {
+      UpdateRegressionChannel();
+     }
 
-//--- Check if a new bar has appeared ---
    datetime last_bar_time = time[rates_total - 1];
    if(last_bar_time > g_last_update_time)
      {
-      UpdateRegressionChannel(rates_total, time);
+      UpdateRegressionChannel();
       g_last_update_time = last_bar_time;
      }
 
@@ -79,13 +92,14 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 //| Updates the position and properties of the regression channel.   |
 //+------------------------------------------------------------------+
-void UpdateRegressionChannel(int rates_total, const datetime &time[])
+void UpdateRegressionChannel()
   {
-// Define the start and end time for the channel
-   datetime time1 = time[rates_total - g_ExtPeriod];
-   datetime time2 = time[rates_total - 1];
+   if(Bars(_Symbol, _Period) < g_ExtPeriod)
+      return;
 
-// Check if the object exists. If not, create it.
+   datetime time1 = iTime(_Symbol, _Period, g_ExtPeriod - 1);
+   datetime time2 = iTime(_Symbol, _Period, 0);
+
    if(ObjectFind(0, g_channel_name) < 0)
      {
       if(!ObjectCreate(0, g_channel_name, OBJ_REGRESSION, 0, time1, 0, time2, 0))
@@ -94,18 +108,24 @@ void UpdateRegressionChannel(int rates_total, const datetime &time[])
          return;
         }
 
-      // Set visual properties only once on creation
       ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, clrRed);
       ObjectSetInteger(0, g_channel_name, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetDouble(0, g_channel_name, OBJPROP_DEVIATION, g_ExtDeviations);
       ObjectSetInteger(0, g_channel_name, OBJPROP_FILL, false);
-      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, false); // Do not extend to the right
       ObjectSetInteger(0, g_channel_name, OBJPROP_SELECTABLE, false);
+
+      // --- FIX: Set ray properties on creation based on inputs ---
+      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
+      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
      }
-   else // If it exists, just move its time coordinates
+   else
      {
       ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 0, time1);
       ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 1, time2);
+      // --- FIX: Also update ray properties on subsequent updates ---
+      // This allows the user to change them in the indicator properties window
+      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
+      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
      }
 
    ChartRedraw();
