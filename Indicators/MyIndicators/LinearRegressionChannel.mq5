@@ -5,14 +5,14 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.02" // Removed non-functional Deviation parameter
-#property description "Draws a clean Linear Regression Channel using the built-in object."
+#property version   "1.00" // Final version using OBJ_REGRESSION
+#property description "Draws a Linear Regression Channel where width is based on max deviation."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
 
 //--- Input Parameters ---
-input int  InpRegressionPeriod = 100;   // The number of bars to calculate the channel on
+input int  InpRegressionPeriod = 100;   // Period for the regression calculation
 input group "Channel Extensions"
 input bool InpRayRight         = false; // Extend channel to the right
 input bool InpRayLeft          = false; // Extend channel to the left
@@ -54,7 +54,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   UpdateRegressionChannel();
+   UpdateChannel();
   }
 
 //+------------------------------------------------------------------+
@@ -77,7 +77,7 @@ int OnCalculate(const int rates_total,
    datetime last_bar_time = time[rates_total - 1];
    if(last_bar_time > g_last_update_time)
      {
-      UpdateRegressionChannel();
+      UpdateChannel();
       g_last_update_time = last_bar_time;
      }
 
@@ -87,7 +87,7 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 //| Updates the position and properties of the regression channel.   |
 //+------------------------------------------------------------------+
-void UpdateRegressionChannel()
+void UpdateChannel()
   {
    if(Bars(_Symbol, _Period) < g_ExtPeriod)
       return;
@@ -104,20 +104,17 @@ void UpdateRegressionChannel()
         }
 
       // Set visual properties only once on creation
-      ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, g_channel_name, OBJPROP_COLOR, clrGreen);
       ObjectSetInteger(0, g_channel_name, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, g_channel_name, OBJPROP_FILL, false);
       ObjectSetInteger(0, g_channel_name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
-      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
      }
-   else
-     {
-      ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 0, time1);
-      ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 1, time2);
-      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
-      ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
-     }
+
+// Update properties on every call
+   ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 0, time1);
+   ObjectSetInteger(0, g_channel_name, OBJPROP_TIME, 1, time2);
+   ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_RIGHT, InpRayRight);
+   ObjectSetInteger(0, g_channel_name, OBJPROP_RAY_LEFT, InpRayLeft);
 
    ChartRedraw();
   }
