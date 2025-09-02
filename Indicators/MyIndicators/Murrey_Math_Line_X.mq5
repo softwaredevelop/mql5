@@ -390,19 +390,19 @@ enum enum_side { Left, Right };
 input enum_side InpLabelSide = Left;
 
 input group "Line Colors"
-input color InpClr_m2_8 = clrSilver;
-input color InpClr_m1_8 = clrSilver;
-input color InpClr_0_8  = clrSilver;
-input color InpClr_1_8  = clrSilver;
-input color InpClr_2_8  = clrSilver;
-input color InpClr_3_8  = clrSilver;
-input color InpClr_4_8  = clrSilver;
-input color InpClr_5_8  = clrSilver;
-input color InpClr_6_8  = clrSilver;
-input color InpClr_7_8  = clrSilver;
-input color InpClr_8_8  = clrSilver;
-input color InpClr_p1_8 = clrSilver;
-input color InpClr_p2_8 = clrSilver;
+input color InpClr_m2_8 = clrDimGray;      // Extreme Overshoot
+input color InpClr_m1_8 = clrDimGray;      // Overshoot
+input color InpClr_0_8  = clrDarkOrange;   // Ultimate Support
+input color InpClr_1_8  = clrGoldenrod;    // Weak Reverse
+input color InpClr_2_8  = clrFireBrick;    // Strong Pivot Reverse
+input color InpClr_3_8  = clrSeaGreen;     // Bottom of Range
+input color InpClr_4_8  = clrRoyalBlue;    // Major Pivot
+input color InpClr_5_8  = clrSeaGreen;     // Top of Range
+input color InpClr_6_8  = clrFireBrick;    // Strong Pivot Reverse
+input color InpClr_7_8  = clrGoldenrod;    // Weak Reverse
+input color InpClr_8_8  = clrDarkOrange;   // Ultimate Resistance
+input color InpClr_p1_8 = clrDimGray;      // Overshoot
+input color InpClr_p2_8 = clrDimGray;      // Extreme Overshoot
 
 input group "Line Widths"
 input int InpWdth_m2_8 = 1;
