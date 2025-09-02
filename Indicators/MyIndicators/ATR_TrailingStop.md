@@ -6,6 +6,8 @@ The ATR Trailing Stop, also widely known as the Chandelier Exit, is a volatility
 
 The indicator calculates a stop-loss level by measuring the market's recent volatility (using the Average True Range - ATR) and placing the stop a certain multiple of that volatility away from the recent price extreme. Its name, "Chandelier Exit," comes from the idea of hanging the stop-loss from the "chandelier" of the highest high (for long positions) or lowest low (for short positions) of the trend.
 
+**This implementation is fully Multi-Timeframe (MTF) capable, allowing it to display a stable, higher-timeframe stop level on any lower-timeframe chart, providing a structural, volatility-based map for trade management.**
+
 ## 2. Mathematical Foundations and Calculation Logic
 
 The indicator uses the highest high or lowest low over a period as an anchor and then subtracts or adds a multiple of the ATR to create the trailing stop level.
@@ -14,7 +16,7 @@ The indicator uses the highest high or lowest low over a period as an anchor and
 
 - **ATR Period (N):** The lookback period for all calculations (ATR, Highest High, Lowest Low).
 - **ATR Multiplier (M):** The factor by which the ATR is multiplied to determine the stop distance.
-- **Price Data:** The `High`, `Low`, and `Close` of each bar.
+- **Price Data:** The `High`, `Low`, and `Close` of each bar **from the selected timeframe**.
 
 ### Calculation Steps (Algorithm)
 
@@ -42,33 +44,37 @@ The indicator uses the highest high or lowest low over a period as an anchor and
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation is a self-contained, robust, and accurate representation of the Chandelier Exit.
+Our MQL5 implementation is a self-contained, robust, and accurate representation of the Chandelier Exit, built with a modern, object-oriented, and multi-timeframe architecture.
 
-- **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within the `OnCalculate` function. For a state-dependent indicator like this, it is the most reliable method to ensure stability.
+- **Self-Contained Object-Oriented Design:** The entire calculation logic is encapsulated within a dedicated `CATR_TrailingStop_Calculator` class. This class is responsible for all aspects of the calculation, from data retrieval to the final stop value computation, completely separating the complex algorithm from the indicator's main `OnCalculate` event handler.
+
+- **Robust MTF Implementation:** The indicator is designed from the ground up for stable Multi-Timeframe functionality.
+
+  - The `CATR_TrailingStop_Calculator` class uses the standard `CopyHigh()`, `CopyLow()`, and `CopyClose()` functions to fetch a complete history from the user-specified `InpUpperTimeframe`.
+  - The `OnCalculate` function intelligently detects when a **new bar has formed on the higher timeframe**. A full, resource-intensive recalculation of the entire stop line history is performed **only** at this moment.
+  - The calculated higher-timeframe values are then "mapped" onto the current chart's timeline, creating the characteristic "stepped" appearance of an MTF indicator. This ensures maximum performance and stability.
+
+- **Stability via Full Recalculation:** We employ a "brute-force" full recalculation of the entire history on every new higher-timeframe bar. For a state-dependent, recursive indicator like this, it is the most reliable method to ensure perfect accuracy and eliminate the risk of calculation errors or visual glitches.
 
 - **Consensus Wilder Algorithm:** The ATR calculation strictly follows our established two-step algorithm for Wilder's smoothing (manual SMA for initialization, followed by the recursive formula), ensuring consistency with our other indicators and the global standard (e.g., TradingView).
 
-- **Clear, Staged Calculation:** The `OnCalculate` function is structured into clear, sequential steps, each handled by a dedicated `for` loop. This improves code readability and makes the complex logic easy to follow:
-
-  1. **Step 1:** The True Range is calculated.
-  2. **Step 2:** The ATR is calculated from the True Range values.
-  3. **Step 3:** The raw `Long Stop` and `Short Stop` levels are calculated.
-  4. **Step 4:** The final loop determines the trend and applies the "trailing" logic to plot the final stop line.
-
-- **Visual Representation:** The implementation ensures that trend changes are represented by a clean, vertical line connecting the old and new trend lines, providing continuous visual information.
-
-- **Heikin Ashi Variant (`ATR_TrailingStop_HeikinAshi.mq5`):**
-  - Our toolkit also includes a "pure" Heikin Ashi version. The calculation logic is identical, but it uses the smoothed Heikin Ashi `ha_high`, `ha_low`, and `ha_close` values for all its inputs (ATR, Highest/Lowest price, and trend-flip condition).
-  - This results in a smoother trailing stop that is less susceptible to being triggered by the "noise" of standard candlesticks, making it well-suited for Heikin Ashi-based trend-following strategies.
+- **Heikin Ashi Variants (`..._HeikinAshi_MTF.mq5`):**
+  - Our toolkit also includes a "pure" Heikin Ashi version. The `CATR_TrailingStop_HA_Calculator` class first fetches the standard OHLC data from the higher timeframe and then uses our `CHeikinAshi_Calculator` to transform it into a complete Heikin Ashi dataset.
+  - The entire ATR Trailing Stop algorithm is then performed on these smoothed **Heikin Ashi `ha_high`, `ha_low`, and `ha_close` values**.
+  - This results in a smoother trailing stop that is less susceptible to being triggered by noise, making it well-suited for Heikin Ashi-based trend-following strategies, especially when viewed from a higher-timeframe perspective.
 
 ## 4. Parameters
 
-- **ATR Period (`InpAtrPeriod`):** The lookback period for the ATR and the Highest High / Lowest Low calculations. A longer period results in a smoother, slower-reacting stop. Default is `22`.
-- **Multiplier (`InpMultiplier`):** The factor to multiply the ATR by. A larger multiplier places the stop further from the price, allowing for more room for pullbacks but resulting in a larger potential loss if the stop is hit. A smaller multiplier keeps the stop tighter. Common values range from 2.5 to 3.5. Default is `3.0`.
+- **`InpUpperTimeframe`**: **The timeframe on which the ATR and all calculations are performed. Setting this to a higher timeframe (e.g., `PERIOD_H1`) will display the stable H1-based stop line on any lower timeframe chart (e.g., M15). `PERIOD_CURRENT` uses the chart's own timeframe. Default is `PERIOD_H1`.**
+- **`InpAtrPeriod`**: The lookback period for the ATR and the Highest High / Lowest Low calculations on the selected timeframe. A longer period results in a smoother, slower-reacting stop. Default is `22`.
+- **`InpMultiplier`**: The factor to multiply the ATR by. A larger multiplier places the stop further from the price, allowing for more room for pullbacks but resulting in a larger potential loss if the stop is hit. A smaller multiplier keeps the stop tighter. Common values range from 2.5 to 3.5. Default is `3.0`.
 
 ## 5. Usage and Interpretation
 
 - **Trailing Stop-Loss:** The primary use of the indicator is as a dynamic, volatility-adjusted trailing stop-loss. In an uptrend, the blue line represents the suggested stop level. In a downtrend, the red line represents the suggested stop level.
-- **Trend Identification:** The color and position of the line provide a clear indication of the trend. A blue line below the price indicates an uptrend; a red line above the price indicates a downtrend.
+- **Trend Identification:** The color and position of the line provide a clear indication of the trend on the **selected timeframe**. A blue line below the price indicates an uptrend; a red line above the price indicates a downtrend.
 - **Exit Signal:** The primary signal is for exiting a trade. A long position would be closed when the price closes below the blue line. A short position would be closed when the price closes above the red line.
+- **Using MTF for Strategy:** By setting `InpUpperTimeframe` to a higher timeframe (e.g., H1 on an M15 chart), the stop line becomes a structural guide. It will not react to the M15 chart's "noise," only to the volatility and trend changes on the H1 timeframe. This is extremely useful for:
+  - **Staying in major trends** without being stopped out by minor intraday pullbacks.
+  - Identifying **strong support/resistance zones** based on higher-timeframe volatility.
 - **Caution:** The Chandelier Exit is an excellent tool for letting profits run in a strong trend. However, in sideways or choppy markets, it can lead to being stopped out prematurely. It is most effective when used to manage trades within an already identified, strong trend.
