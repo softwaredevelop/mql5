@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00"
+#property version   "3.01"
 #property description "MESA Adaptive Moving Average (MAMA) and FAMA by John Ehlers."
 #property description "Based on the official MotiveWave pseudo-code."
 
@@ -35,7 +35,6 @@ input double             InpSlowLimit   = 0.05;        // Slow Limit
 //--- Indicator Buffers ---
 double    BufferMAMA[];
 double    BufferFAMA[];
-double    BufferPrice[];
 
 //--- Global calculator object ---
 CMESACalculator *g_calculator;
@@ -75,55 +74,23 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 //| Custom indicator iteration function.                             |
 //+------------------------------------------------------------------+
-int OnCalculate(const int, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
-   int rates_total = ArraySize(close);
-   ArrayResize(BufferPrice, rates_total);
-   if(PriceSeries(InpSourcePrice, rates_total, open, high, low, close, BufferPrice) <= 0)
-      return 0;
-
    if(CheckPointer(g_calculator) != POINTER_INVALID)
      {
-      g_calculator.Calculate(rates_total, BufferPrice, BufferMAMA, BufferFAMA);
+      //--- Corrected: Pass all required parameters to the Calculate method
+      g_calculator.Calculate(rates_total, InpSourcePrice, open, high, low, close, BufferMAMA, BufferFAMA);
      }
    return(rates_total);
-  }
-
-//+------------------------------------------------------------------+
-//| Helper function to get the selected price series.                |
-//+------------------------------------------------------------------+
-int PriceSeries(ENUM_APPLIED_PRICE type, int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], double &dest_buffer[])
-  {
-   switch(type)
-     {
-      case PRICE_CLOSE:
-         ArrayCopy(dest_buffer, close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(dest_buffer, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(dest_buffer, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(dest_buffer, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            dest_buffer[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            dest_buffer[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            dest_buffer[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
-         break;
-      default:
-         return 0;
-     }
-   return rates_total;
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
