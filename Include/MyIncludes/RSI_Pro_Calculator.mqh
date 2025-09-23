@@ -9,7 +9,7 @@
 
 //+==================================================================+
 //|                                                                  |
-//|             CLASS 1: CRSIProCalculator (Standard)                |
+//|             CLASS 1: CRSIProCalculator (Base Class)              |
 //|                                                                  |
 //+==================================================================+
 class CRSIProCalculator
@@ -215,7 +215,6 @@ bool CRSIProCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRIC
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-//--- The HA version ALWAYS uses the HA Close price for the RSI calculation
    ArrayCopy(m_price, ha_close, 0, 0, rates_total);
    return true;
   }
