@@ -4,8 +4,9 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00"
-#property description "A professional RSI with a choice of a flexible MA signal line or Bollinger Bands."
+#property version   "3.00"
+#property description "A professional, unified RSI with selectable price source (incl. Heikin Ashi),"
+#property description "a flexible MA signal line, and optional Bollinger Bands."
 
 #property indicator_separate_window
 #property indicator_buffers 4
@@ -48,10 +49,23 @@ enum ENUM_DISPLAY_MODE
    DISPLAY_RSI_AND_BANDS
   };
 
+//--- Custom Enum for Price Source, including Heikin Ashi
+enum ENUM_APPLIED_PRICE_HA
+  {
+   PRICE_HA_CLOSE = -1, // Heikin Ashi Close
+   PRICE_CLOSE_STD = PRICE_CLOSE,
+   PRICE_OPEN_STD = PRICE_OPEN,
+   PRICE_HIGH_STD = PRICE_HIGH,
+   PRICE_LOW_STD = PRICE_LOW,
+   PRICE_MEDIAN_STD = PRICE_MEDIAN,
+   PRICE_TYPICAL_STD = PRICE_TYPICAL,
+   PRICE_WEIGHTED_STD = PRICE_WEIGHTED
+  };
+
 //--- Input Parameters ---
 input group "RSI Settings"
-input int                InpPeriodRSI    = 14;
-input ENUM_APPLIED_PRICE InpSourcePrice  = PRICE_CLOSE;
+input int                    InpPeriodRSI    = 14;
+input ENUM_APPLIED_PRICE_HA  InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group "Overlay Settings"
 input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_RSI_AND_BANDS;
@@ -62,7 +76,7 @@ input double             InpBandsDev     = 2.0;
 //--- Indicator Buffers ---
 double    BufferRSI[], BufferSignalMA[], BufferUpperBand[], BufferLowerBand[];
 
-//--- Global calculator object ---
+//--- Global calculator object (as a base class pointer) ---
 CRSIProCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -80,7 +94,18 @@ int OnInit()
    ArraySetAsSeries(BufferUpperBand, false);
    ArraySetAsSeries(BufferLowerBand, false);
 
-   g_calculator = new CRSIProCalculator();
+//--- Dynamic Calculator Instantiation ---
+   if(InpSourcePrice == PRICE_HA_CLOSE)
+     {
+      g_calculator = new CRSIProCalculator_HA();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSI Pro HA(%d)", InpPeriodRSI));
+     }
+   else
+     {
+      g_calculator = new CRSIProCalculator();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSI Pro(%d)", InpPeriodRSI));
+     }
+
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
       !g_calculator.Init(InpPeriodRSI, InpPeriodMA, InpMethodMA, InpBandsDev))
      {
@@ -93,8 +118,6 @@ int OnInit()
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, draw_begin);
-
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSI Pro(%d)", InpPeriodRSI));
 
    return(INIT_SUCCEEDED);
   }
@@ -115,7 +138,8 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
      {
-      g_calculator.Calculate(rates_total, InpSourcePrice, open, high, low, close,
+      //--- The calculator will handle the price source internally
+      g_calculator.Calculate(rates_total, (ENUM_APPLIED_PRICE)InpSourcePrice, open, high, low, close,
                              BufferRSI, BufferSignalMA, BufferUpperBand, BufferLowerBand);
 
       for(int i = 0; i < rates_total; i++)
