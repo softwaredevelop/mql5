@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00"
 #property description "Trader's Dynamic Index (TDI) - The Market in One Window"
 
 #property indicator_separate_window
@@ -16,6 +16,8 @@
 #property indicator_level2 50.0
 #property indicator_level3 68.0
 #property indicator_levelstyle STYLE_DOT
+
+#include <MyIncludes\TDI_Calculator.mqh>
 
 //--- Plot 1: RSI Price Line (Fast)
 #property indicator_label1  "Price Line"
@@ -53,162 +55,15 @@
 #property indicator_width5  1
 
 //--- Input Parameters ---
-input int    InpRsiPeriod      = 13;    // RSI Period
-input int    InpPriceLinePeriod  = 2;     // RSI Price Line (Fast MA)
-input int    InpSignalLinePeriod = 7;     // Trade Signal Line (Slow MA)
-input int    InpBaseLinePeriod   = 34;    // Market Base Line (Trend MA)
-input double InpBandsDeviation   = 1.618; // Volatility Bands Deviation
-input ENUM_APPLIED_PRICE InpSourcePrice = PRICE_CLOSE; // Source Price
+input int    InpRsiPeriod      = 13;
+input int    InpPriceLinePeriod  = 2;
+input int    InpSignalLinePeriod = 7;
+input int    InpBaseLinePeriod   = 34;
+input double InpBandsDeviation   = 1.618;
+input ENUM_APPLIED_PRICE InpSourcePrice = PRICE_CLOSE;
 
 //--- Indicator Buffers ---
-double    BufferPriceLine[];
-double    BufferSignalLine[];
-double    BufferBaseLine[];
-double    BufferUpperBand[];
-double    BufferLowerBand[];
-
-//+------------------------------------------------------------------+
-//| CLASS: CTDICalculator                                            |
-//| Encapsulates the entire multi-stage TDI calculation.             |
-//+------------------------------------------------------------------+
-class CTDICalculator
-  {
-private:
-   //--- Parameters
-   int               m_rsi_period;
-   int               m_price_period;
-   int               m_signal_period;
-   int               m_base_period;
-   double            m_std_dev;
-
-   //--- Internal calculation buffers
-   double            m_rsi_buffer[];
-   double            m_price_line[];
-   double            m_signal_line[];
-   double            m_base_line[];
-   double            m_upper_band[];
-   double            m_lower_band[];
-
-   //--- Helper for SMA calculation
-   double            CalculateSMA(int position, int period, const double &source_buffer[]);
-
-public:
-                     CTDICalculator(void) {};
-                    ~CTDICalculator(void) {};
-
-   bool              Init(int rsi_p, int price_p, int signal_p, int base_p, double dev);
-   void              Calculate(int rates_total, const double &price[],
-                  double &price_line_out[], double &signal_line_out[], double &base_line_out[],
-                  double &upper_band_out[], double &lower_band_out[]);
-  };
-
-//+------------------------------------------------------------------+
-//| CTDICalculator: Initialization                                   |
-//+------------------------------------------------------------------+
-bool CTDICalculator::Init(int rsi_p, int price_p, int signal_p, int base_p, double dev)
-  {
-   m_rsi_period = (rsi_p < 1) ? 1 : rsi_p;
-   m_price_period = (price_p < 1) ? 1 : price_p;
-   m_signal_period = (signal_p < 1) ? 1 : signal_p;
-   m_base_period = (base_p < 1) ? 1 : base_p;
-   m_std_dev = (dev <= 0) ? 1.618 : dev;
-   return true;
-  }
-
-//+------------------------------------------------------------------+
-//| CTDICalculator: Main Calculation Method                          |
-//+------------------------------------------------------------------+
-void CTDICalculator::Calculate(int rates_total, const double &price[],
-                               double &price_line_out[], double &signal_line_out[], double &base_line_out[],
-                               double &upper_band_out[], double &lower_band_out[])
-  {
-   if(rates_total <= m_rsi_period)
-      return;
-
-//--- Resize all internal buffers
-   ArrayResize(m_rsi_buffer, rates_total);
-   ArrayResize(m_price_line, rates_total);
-   ArrayResize(m_signal_line, rates_total);
-   ArrayResize(m_base_line, rates_total);
-   ArrayResize(m_upper_band, rates_total);
-   ArrayResize(m_lower_band, rates_total);
-
-//--- Step 1: Calculate base RSI (Wilder's smoothing)
-   double sum_pos = 0, sum_neg = 0;
-   for(int i = 1; i < rates_total; i++)
-     {
-      double diff = price[i] - price[i-1];
-      sum_pos = (sum_pos * (m_rsi_period - 1) + (diff > 0 ? diff : 0)) / m_rsi_period;
-      sum_neg = (sum_neg * (m_rsi_period - 1) + (diff < 0 ? -diff : 0)) / m_rsi_period;
-
-      if(i > m_rsi_period) // Start calculation after initial smoothing
-        {
-         if(sum_neg > 0)
-           {
-            double rs = sum_pos / sum_neg;
-            m_rsi_buffer[i] = 100.0 - (100.0 / (1.0 + rs));
-           }
-         else
-           {
-            m_rsi_buffer[i] = 100.0;
-           }
-        }
-     }
-
-//--- Step 2: Calculate RSI Price Line (Green)
-   for(int i = m_rsi_period + m_price_period; i < rates_total; i++)
-     {
-      m_price_line[i] = CalculateSMA(i, m_price_period, m_rsi_buffer);
-     }
-
-//--- Step 3: Calculate Trade Signal Line (Red)
-   for(int i = m_rsi_period + m_price_period + m_signal_period; i < rates_total; i++)
-     {
-      m_signal_line[i] = CalculateSMA(i, m_signal_period, m_price_line);
-     }
-
-//--- Step 4: Calculate Market Base Line (Yellow)
-   for(int i = m_rsi_period + m_price_period + m_base_period; i < rates_total; i++)
-     {
-      m_base_line[i] = CalculateSMA(i, m_base_period, m_price_line);
-     }
-
-//--- Step 5: Calculate Volatility Bands (Blue)
-   for(int i = m_rsi_period + m_price_period + m_base_period; i < rates_total; i++)
-     {
-      double std_dev_val = 0;
-      double sum_sq = 0;
-      for(int j = 0; j < m_base_period; j++)
-        {
-         sum_sq += pow(m_price_line[i-j] - m_base_line[i], 2);
-        }
-      std_dev_val = sqrt(sum_sq / m_base_period);
-
-      m_upper_band[i] = m_base_line[i] + m_std_dev * std_dev_val;
-      m_lower_band[i] = m_base_line[i] - m_std_dev * std_dev_val;
-     }
-
-//--- Copy final results to the output buffers
-   ArrayCopy(price_line_out, m_price_line, 0, 0, rates_total);
-   ArrayCopy(signal_line_out, m_signal_line, 0, 0, rates_total);
-   ArrayCopy(base_line_out, m_base_line, 0, 0, rates_total);
-   ArrayCopy(upper_band_out, m_upper_band, 0, 0, rates_total);
-   ArrayCopy(lower_band_out, m_lower_band, 0, 0, rates_total);
-  }
-
-//+------------------------------------------------------------------+
-//| Helper to calculate SMA on an internal buffer                    |
-//+------------------------------------------------------------------+
-double CTDICalculator::CalculateSMA(int position, int period, const double &source_buffer[])
-  {
-   double sum = 0;
-   for(int i = 0; i < period; i++)
-     {
-      sum += source_buffer[position - i];
-     }
-   return (period > 0) ? sum / period : 0;
-  }
-
+double    BufferPriceLine[], BufferSignalLine[], BufferBaseLine[], BufferUpperBand[], BufferLowerBand[];
 
 //--- Global calculator object ---
 CTDICalculator *g_calculator;
@@ -239,11 +94,8 @@ int OnInit()
      }
 
    int draw_begin = InpRsiPeriod + InpPriceLinePeriod + InpBaseLinePeriod;
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
-   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
-   PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, draw_begin);
-   PlotIndexSetInteger(4, PLOT_DRAW_BEGIN, draw_begin);
+   for(int i=0; i<5; i++)
+      PlotIndexSetInteger(i, PLOT_DRAW_BEGIN, draw_begin);
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TDI(%d)", InpRsiPeriod));
 
@@ -266,8 +118,8 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
      {
-      //--- The TDI is always calculated on the Close price
-      g_calculator.Calculate(rates_total, close, BufferPriceLine, BufferSignalLine, BufferBaseLine, BufferUpperBand, BufferLowerBand);
+      g_calculator.Calculate(rates_total, InpSourcePrice, open, high, low, close,
+                             BufferPriceLine, BufferSignalLine, BufferBaseLine, BufferUpperBand, BufferLowerBand);
      }
    return(rates_total);
   }
