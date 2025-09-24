@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00"
+#property version   "3.10"
 #property description "A professional, unified RSI with selectable price source (incl. Heikin Ashi),"
 #property description "a flexible MA signal line, and optional Bollinger Bands."
 
@@ -50,9 +50,17 @@ enum ENUM_DISPLAY_MODE
   };
 
 //--- Custom Enum for Price Source, including Heikin Ashi
-enum ENUM_APPLIED_PRICE_HA
+enum ENUM_APPLIED_PRICE_HA_ALL
   {
-   PRICE_HA_CLOSE = -1, // Heikin Ashi Close
+//--- Heikin Ashi Prices
+   PRICE_HA_CLOSE = -1,
+   PRICE_HA_OPEN = -2,
+   PRICE_HA_HIGH = -3,
+   PRICE_HA_LOW = -4,
+   PRICE_HA_MEDIAN = -5,
+   PRICE_HA_TYPICAL = -6,
+   PRICE_HA_WEIGHTED = -7,
+//--- Standard Prices
    PRICE_CLOSE_STD = PRICE_CLOSE,
    PRICE_OPEN_STD = PRICE_OPEN,
    PRICE_HIGH_STD = PRICE_HIGH,
@@ -64,8 +72,8 @@ enum ENUM_APPLIED_PRICE_HA
 
 //--- Input Parameters ---
 input group "RSI Settings"
-input int                    InpPeriodRSI    = 14;
-input ENUM_APPLIED_PRICE_HA  InpSourcePrice  = PRICE_CLOSE_STD;
+input int                      InpPeriodRSI    = 14;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group "Overlay Settings"
 input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_RSI_AND_BANDS;
@@ -95,7 +103,7 @@ int OnInit()
    ArraySetAsSeries(BufferLowerBand, false);
 
 //--- Dynamic Calculator Instantiation ---
-   if(InpSourcePrice == PRICE_HA_CLOSE)
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CRSIProCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSI Pro HA(%d)", InpPeriodRSI));
@@ -138,8 +146,13 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
      {
-      //--- The calculator will handle the price source internally
-      g_calculator.Calculate(rates_total, (ENUM_APPLIED_PRICE)InpSourcePrice, open, high, low, close,
+      ENUM_APPLIED_PRICE price_type;
+      if(InpSourcePrice <= PRICE_HA_CLOSE)
+         price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+      else
+         price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+      g_calculator.Calculate(rates_total, price_type, open, high, low, close,
                              BufferRSI, BufferSignalMA, BufferUpperBand, BufferLowerBand);
 
       for(int i = 0; i < rates_total; i++)
