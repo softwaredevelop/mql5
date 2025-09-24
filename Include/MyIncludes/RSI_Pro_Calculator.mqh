@@ -215,7 +215,36 @@ bool CRSIProCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRIC
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-   ArrayCopy(m_price, ha_close, 0, 0, rates_total);
+//--- Corrected: The HA version now uses the selected price type from the HA candles
+   switch(price_type)
+     {
+      case PRICE_CLOSE:
+         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
+         break;
+      case PRICE_OPEN:
+         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
+         break;
+      case PRICE_HIGH:
+         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
+         break;
+      case PRICE_LOW:
+         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
+         break;
+      case PRICE_MEDIAN:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
+         break;
+      case PRICE_TYPICAL:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
+         break;
+      case PRICE_WEIGHTED:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i]+ha_close[i])/4.0;
+         break;
+      default:
+         return false;
+     }
    return true;
   }
 //+------------------------------------------------------------------+
