@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.01" // Corrected calculator logic and draw begin
+#property version   "3.02" // Final unified architecture
 #property description "Professional Commodity Channel Index (CCI) with a signal line and"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -89,7 +89,8 @@ int OnInit()
      }
    else // Standard price source selected
      {
-      g_calculator = new CCCI_Calculator();
+      //--- CORRECTED: Instantiate the concrete class, not the abstract one
+      g_calculator = new CCCI_Calculator_Std();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CCI(%d, %d)", InpCCIPeriod, InpMAPeriod));
      }
 
@@ -101,7 +102,6 @@ int OnInit()
      }
 
 //--- Set indicator display properties
-//--- CORRECTED: The first CCI value is at (period-1), the first signal value is at (period-1 + ma_period-1)
    int cci_draw_begin = InpCCIPeriod - 1;
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, cci_draw_begin);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, cci_draw_begin + InpMAPeriod - 1);
