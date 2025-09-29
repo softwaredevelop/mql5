@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.00"
+#property version   "2.01" // Final unified architecture
 #property description "CCI Oscillator (Histogram of CCI vs Signal Line) with selectable"
 #property description "price source (Standard and Heikin Ashi)."
 
@@ -74,7 +74,8 @@ int OnInit()
      }
    else // Standard price source selected
      {
-      g_calculator = new CCCI_OscillatorCalculator();
+      //--- CORRECTED: Instantiate the concrete class, not the abstract one
+      g_calculator = new CCCI_OscillatorCalculator_Std();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CCI Osc(%d, %d)", InpCCIPeriod, InpMAPeriod));
      }
 
