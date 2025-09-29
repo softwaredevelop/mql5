@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.00"
+#property version   "3.01" // Final unified architecture
 #property description "Professional Cutler's RSI (SMA-based) with a signal line and"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -92,7 +92,7 @@ int OnInit()
      }
    else // Standard price source selected
      {
-      g_calculator = new CCutlerRSICalculator();
+      g_calculator = new CCutlerRSICalculator_Std();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CutlerRSI(%d,%d)", InpPeriodRSI, InpPeriodMA));
      }
 
