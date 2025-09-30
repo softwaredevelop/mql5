@@ -1,13 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                         LinearRegression_Pro.mq5 |
-//|                      Copyright 2025, xxxxxxxx                    |
+//|                                          Copyright 2025, xxxxxxxx|
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.01" // Corrected price sourcing, removed non-existent function
-#property description "A flexible, manually calculated Linear Regression Channel."
-#property description "Updates only on new bars for efficiency."
+#property version   "2.00"
+#property description "Professional, manually calculated Linear Regression Channel with"
+#property description "selectable price source (Standard and Heikin Ashi)."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_chart_window
@@ -32,18 +32,35 @@
 #property indicator_color3  clrRed
 #property indicator_style3  STYLE_SOLID
 
-//--- Enum for Channel Calculation Mode ---
-enum ENUM_CHANNEL_MODE
+//--- Include the calculator engine ---
+#include <MyIncludes\LinearRegression_Calculator.mqh>
+
+//--- Custom Enum for Price Source, including Heikin Ashi ---
+enum ENUM_APPLIED_PRICE_HA_ALL
   {
-   DEVIATION_STANDARD, // Channel width based on Standard Deviation
-   DEVIATION_MAXIMUM   // Channel width based on Maximum Deviation
+//--- Heikin Ashi Prices (negative values for easy identification)
+   PRICE_HA_CLOSE    = -1,
+   PRICE_HA_OPEN     = -2,
+   PRICE_HA_HIGH     = -3,
+   PRICE_HA_LOW      = -4,
+   PRICE_HA_MEDIAN   = -5,
+   PRICE_HA_TYPICAL  = -6,
+   PRICE_HA_WEIGHTED = -7,
+//--- Standard Prices (using built-in ENUM_APPLIED_PRICE values)
+   PRICE_CLOSE_STD   = PRICE_CLOSE,
+   PRICE_OPEN_STD    = PRICE_OPEN,
+   PRICE_HIGH_STD    = PRICE_HIGH,
+   PRICE_LOW_STD     = PRICE_LOW,
+   PRICE_MEDIAN_STD  = PRICE_MEDIAN,
+   PRICE_TYPICAL_STD = PRICE_TYPICAL,
+   PRICE_WEIGHTED_STD= PRICE_WEIGHTED
   };
 
 //--- Input Parameters ---
-input int                InpRegressionPeriod = 100;
-input ENUM_APPLIED_PRICE InpAppliedPrice     = PRICE_CLOSE;
-input ENUM_CHANNEL_MODE  InpChannelMode      = DEVIATION_STANDARD;
-input double             InpDeviations       = 2.0;     // Deviations (for Standard Deviation mode)
+input int                       InpRegressionPeriod = 100;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice      = PRICE_CLOSE_STD;
+input ENUM_CHANNEL_MODE         InpChannelMode      = DEVIATION_STANDARD;
+input double                    InpDeviations       = 2.0;
 
 //--- Indicator Buffers ---
 double    BufferUpper[];
@@ -51,35 +68,51 @@ double    BufferLower[];
 double    BufferMiddle[];
 
 //--- Global Variables ---
-int       g_ExtPeriod;
-double    g_ExtDeviations;
-datetime  g_last_update_time;
-
-//--- Forward declarations ---
-double GetPrice(int index, ENUM_APPLIED_PRICE type, const double &open[], const double &high[], const double &low[], const double &close[]);
-void CalculateChannel(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
+datetime                  g_last_update_time;
+CLinearRegressionCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_ExtPeriod      = (InpRegressionPeriod < 2) ? 2 : InpRegressionPeriod;
-   g_ExtDeviations  = (InpDeviations <= 0) ? 2.0 : InpDeviations;
    g_last_update_time = 0;
 
    SetIndexBuffer(0, BufferUpper,  INDICATOR_DATA);
    SetIndexBuffer(1, BufferLower,  INDICATOR_DATA);
    SetIndexBuffer(2, BufferMiddle, INDICATOR_DATA);
-
    ArraySetAsSeries(BufferUpper,  false);
    ArraySetAsSeries(BufferLower,  false);
    ArraySetAsSeries(BufferMiddle, false);
 
-   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("LinReg Pro(%d)", g_ExtPeriod));
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+     {
+      g_calculator = new CLinearRegressionCalculator_HA();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("LinReg HA(%d)", InpRegressionPeriod));
+     }
+   else
+     {
+      g_calculator = new CLinearRegressionCalculator();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("LinReg(%d)", InpRegressionPeriod));
+     }
 
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpRegressionPeriod, InpChannelMode, InpDeviations))
+     {
+      Print("Failed to initialize Linear Regression Calculator.");
+      return(INIT_FAILED);
+     }
+
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function.                      |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   if(CheckPointer(g_calculator) != POINTER_INVALID)
+      delete g_calculator;
   }
 
 //+------------------------------------------------------------------+
@@ -96,116 +129,27 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < g_ExtPeriod)
+   if(rates_total < InpRegressionPeriod || CheckPointer(g_calculator) == POINTER_INVALID)
       return(0);
 
-//--- Update only on new bar ---
    if(time[rates_total - 1] > g_last_update_time)
      {
       ArrayInitialize(BufferUpper, EMPTY_VALUE);
       ArrayInitialize(BufferLower, EMPTY_VALUE);
       ArrayInitialize(BufferMiddle, EMPTY_VALUE);
 
-      CalculateChannel(rates_total, open, high, low, close);
+      ENUM_APPLIED_PRICE price_type;
+      if(InpSourcePrice <= PRICE_HA_CLOSE)
+         price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+      else
+         price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+      g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferMiddle, BufferUpper, BufferLower);
 
       g_last_update_time = time[rates_total - 1];
      }
 
    return(rates_total);
-  }
-
-//+------------------------------------------------------------------+
-//| Main calculation logic moved to a helper function                |
-//+------------------------------------------------------------------+
-void CalculateChannel(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   int start_index = rates_total - g_ExtPeriod;
-
-//--- STEP 1: Calculate sums for the regression formula
-   double sum_x = 0, sum_y = 0, sum_xy = 0, sum_x2 = 0;
-   for(int i = 0; i < g_ExtPeriod; i++)
-     {
-      double y = GetPrice(start_index + i, InpAppliedPrice, open, high, low, close);
-      double x = i;
-      sum_x  += x;
-      sum_y  += y;
-      sum_xy += x * y;
-      sum_x2 += x * x;
-     }
-
-//--- STEP 2: Calculate slope (b) and intercept (a)
-   double b = (g_ExtPeriod * sum_xy - sum_x * sum_y) / (g_ExtPeriod * sum_x2 - sum_x * sum_x);
-   double a = (sum_y - b * sum_x) / g_ExtPeriod;
-
-//--- STEP 3: Calculate regression values and deviation
-   double deviation_offset = 0;
-   double regression_values[];
-   ArrayResize(regression_values, g_ExtPeriod);
-
-   if(InpChannelMode == DEVIATION_STANDARD)
-     {
-      double deviation_sum_sq = 0;
-      for(int i = 0; i < g_ExtPeriod; i++)
-        {
-         regression_values[i] = a + b * i;
-         double price = GetPrice(start_index + i, InpAppliedPrice, open, high, low, close);
-         double diff = price - regression_values[i];
-         deviation_sum_sq += diff * diff;
-        }
-      double std_dev = MathSqrt(deviation_sum_sq / g_ExtPeriod);
-      deviation_offset = g_ExtDeviations * std_dev;
-     }
-   else // DEVIATION_MAXIMUM
-     {
-      double max_dev = 0;
-      for(int i = 0; i < g_ExtPeriod; i++)
-        {
-         regression_values[i] = a + b * i;
-         double price = GetPrice(start_index + i, InpAppliedPrice, open, high, low, close);
-         double dev = MathAbs(price - regression_values[i]);
-         if(dev > max_dev)
-            max_dev = dev;
-        }
-      deviation_offset = max_dev;
-     }
-
-//--- STEP 4: Fill the indicator buffers for the last N bars
-   for(int i = 0; i < g_ExtPeriod; i++)
-     {
-      int buffer_index = start_index + i;
-      BufferMiddle[buffer_index] = regression_values[i];
-      BufferUpper[buffer_index]  = regression_values[i] + deviation_offset;
-      BufferLower[buffer_index]  = regression_values[i] - deviation_offset;
-     }
-
-//--- Dynamically set the draw begin to only show the last channel
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, start_index);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, start_index);
-   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, start_index);
-  }
-
-//+------------------------------------------------------------------+
-//| Helper function to get the correct price type                    |
-//+------------------------------------------------------------------+
-double GetPrice(int index, ENUM_APPLIED_PRICE type, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   switch(type)
-     {
-      case PRICE_OPEN:
-         return open[index];
-      case PRICE_HIGH:
-         return high[index];
-      case PRICE_LOW:
-         return low[index];
-      case PRICE_MEDIAN:
-         return (high[index] + low[index]) / 2.0;
-      case PRICE_TYPICAL:
-         return (high[index] + low[index] + close[index]) / 3.0;
-      case PRICE_WEIGHTED:
-         return (high[index] + low[index] + 2*close[index]) / 4.0;
-      default:
-         return close[index];
-     }
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
