@@ -1,17 +1,18 @@
 //+------------------------------------------------------------------+
 //|                                                     MACD_Pro.mq5 |
-//|                      Copyright 2025, xxxxxxxx                    |
+//|                                          Copyright 2025, xxxxxxxx|
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "8.00" // Final robust version with explicit loops
-#property description "MACD with selectable MA types for all components"
+#property version   "9.00"
+#property description "Professional MACD with selectable MA types and price source"
+#property description "(Standard and Heikin Ashi)."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
-#property indicator_buffers 5 // Histogram, MACD Line, Signal Line, FastMA, SlowMA
-#property indicator_plots   3 // Histogram, MACD Line, Signal Line
+#property indicator_buffers 3 // Histogram, MACD Line, Signal Line
+#property indicator_plots   3
 
 //--- Plot 1: MACD Histogram
 #property indicator_label1  "Histogram"
@@ -33,67 +34,103 @@
 #property indicator_style3  STYLE_SOLID
 #property indicator_width3  1
 
+//--- Include the calculator engine ---
+#include <MyIncludes\MACD_Calculator.mqh>
+
+//--- Custom Enum for Price Source, including Heikin Ashi ---
+enum ENUM_APPLIED_PRICE_HA_ALL
+  {
+//--- Heikin Ashi Prices (negative values for easy identification)
+   PRICE_HA_CLOSE    = -1,
+   PRICE_HA_OPEN     = -2,
+   PRICE_HA_HIGH     = -3,
+   PRICE_HA_LOW      = -4,
+   PRICE_HA_MEDIAN   = -5,
+   PRICE_HA_TYPICAL  = -6,
+   PRICE_HA_WEIGHTED = -7,
+//--- Standard Prices (using built-in ENUM_APPLIED_PRICE values)
+   PRICE_CLOSE_STD   = PRICE_CLOSE,
+   PRICE_OPEN_STD    = PRICE_OPEN,
+   PRICE_HIGH_STD    = PRICE_HIGH,
+   PRICE_LOW_STD     = PRICE_LOW,
+   PRICE_MEDIAN_STD  = PRICE_MEDIAN,
+   PRICE_TYPICAL_STD = PRICE_TYPICAL,
+   PRICE_WEIGHTED_STD= PRICE_WEIGHTED
+  };
+
 //--- Input Parameters ---
-input int                InpFastPeriod   = 12;
-input int                InpSlowPeriod   = 26;
-input int                InpSignalPeriod = 9;
-input ENUM_APPLIED_PRICE InpAppliedPrice = PRICE_CLOSE;
-input ENUM_MA_METHOD     InpSourceMAType = MODE_EMA; // MA Type for Fast and Slow lines
-input ENUM_MA_METHOD     InpSignalMAType = MODE_EMA; // MA Type for Signal line
+input int                       InpFastPeriod   = 12;
+input int                       InpSlowPeriod   = 26;
+input int                       InpSignalPeriod = 9;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input ENUM_MA_METHOD            InpSourceMAType = MODE_EMA; // MA Type for Fast and Slow lines
+input ENUM_MA_METHOD            InpSignalMAType = MODE_EMA; // MA Type for Signal line
 
 //--- Indicator Buffers ---
 double    BufferMACD_Histogram[];
 double    BufferMACDLine[];
 double    BufferSignalLine[];
-double    BufferFastMA[];
-double    BufferSlowMA[];
 
-//--- Global Variables ---
-int       g_ExtFastPeriod, g_ExtSlowPeriod, g_ExtSignalPeriod;
+//--- Global calculator object (as a base class pointer) ---
+CMACDCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_ExtFastPeriod   = (InpFastPeriod < 1) ? 1 : InpFastPeriod;
-   g_ExtSlowPeriod   = (InpSlowPeriod < 1) ? 1 : InpSlowPeriod;
-   g_ExtSignalPeriod = (InpSignalPeriod < 1) ? 1 : InpSignalPeriod;
-
-   if(g_ExtFastPeriod > g_ExtSlowPeriod)
-     {
-      int temp = g_ExtFastPeriod;
-      g_ExtFastPeriod = g_ExtSlowPeriod;
-      g_ExtSlowPeriod = temp;
-     }
-
+//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferMACD_Histogram, INDICATOR_DATA);
    SetIndexBuffer(1, BufferMACDLine,       INDICATOR_DATA);
    SetIndexBuffer(2, BufferSignalLine,     INDICATOR_DATA);
-   SetIndexBuffer(3, BufferFastMA,         INDICATOR_CALCULATIONS);
-   SetIndexBuffer(4, BufferSlowMA,         INDICATOR_CALCULATIONS);
-
    ArraySetAsSeries(BufferMACD_Histogram, false);
    ArraySetAsSeries(BufferMACDLine,       false);
    ArraySetAsSeries(BufferSignalLine,     false);
-   ArraySetAsSeries(BufferFastMA,         false);
-   ArraySetAsSeries(BufferSlowMA,         false);
 
-   int macd_line_draw_begin = g_ExtSlowPeriod - 1;
-   int signal_draw_begin = g_ExtSlowPeriod + g_ExtSignalPeriod - 2;
+//--- Dynamically create the appropriate calculator instance
+   if(InpSourcePrice <= PRICE_HA_CLOSE) // Heikin Ashi source selected
+     {
+      g_calculator = new CMACDCalculator_HA();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MACD Pro HA(%d,%d,%d)", InpFastPeriod, InpSlowPeriod, InpSignalPeriod));
+     }
+   else // Standard price source selected
+     {
+      g_calculator = new CMACDCalculator();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MACD Pro(%d,%d,%d)", InpFastPeriod, InpSlowPeriod, InpSignalPeriod));
+     }
+
+//--- Check if creation was successful and initialize
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastPeriod, InpSlowPeriod, InpSignalPeriod, InpSourceMAType, InpSignalMAType))
+     {
+      Print("Failed to create or initialize MACD Calculator object.");
+      return(INIT_FAILED);
+     }
+
+//--- Set indicator display properties
+   int slow_period = MathMax(InpFastPeriod, InpSlowPeriod);
+   int macd_line_draw_begin = slow_period - 1;
+   int signal_draw_begin = slow_period + InpSignalPeriod - 2;
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, signal_draw_begin);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, macd_line_draw_begin);
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, signal_draw_begin);
-
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MACD Pro(%d,%d,%d)", g_ExtFastPeriod, g_ExtSlowPeriod, g_ExtSignalPeriod));
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-//| Moving Average Convergence/Divergence calculation function.      |
+//| Custom indicator deinitialization function.                      |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//--- Free the calculator object to prevent memory leaks
+   if(CheckPointer(g_calculator) != POINTER_INVALID)
+      delete g_calculator;
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -106,190 +143,21 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   int start_pos = g_ExtSlowPeriod + g_ExtSignalPeriod - 2;
-   if(rates_total <= start_pos)
-      return(0);
+//--- Ensure the calculator object is valid
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return 0;
 
-//--- STEP 1: Prepare the source price array
-   double price_source[];
-   ArrayResize(price_source, rates_total);
-   for(int i=0; i<rates_total; i++)
-     {
-      switch(InpAppliedPrice)
-        {
-         case PRICE_OPEN:
-            price_source[i] = open[i];
-            break;
-         case PRICE_HIGH:
-            price_source[i] = high[i];
-            break;
-         case PRICE_LOW:
-            price_source[i] = low[i];
-            break;
-         default:
-            price_source[i] = close[i];
-            break;
-        }
-     }
+//--- Convert our custom enum to the standard ENUM_APPLIED_PRICE
+   ENUM_APPLIED_PRICE price_type;
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+   else
+      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- STEP 2: Calculate Fast MA
-   for(int i = g_ExtFastPeriod - 1; i < rates_total; i++)
-     {
-      // This switch block calculates the Fast MA
-      switch(InpSourceMAType)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == g_ExtFastPeriod - 1)
-              {
-               double sum=0;
-               for(int j=0; j<g_ExtFastPeriod; j++)
-                  sum+=price_source[i-j];
-               BufferFastMA[i] = sum/g_ExtFastPeriod;
-              }
-            else
-              {
-               if(InpSourceMAType == MODE_EMA)
-                 {
-                  double pr=2.0/(g_ExtFastPeriod+1.0);
-                  BufferFastMA[i] = price_source[i]*pr + BufferFastMA[i-1]*(1.0-pr);
-                 }
-               else
-                  BufferFastMA[i] = (BufferFastMA[i-1]*(g_ExtFastPeriod-1)+price_source[i])/g_ExtFastPeriod;
-              }
-            break;
-         case MODE_LWMA:
-           {
-            double lwma_sum=0, weight_sum=0;
-            for(int j=0; j<g_ExtFastPeriod; j++)
-              {
-               int weight=g_ExtFastPeriod-j;
-               lwma_sum+=price_source[i-j]*weight;
-               weight_sum+=weight;
-              }
-            if(weight_sum>0)
-               BufferFastMA[i]=lwma_sum/weight_sum;
-           }
-         break;
-         default: // MODE_SMA
-           {
-            double sum=0;
-            for(int j=0; j<g_ExtFastPeriod; j++)
-               sum+=price_source[i-j];
-            BufferFastMA[i] = sum/g_ExtFastPeriod;
-           }
-         break;
-        }
-     }
+//--- Delegate the entire calculation to our calculator object
+   g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferMACDLine, BufferSignalLine, BufferMACD_Histogram);
 
-//--- STEP 3: Calculate Slow MA
-   for(int i = g_ExtSlowPeriod - 1; i < rates_total; i++)
-     {
-      // This switch block calculates the Slow MA
-      switch(InpSourceMAType)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == g_ExtSlowPeriod - 1)
-              {
-               double sum=0;
-               for(int j=0; j<g_ExtSlowPeriod; j++)
-                  sum+=price_source[i-j];
-               BufferSlowMA[i] = sum/g_ExtSlowPeriod;
-              }
-            else
-              {
-               if(InpSourceMAType == MODE_EMA)
-                 {
-                  double pr=2.0/(g_ExtSlowPeriod+1.0);
-                  BufferSlowMA[i] = price_source[i]*pr + BufferSlowMA[i-1]*(1.0-pr);
-                 }
-               else
-                  BufferSlowMA[i] = (BufferSlowMA[i-1]*(g_ExtSlowPeriod-1)+price_source[i])/g_ExtSlowPeriod;
-              }
-            break;
-         case MODE_LWMA:
-           {
-            double lwma_sum=0, weight_sum=0;
-            for(int j=0; j<g_ExtSlowPeriod; j++)
-              {
-               int weight=g_ExtSlowPeriod-j;
-               lwma_sum+=price_source[i-j]*weight;
-               weight_sum+=weight;
-              }
-            if(weight_sum>0)
-               BufferSlowMA[i]=lwma_sum/weight_sum;
-           }
-         break;
-         default: // MODE_SMA
-           {
-            double sum=0;
-            for(int j=0; j<g_ExtSlowPeriod; j++)
-               sum+=price_source[i-j];
-            BufferSlowMA[i] = sum/g_ExtSlowPeriod;
-           }
-         break;
-        }
-     }
-
-//--- STEP 4: Calculate MACD Line
-   for(int i = g_ExtSlowPeriod - 1; i < rates_total; i++)
-     {
-      BufferMACDLine[i] = BufferFastMA[i] - BufferSlowMA[i];
-     }
-
-//--- STEP 5: Calculate Signal Line and Histogram
-   for(int i = start_pos; i < rates_total; i++)
-     {
-      // This switch block calculates the Signal Line on the MACD Line
-      switch(InpSignalMAType)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == start_pos)
-              {
-               double sum=0;
-               for(int j=0; j<g_ExtSignalPeriod; j++)
-                  sum+=BufferMACDLine[i-j];
-               BufferSignalLine[i] = sum/g_ExtSignalPeriod;
-              }
-            else
-              {
-               if(InpSignalMAType == MODE_EMA)
-                 {
-                  double pr=2.0/(g_ExtSignalPeriod+1.0);
-                  BufferSignalLine[i] = BufferMACDLine[i]*pr + BufferSignalLine[i-1]*(1.0-pr);
-                 }
-               else
-                  BufferSignalLine[i] = (BufferSignalLine[i-1]*(g_ExtSignalPeriod-1)+BufferMACDLine[i])/g_ExtSignalPeriod;
-              }
-            break;
-         case MODE_LWMA:
-           {
-            double lwma_sum=0, weight_sum=0;
-            for(int j=0; j<g_ExtSignalPeriod; j++)
-              {
-               int weight=g_ExtSignalPeriod-j;
-               lwma_sum+=BufferMACDLine[i-j]*weight;
-               weight_sum+=weight;
-              }
-            if(weight_sum>0)
-               BufferSignalLine[i]=lwma_sum/weight_sum;
-           }
-         break;
-         default: // MODE_SMA
-           {
-            double sum=0;
-            for(int j=0; j<g_ExtSignalPeriod; j++)
-               sum+=BufferMACDLine[i-j];
-            BufferSignalLine[i] = sum/g_ExtSignalPeriod;
-           }
-         break;
-        }
-
-      BufferMACD_Histogram[i] = BufferMACDLine[i] - BufferSignalLine[i];
-     }
-
+//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
