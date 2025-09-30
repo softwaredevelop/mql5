@@ -1,93 +1,97 @@
 //+------------------------------------------------------------------+
 //|                                           StochasticSlow_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
+//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.10"
-#property description "Professional Stochastic with selectable MA types and price source."
+#property version   "2.00"
+#property description "Professional Slow Stochastic with selectable MA types and"
+#property description "candle source (Standard or Heikin Ashi)."
 
-#include <MyIncludes\Stochastic_Calculator.mqh>
-
-//--- Indicator Window and Level Properties ---
+//--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
-#property indicator_buffers 2
+#property indicator_buffers 2 // %K and %D
 #property indicator_plots   2
 #property indicator_level1 20.0
 #property indicator_level2 80.0
 #property indicator_minimum 0.0
 #property indicator_maximum 100.0
 
-//--- Plot 1: %K line (Slow)
+//--- Plot 1: %K line
 #property indicator_label1  "%K"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrLightSeaGreen
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
-//--- Plot 2: %D line (Signal)
+//--- Plot 2: %D line
 #property indicator_label2  "%D"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrRed
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
-//--- Custom Enum for Price Source
-enum ENUM_PRICE_SOURCE_TYPE
+//--- Include the calculator engine ---
+#include <MyIncludes\StochasticSlow_Calculator.mqh>
+
+//--- Enum for selecting the candle source for calculation ---
+enum ENUM_CANDLE_SOURCE
   {
-   PRICE_SOURCE_STANDARD,     // Use standard OHLC prices
-   PRICE_SOURCE_HEIKIN_ASHI   // Use Heikin Ashi prices
+   CANDLE_STANDARD,      // Use standard OHLC data
+   CANDLE_HEIKIN_ASHI    // Use Heikin Ashi smoothed data
   };
 
 //--- Input Parameters ---
-input int                    InpKPeriod       = 5;
-input int                    InpSlowingPeriod = 3;
-input ENUM_MA_METHOD         InpSlowingMethod = MODE_SMA;
-input int                    InpDPeriod       = 3;
-input ENUM_MA_METHOD         InpDMethod       = MODE_SMA;
-input ENUM_PRICE_SOURCE_TYPE InpPriceSource   = PRICE_SOURCE_STANDARD;
+input int                InpKPeriod       = 5;
+input int                InpSlowingPeriod = 3;
+input ENUM_MA_METHOD     InpSlowingMAType = MODE_SMA;
+input int                InpDPeriod       = 3;
+input ENUM_MA_METHOD     InpDMAType       = MODE_SMA;
+input ENUM_CANDLE_SOURCE InpCandleSource  = CANDLE_STANDARD;
 
 //--- Indicator Buffers ---
 double    BufferK[];
 double    BufferD[];
 
 //--- Global calculator object (as a base class pointer) ---
-CStochasticCalculator *g_calculator;
+CStochasticSlowCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
+//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferK, INDICATOR_DATA);
    SetIndexBuffer(1, BufferD, INDICATOR_DATA);
-
    ArraySetAsSeries(BufferK, false);
    ArraySetAsSeries(BufferD, false);
 
-//--- Dynamic Calculator Instantiation based on the new enum
-   if(InpPriceSource == PRICE_SOURCE_HEIKIN_ASHI)
+//--- Dynamically create the appropriate calculator instance
+   switch(InpCandleSource)
      {
-      g_calculator = new CStochasticCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Stoch Pro HA(%d,%d,%d)", InpKPeriod, InpSlowingPeriod, InpDPeriod));
-     }
-   else
-     {
-      g_calculator = new CStochasticCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Stoch Pro(%d,%d,%d)", InpKPeriod, InpSlowingPeriod, InpDPeriod));
+      case CANDLE_HEIKIN_ASHI:
+         g_calculator = new CStochasticSlowCalculator_HA();
+         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("SlowStoch HA(%d,%d,%d)", InpKPeriod, InpSlowingPeriod, InpDPeriod));
+         break;
+      default: // CANDLE_STANDARD
+         g_calculator = new CStochasticSlowCalculator();
+         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("SlowStoch(%d,%d,%d)", InpKPeriod, InpSlowingPeriod, InpDPeriod));
+         break;
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpKPeriod, InpSlowingPeriod, InpDPeriod, InpSlowingMethod, InpDMethod))
+//--- Check if creation was successful and initialize
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpKPeriod, InpSlowingPeriod, InpSlowingMAType, InpDPeriod, InpDMAType))
      {
-      Print("Failed to initialize Stochastic Calculator.");
+      Print("Failed to create or initialize Slow Stochastic Calculator object.");
       return(INIT_FAILED);
      }
 
+//--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   int draw_begin = InpKPeriod + InpSlowingPeriod + InpDPeriod - 3;
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpKPeriod + InpSlowingPeriod - 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpKPeriod + InpSlowingPeriod + InpDPeriod - 3);
 
    return(INIT_SUCCEEDED);
   }
@@ -97,19 +101,33 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
+//| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
-   if(CheckPointer(g_calculator) != POINTER_INVALID)
-     {
-      g_calculator.Calculate(rates_total, open, high, low, close, BufferK, BufferD);
-     }
+//--- Ensure the calculator object is valid
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return 0;
+
+//--- Delegate the entire calculation to our calculator object
+   g_calculator.Calculate(rates_total, open, high, low, close, BufferK, BufferD);
+
+//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
