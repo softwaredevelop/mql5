@@ -1,182 +1,62 @@
 //+------------------------------------------------------------------+
 //|                                             Holt_Calculator.mqh  |
-//|      Calculation engines for Standard and Heikin Ashi Holt Models|
+//|         Wrapper for the Holt_Engine to produce MA/Channel output.|
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\Holt_Engine.mqh>
 
-//+==================================================================+
-//|                                                                  |
-//|             CLASS 1: CHoltMACalculator (Base Class)              |
-//|                                                                  |
-//+==================================================================+
+//--- Abstract base class for polymorphism
 class CHoltMACalculator
   {
-protected:
-   int               m_period;
-   double            m_alpha;
-   double            m_beta;
-   int               m_forecast_period;
-
-   double            m_price[];
-
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
-
 public:
-                     CHoltMACalculator(void);
-   virtual          ~CHoltMACalculator(void) {};
-
-   bool              Init(int period, double alpha, double beta, int forecast_p);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &forecast_out[], double &upper_band_out[], double &lower_band_out[]);
+   virtual bool      Init(int period, double alpha, double beta, int forecast_p)=0;
+   virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                          double &forecast_out[], double &upper_band_out[], double &lower_band_out[])=0;
   };
 
-//+------------------------------------------------------------------+
-//| CHoltMACalculator: Constructor                                   |
-//+------------------------------------------------------------------+
-CHoltMACalculator::CHoltMACalculator(void) : m_period(0), m_alpha(0.1), m_beta(0.05), m_forecast_period(5)
+//--- Standard version
+class CHoltMACalculator_Std : public CHoltMACalculator
   {
-  }
+protected:
+   CHoltEngine       *m_engine;
+public:
+                     CHoltMACalculator_Std(void) { m_engine = new CHoltEngine(); }
+                    ~CHoltMACalculator_Std(void) { if(CheckPointer(m_engine)!=POINTER_INVALID) delete m_engine; }
 
-//+------------------------------------------------------------------+
-//| CHoltMACalculator: Initialization                                |
-//+------------------------------------------------------------------+
-bool CHoltMACalculator::Init(int period, double alpha, double beta, int forecast_p)
-  {
-   m_period          = (period < 2) ? 2 : period;
-   m_alpha           = (alpha <= 0) ? 0.0001 : (alpha >= 1) ? 0.9999 : alpha;
-   m_beta            = (beta <= 0) ? 0.0001 : (beta >= 1) ? 0.9999 : beta;
-   m_forecast_period = (forecast_p < 1) ? 1 : forecast_p;
-   return true;
-  }
-
-//+------------------------------------------------------------------+
-//| CHoltMACalculator: Main Calculation Method                       |
-//+------------------------------------------------------------------+
-void CHoltMACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                                  double &forecast_out[], double &upper_band_out[], double &lower_band_out[])
-  {
-   if(rates_total < m_period)
-      return;
-
-   ArrayResize(m_price, rates_total);
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
-      return;
-
-   double level[], trend[];
-   ArrayResize(level, rates_total);
-   ArrayResize(trend, rates_total);
-
-   level[0] = m_price[0];
-   trend[0] = m_price[1] - m_price[0];
-   forecast_out[0] = level[0] + trend[0];
-   level[1] = m_price[1];
-   trend[1] = m_beta * (level[1] - level[0]) + (1 - m_beta) * trend[0];
-   forecast_out[1] = level[1] + trend[1];
-
-   for(int i = 2; i < rates_total; i++)
+   virtual bool      Init(int period, double alpha, double beta, int forecast_p) override { return m_engine.Init(period, alpha, beta, forecast_p); }
+   virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                          double &forecast_out[], double &upper_band_out[], double &lower_band_out[]) override
      {
-      //--- Step 1: Calculate Level, Trend, and 1-period Forecast (MA Line)
-      level[i] = m_alpha * m_price[i] + (1 - m_alpha) * (level[i-1] + trend[i-1]);
-      trend[i] = m_beta * (level[i] - level[i-1]) + (1 - m_beta) * trend[i-1];
-      forecast_out[i] = level[i] + trend[i];
-
-      //--- Step 2: Calculate multi-period forecast for the channel bands
-      upper_band_out[i] = level[i] + m_forecast_period * trend[i];
-      lower_band_out[i] = level[i] - m_forecast_period * trend[i];
+      if(CheckPointer(m_engine)==POINTER_INVALID)
+         return;
+      double dummy_trend[], dummy_level[];
+      ArrayResize(dummy_trend, rates_total);
+      ArrayResize(dummy_level, rates_total);
+      m_engine.Calculate(rates_total, price_type, open, high, low, close, forecast_out, dummy_trend, dummy_level, upper_band_out, lower_band_out);
      }
-  }
+  };
 
-//+------------------------------------------------------------------+
-//| CHoltMACalculator: Prepares the standard source price series.    |
-//+------------------------------------------------------------------+
-bool CHoltMACalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   switch(price_type)
-     {
-      case PRICE_OPEN:
-         ArrayCopy(m_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
-         break;
-     }
-   return true;
-  }
-
-//+==================================================================+
-//|                                                                  |
-//|             CLASS 2: CHoltMACalculator_HA (Heikin Ashi)          |
-//|                                                                  |
-//+==================================================================+
+//--- HA version
 class CHoltMACalculator_HA : public CHoltMACalculator
   {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
+   CHoltEngine       *m_engine;
+public:
+                     CHoltMACalculator_HA(void) { m_engine = new CHoltEngine_HA(); }
+                    ~CHoltMACalculator_HA(void) { if(CheckPointer(m_engine)!=POINTER_INVALID) delete m_engine; }
 
-//+------------------------------------------------------------------+
-//| CHoltMACalculator_HA: Prepares the Heikin Ashi source price.     |
-//+------------------------------------------------------------------+
-bool CHoltMACalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   switch(price_type)
+   virtual bool      Init(int period, double alpha, double beta, int forecast_p) override { return m_engine.Init(period, alpha, beta, forecast_p); }
+   virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                          double &forecast_out[], double &upper_band_out[], double &lower_band_out[]) override
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-         break;
+      if(CheckPointer(m_engine)==POINTER_INVALID)
+         return;
+      double dummy_trend[], dummy_level[];
+      ArrayResize(dummy_trend, rates_total);
+      ArrayResize(dummy_level, rates_total);
+      m_engine.Calculate(rates_total, price_type, open, high, low, close, forecast_out, dummy_trend, dummy_level, upper_band_out, lower_band_out);
      }
-   return true;
-  }
-//+------------------------------------------------------------------+
+  };
 //+------------------------------------------------------------------+
