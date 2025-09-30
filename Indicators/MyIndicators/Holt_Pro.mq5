@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "4.00"
+#property version   "4.01" // Final unified architecture
 #property description "Professional Holt's Linear Trend Method, displaying either the"
 #property description "MA line or a full forecast channel. Supports Standard and Heikin Ashi."
 
@@ -102,7 +102,7 @@ int OnInit()
      }
    else // Standard price source selected
      {
-      g_calculator = new CHoltMACalculator();
+      g_calculator = new CHoltMACalculator_Std();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Pro(%d)", InpPeriod));
      }
 
