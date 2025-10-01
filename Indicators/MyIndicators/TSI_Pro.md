@@ -19,8 +19,7 @@ The TSI is calculated by double-smoothing both the price momentum and the absolu
 
 ### Calculation Steps (Algorithm)
 
-1. **Calculate Price Momentum:** For each bar, calculate the change in price from the previous bar.
-    $\text{Momentum}_i = P_i - P_{i-1}$
+1. **Calculate Price Momentum:** $\text{Momentum}_i = P_i - P_{i-1}$
 2. **First EMA Smoothing (Slow Period):** Apply an `N_slow`-period EMA to both the `Momentum` and its absolute value.
 3. **Second EMA Smoothing (Fast Period):** Apply an `N_fast`-period EMA to the results of the first smoothing step.
 4. **Calculate the TSI Value:** Divide the double-smoothed momentum by the double-smoothed absolute momentum and scale the result to 100.
@@ -29,18 +28,17 @@ The TSI is calculated by double-smoothing both the price momentum and the absolu
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability.
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Modular Calculation Engine (`TSI_Calculator.mqh`):**
-    The entire calculation logic is encapsulated within a reusable include file.
-  * **`CTSICalculator`**: The base class that performs the full, multi-stage TSI calculation on a given source price.
-  * **`CTSICalculator_HA`**: A child class that inherits all the complex logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices as its input. This object-oriented approach eliminates code duplication.
+* **Centralized Calculation Engine (`TSI_Engine.mqh`):**
+    The core of our implementation is a single, powerful calculation engine. This include file contains the complete, definition-true logic for calculating both the TSI and its signal line. It supports both standard and Heikin Ashi data sources through class inheritance (`CTSICalculator` and `CTSICalculator_HA`).
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate`. For a complex, multi-stage indicator like the TSI, this is the most reliable method to prevent calculation errors.
+* **Specialized Wrapper (`TSI_Calculator.mqh`):**
+    The final indicator uses a thin "wrapper" class that utilizes the central engine. The wrapper's role is to instantiate the correct engine (standard or HA) and provide a clean interface to the main `.mq5` indicator file. This approach eliminates code duplication and ensures all TSI-based indicators in our toolkit use the exact same calculation logic.
+
+* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
 
 * **Fully Manual EMA Calculations:** All EMA calculations are performed **manually**, with robust initialization to provide a stable starting point for the calculation chain.
-
-* **Flexible Signal Line:** The indicator includes a user-configurable moving average signal line, with a robust `switch` block that correctly handles all MA types (SMA, EMA, SMMA, LWMA).
 
 ## 4. Parameters
 
