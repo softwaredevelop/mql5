@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.00"
+#property version   "2.01" // Corrected to use the final unified architecture
 #property description "Professional True Strength Index (TSI) with a signal line and"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -70,7 +70,7 @@ double    BufferTSI[];
 double    BufferSignal[];
 
 //--- Global calculator object (as a base class pointer) ---
-CTSICalculator *g_calculator;
+CTSICalculatorBase *g_calculator; // Use the abstract base class for the pointer
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
@@ -82,14 +82,15 @@ int OnInit()
    ArraySetAsSeries(BufferTSI,    false);
    ArraySetAsSeries(BufferSignal, false);
 
+//--- CORRECTED: Instantiate the correct concrete wrapper classes ---
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
-      g_calculator = new CTSICalculator_HA();
+      g_calculator = new CTSICalculator_HA_Wrapper(); // Use the wrapper class
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI HA(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
    else
      {
-      g_calculator = new CTSICalculator();
+      g_calculator = new CTSICalculator_Std(); // Use the wrapper class
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
 
