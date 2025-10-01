@@ -7,6 +7,13 @@
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
+//--- CORRECTED: Moved enum here to be accessible by other calculators ---
+enum ENUM_ATR_SOURCE
+  {
+   ATR_SOURCE_STANDARD,    // Calculate ATR from standard candles
+   ATR_SOURCE_HEIKIN_ASHI  // Calculate ATR from Heikin Ashi candles
+  };
+
 //+==================================================================+
 //|                                                                  |
 //|             CLASS 1: CATRCalculator (Base Class)                 |
