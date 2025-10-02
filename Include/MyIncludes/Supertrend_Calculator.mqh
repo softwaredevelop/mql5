@@ -7,12 +7,7 @@
 
 #include <MyIncludes\ATR_Calculator.mqh> // Re-use our robust ATR calculator
 
-//--- Enum for ATR Calculation Source ---
-enum ENUM_ATR_SOURCE
-  {
-   ATR_SOURCE_STANDARD,    // Calculate ATR from standard candles
-   ATR_SOURCE_HEIKIN_ASHI  // Calculate ATR from Heikin Ashi candles
-  };
+//--- CORRECTED: The ENUM_ATR_SOURCE is now defined inside ATR_Calculator.mqh ---
 
 //+==================================================================+
 //|                                                                  |
