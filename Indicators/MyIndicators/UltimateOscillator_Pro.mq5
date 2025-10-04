@@ -5,16 +5,14 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.00"
-#property description "Professional Ultimate Oscillator with selectable"
-#property description "candle source (Standard or Heikin Ashi)."
+#property version   "2.10" // Added optional signal line
+#property description "Professional Ultimate Oscillator with an optional signal line and"
+#property description "selectable candle source (Standard or Heikin Ashi)."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
-#property indicator_buffers 1
-#property indicator_plots   1
-#property indicator_type1   DRAW_LINE
-#property indicator_color1  clrDodgerBlue
+#property indicator_buffers 2 // UO and Signal Line
+#property indicator_plots   2
 #property indicator_maximum 100.0
 #property indicator_minimum 0.0
 #property indicator_level1  30.0
@@ -22,8 +20,29 @@
 #property indicator_level3  70.0
 #property indicator_levelstyle STYLE_DOT
 
+//--- Plot 1: UO Line
+#property indicator_label1  "UO"
+#property indicator_type1   DRAW_LINE
+#property indicator_color1  clrDodgerBlue
+#property indicator_style1  STYLE_SOLID
+#property indicator_width1  1
+
+//--- Plot 2: Signal Line
+#property indicator_label2  "Signal"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrOrangeRed
+#property indicator_style2  STYLE_DOT
+#property indicator_width2  1
+
 //--- Include the calculator engine ---
 #include <MyIncludes\UltimateOscillator_Calculator.mqh>
+
+//--- Enum for Display Mode ---
+enum ENUM_DISPLAY_MODE
+  {
+   DISPLAY_UO_ONLY,       // Display only the UO line
+   DISPLAY_UO_AND_SIGNAL  // Display UO and its signal line
+  };
 
 //--- Enum for selecting the candle source for calculation ---
 enum ENUM_CANDLE_SOURCE
@@ -33,13 +52,19 @@ enum ENUM_CANDLE_SOURCE
   };
 
 //--- Input Parameters ---
-input int                InpPeriod1      = 7;  // Fast Period
-input int                InpPeriod2      = 14; // Middle Period
-input int                InpPeriod3      = 28; // Slow Period
+input group              "Oscillator Settings"
+input int                InpPeriod1      = 7;
+input int                InpPeriod2      = 14;
+input int                InpPeriod3      = 28;
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
+input group              "Signal Line Settings"
+input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_UO_AND_SIGNAL;
+input int                InpSignalPeriod = 9;
+input ENUM_MA_METHOD     InpSignalMAType = MODE_SMA;
 
 //--- Indicator Buffers ---
 double    BufferUO[];
+double    BufferSignal[];
 
 //--- Global calculator object (as a base class pointer) ---
 CUltimateOscillatorCalculator *g_calculator;
@@ -49,8 +74,10 @@ CUltimateOscillatorCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   SetIndexBuffer(0, BufferUO, INDICATOR_DATA);
-   ArraySetAsSeries(BufferUO, false);
+   SetIndexBuffer(0, BufferUO,     INDICATOR_DATA);
+   SetIndexBuffer(1, BufferSignal, INDICATOR_DATA);
+   ArraySetAsSeries(BufferUO,     false);
+   ArraySetAsSeries(BufferSignal, false);
 
    switch(InpCandleSource)
      {
@@ -64,13 +91,15 @@ int OnInit()
          break;
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod1, InpPeriod2, InpPeriod3))
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod1, InpPeriod2, InpPeriod3, InpSignalPeriod, InpSignalMAType))
      {
       Print("Failed to create or initialize Ultimate Oscillator Calculator object.");
       return(INIT_FAILED);
      }
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, MathMax(InpPeriod1, MathMax(InpPeriod2, InpPeriod3)));
+   int uo_draw_begin = MathMax(InpPeriod1, MathMax(InpPeriod2, InpPeriod3));
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, uo_draw_begin);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, uo_draw_begin + InpSignalPeriod - 1);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
    return(INIT_SUCCEEDED);
@@ -92,7 +121,15 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferUO);
+
+   g_calculator.Calculate(rates_total, open, high, low, close, BufferUO, BufferSignal);
+
+   if(InpDisplayMode == DISPLAY_UO_ONLY)
+     {
+      for(int i=0; i<rates_total; i++)
+         BufferSignal[i] = EMPTY_VALUE;
+     }
+
    return(rates_total);
   }
 //+------------------------------------------------------------------+
