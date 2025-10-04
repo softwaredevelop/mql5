@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.01" // Corrected calculator call signature
-#property description "Professional Money Flow Index (MFI) with a signal line and"
+#property version   "3.02" // Added selectable display mode for signal line
+#property description "Professional Money Flow Index (MFI) with an optional signal line and"
 #property description "selectable candle source (Standard or Heikin Ashi)."
 
 //--- Indicator Window and Plot Properties ---
@@ -37,6 +37,13 @@
 //--- Include the calculator engine ---
 #include <MyIncludes\MFI_Calculator.mqh>
 
+//--- Enum for Display Mode ---
+enum ENUM_DISPLAY_MODE
+  {
+   DISPLAY_MFI_ONLY,       // Display only the MFI line
+   DISPLAY_MFI_AND_SIGNAL  // Display MFI and its signal line
+  };
+
 //--- Enum for selecting the candle source for calculation ---
 enum ENUM_CANDLE_SOURCE
   {
@@ -49,6 +56,7 @@ input int                 InpMFIPeriod    = 14;
 input ENUM_CANDLE_SOURCE  InpCandleSource = CANDLE_STANDARD;
 input ENUM_APPLIED_VOLUME InpVolumeType   = VOLUME_TICK;
 input group               "Signal Line Settings"
+input ENUM_DISPLAY_MODE   InpDisplayMode  = DISPLAY_MFI_AND_SIGNAL;
 input int                 InpMAPeriod     = 9;
 input ENUM_MA_METHOD      InpMAMethod     = MODE_SMA;
 
@@ -127,10 +135,19 @@ int OnCalculate(const int rates_total,
       return 0;
 
 //--- Delegate the entire calculation to our calculator object
-//--- CORRECTED: Pass the 'open' array for HA calculation
    g_calculator.Calculate(rates_total, open, high, low, close, tick_volume, volume, BufferMFI, BufferSignal);
+
+//--- Hide signal line buffer if not needed
+   if(InpDisplayMode == DISPLAY_MFI_ONLY)
+     {
+      for(int i = 0; i < rates_total; i++)
+        {
+         BufferSignal[i] = EMPTY_VALUE;
+        }
+     }
 
 //--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
