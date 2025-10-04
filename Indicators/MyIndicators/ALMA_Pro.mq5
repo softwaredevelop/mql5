@@ -19,7 +19,7 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrMediumVioletRed
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Include the calculator engine ---
 #include <MyIncludes\ALMA_Calculator.mqh>
