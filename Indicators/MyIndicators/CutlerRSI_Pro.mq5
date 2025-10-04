@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.01" // Final unified architecture
-#property description "Professional Cutler's RSI (SMA-based) with a signal line and"
+#property version   "3.02" // Added selectable display mode for signal line
+#property description "Professional Cutler's RSI (SMA-based) with an optional signal line and"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
 //--- Indicator Window and Level Properties ---
@@ -38,6 +38,13 @@
 //--- Include the calculator engine ---
 #include <MyIncludes\CutlerRSI_Calculator.mqh>
 
+//--- Enum for Display Mode ---
+enum ENUM_DISPLAY_MODE
+  {
+   DISPLAY_RSI_ONLY,       // Display only the RSI line
+   DISPLAY_RSI_AND_SIGNAL  // Display RSI and its signal line
+  };
+
 //--- Custom Enum for Price Source, including Heikin Ashi ---
 enum ENUM_APPLIED_PRICE_HA_ALL
   {
@@ -60,11 +67,12 @@ enum ENUM_APPLIED_PRICE_HA_ALL
   };
 
 //--- Input Parameters ---
-input int                       InpPeriodRSI    = 14;       // RSI Period
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // RSI Applied Price
+input int                       InpPeriodRSI    = 14;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 input group                     "Signal Line Settings"
-input int                       InpPeriodMA     = 14;       // MA Period
-input ENUM_MA_METHOD            InpMethodMA     = MODE_SMA; // MA Method
+input ENUM_DISPLAY_MODE         InpDisplayMode  = DISPLAY_RSI_AND_SIGNAL;
+input int                       InpPeriodMA     = 14;
+input ENUM_MA_METHOD            InpMethodMA     = MODE_SMA;
 
 //--- Indicator Buffers ---
 double    BufferCutlerRSI[];
@@ -148,6 +156,15 @@ int OnCalculate(const int rates_total,
 
 //--- Delegate the entire calculation to our calculator object
    g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferCutlerRSI, BufferSignalMA);
+
+//--- Hide signal line buffer if not needed
+   if(InpDisplayMode == DISPLAY_RSI_ONLY)
+     {
+      for(int i = 0; i < rates_total; i++)
+        {
+         BufferSignalMA[i] = EMPTY_VALUE;
+        }
+     }
 
 //--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
