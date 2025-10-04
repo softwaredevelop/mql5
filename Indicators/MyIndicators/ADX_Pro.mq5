@@ -13,18 +13,21 @@
 #property indicator_separate_window
 #property indicator_buffers 3 // Only plotting buffers are needed here
 #property indicator_plots   3
+#property indicator_level1 25.0
+#property indicator_level2 40.0
+#property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: ADX line (Main trend strength)
 #property indicator_label1  "ADX"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrLightSeaGreen
+#property indicator_color1  clrDodgerBlue
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 //--- Plot 2: +DI line (Positive Directional Indicator)
 #property indicator_label2  "+DI"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrLimeGreen
+#property indicator_color2  clrOliveDrab
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
