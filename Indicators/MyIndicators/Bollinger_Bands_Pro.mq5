@@ -17,21 +17,21 @@
 //--- Plot 1: Upper Band
 #property indicator_label1  "Upper Band"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrDodgerBlue
+#property indicator_color1  clrOliveDrab
 #property indicator_style1  STYLE_DOT
 #property indicator_width1  1
 
 //--- Plot 2: Lower Band
 #property indicator_label2  "Lower Band"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrDodgerBlue
+#property indicator_color2  clrOliveDrab
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
 //--- Plot 3: Center Line (MA)
 #property indicator_label3  "Centerline"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrOrangeRed
+#property indicator_color3  clrOliveDrab
 #property indicator_style3  STYLE_SOLID
 #property indicator_width3  1
 
