@@ -24,9 +24,9 @@
 //--- Plot Properties ---
 #property indicator_label1  "Price Line"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrLimeGreen
+#property indicator_color1  clrSeaGreen
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 #property indicator_label2  "Signal Line"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrRed
@@ -34,18 +34,18 @@
 #property indicator_width2  1
 #property indicator_label3  "Base Line"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrGold
+#property indicator_color3  clrOrange
 #property indicator_style3  STYLE_SOLID
-#property indicator_width3  2
+#property indicator_width3  1
 #property indicator_label4  "Upper Band"
 #property indicator_type4   DRAW_LINE
 #property indicator_color4  clrDodgerBlue
-#property indicator_style4  STYLE_DASHDOT
+#property indicator_style4  STYLE_DOT
 #property indicator_width4  1
 #property indicator_label5  "Lower Band"
 #property indicator_type5   DRAW_LINE
 #property indicator_color5  clrDodgerBlue
-#property indicator_style5  STYLE_DASHDOT
+#property indicator_style5  STYLE_DOT
 #property indicator_width5  1
 
 //--- Custom Enum for Price Source, including Heikin Ashi ---
