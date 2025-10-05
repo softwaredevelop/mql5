@@ -18,7 +18,7 @@
 
 //--- Plot 1: Heikin Ashi Candles
 #property indicator_type1   DRAW_COLOR_CANDLES
-#property indicator_color1  clrDodgerBlue, clrMaroon // Up and Down colors
+#property indicator_color1  clrCornflowerBlue, clrChocolate // Up and Down colors
 #property indicator_label1  "HA Open;HA High;HA Low;HA Close" // Labels for Data Window
 
 //--- Indicator Buffers ---
