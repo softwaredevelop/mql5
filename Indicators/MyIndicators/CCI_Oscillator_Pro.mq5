@@ -14,8 +14,8 @@
 #property indicator_buffers 1
 #property indicator_plots   1
 #property indicator_type1   DRAW_HISTOGRAM
-#property indicator_color1  clrSilver
-#property indicator_width1  1
+#property indicator_color1  clrLightSeaGreen
+#property indicator_width1  2
 #property indicator_label1  "CCI Oscillator"
 #property indicator_level1  0.0
 #property indicator_levelstyle STYLE_DOT
