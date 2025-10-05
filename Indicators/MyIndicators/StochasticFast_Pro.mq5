@@ -28,8 +28,8 @@
 //--- Plot 2: %D line
 #property indicator_label2  "%D"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrRed
-#property indicator_style2  STYLE_DOT
+#property indicator_color2  clrLightCoral
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 //--- Include the calculator engine ---
