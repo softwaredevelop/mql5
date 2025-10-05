@@ -18,9 +18,9 @@
 //--- Plot 1: Sine WMA Line
 #property indicator_label1  "Sine WMA"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrAqua
+#property indicator_color1  clrMediumTurquoise
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Custom Enum for Price Source, including Heikin Ashi ---
 enum ENUM_APPLIED_PRICE_HA_ALL
