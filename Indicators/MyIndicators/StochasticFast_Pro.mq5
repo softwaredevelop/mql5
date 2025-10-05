@@ -14,7 +14,8 @@
 #property indicator_buffers 2 // %K and %D
 #property indicator_plots   2
 #property indicator_level1 20.0
-#property indicator_level2 80.0
+#property indicator_level2 50.0
+#property indicator_level3 80.0
 #property indicator_minimum 0.0
 #property indicator_maximum 100.0
 
