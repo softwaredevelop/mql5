@@ -25,14 +25,14 @@
 //--- Plot 1: Fisher line
 #property indicator_label1  "Fisher"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrBlue
+#property indicator_color1  clrRoyalBlue
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 //--- Plot 2: Trigger line
 #property indicator_label2  "Trigger"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrOrange
+#property indicator_color2  clrDarkOrange
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
