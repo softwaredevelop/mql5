@@ -13,22 +13,23 @@
 #property indicator_buffers 2 // %K and %D
 #property indicator_plots   2
 #property indicator_level1 20.0
-#property indicator_level2 80.0
+#property indicator_level2 50.0
+#property indicator_level3 80.0
 #property indicator_minimum -10.0
 #property indicator_maximum 110.0
 
 //--- Plot 1: %K line
 #property indicator_label1  "%K"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrLightSeaGreen
+#property indicator_color1  clrDodgerBlue
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 //--- Plot 2: %D line
 #property indicator_label2  "%D"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrRed
-#property indicator_style2  STYLE_DOT
+#property indicator_color2  clrCoral
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 //--- Include the calculator engine ---
