@@ -17,9 +17,9 @@
 //--- Plot 1: Gann HiLo line
 #property indicator_label1  "Gann_HiLo"
 #property indicator_type1   DRAW_COLOR_LINE
-#property indicator_color1  clrDodgerBlue, clrTomato
+#property indicator_color1  clrMediumSeaGreen, clrCrimson
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Include the calculator engine ---
 #include <MyIncludes\GannHiLo_Calculator.mqh>
