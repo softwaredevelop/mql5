@@ -14,7 +14,8 @@
 #property indicator_buffers 2 // WPR and Signal Line
 #property indicator_plots   2
 #property indicator_level1 -20.0
-#property indicator_level2 -80.0
+#property indicator_level2 -50.0
+#property indicator_level3 -80.0
 #property indicator_levelstyle STYLE_DOT
 #property indicator_maximum 0.0
 #property indicator_minimum -100.0
@@ -29,7 +30,7 @@
 //--- Plot 2: Signal line
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrRed
+#property indicator_color2  clrOrangeRed
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
