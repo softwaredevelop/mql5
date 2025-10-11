@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.00"
+#property version   "3.10" // Final robust version with internal state management
 #property description "Professional McGinley Dynamic Indicator with selectable"
 #property description "price source (Standard and Heikin Ashi)."
 
@@ -46,8 +46,8 @@ enum ENUM_APPLIED_PRICE_HA_ALL
   };
 
 //--- Input Parameters ---
-input int                       InpLength       = 14;      // Period
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Applied Price
+input int                       InpLength       = 14;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferMcGinley[];
@@ -60,32 +60,28 @@ CMcGinleyDynamicCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffer and set as non-timeseries
    SetIndexBuffer(0, BufferMcGinley, INDICATOR_DATA);
    ArraySetAsSeries(BufferMcGinley, false);
 
-//--- Dynamically create the appropriate calculator instance
-   if(InpSourcePrice <= PRICE_HA_CLOSE) // Heikin Ashi source selected
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CMcGinleyDynamicCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("McGinley HA(%d)", InpLength));
      }
-   else // Standard price source selected
+   else
      {
       g_calculator = new CMcGinleyDynamicCalculator();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("McGinley(%d)", InpLength));
      }
 
-//--- Check if creation was successful and initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpLength))
      {
       Print("Failed to create or initialize McGinley Dynamic Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 1);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpLength - 1);
 
    return(INIT_SUCCEEDED);
   }
@@ -95,7 +91,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
@@ -103,32 +98,19 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 //| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total,
-                const int prev_calculated,
-                const datetime &time[],
-                const double &open[],
-                const double &high[],
-                const double &low[],
-                const double &close[],
-                const long &tick_volume[],
-                const long &volume[],
-                const int &spread[])
+int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Convert our custom enum to the standard ENUM_APPLIED_PRICE
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate the entire calculation to our calculator object
    g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferMcGinley);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
