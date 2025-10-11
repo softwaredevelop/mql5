@@ -8,6 +8,87 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
+//| CLASS: CMcGinleyFilter                                           |
+//| A stateful class to calculate one instance of a McGinley filter. |
+//+==================================================================+
+class CMcGinleyFilter
+  {
+private:
+   int               m_length;
+   double            m_last_value;
+   bool              m_is_initialized;
+
+public:
+                     CMcGinleyFilter(void) : m_length(14), m_last_value(0), m_is_initialized(false) {}
+
+   void              Init(int length);
+   double            Update(double price, const double &price_series[], int current_index);
+  };
+
+//+------------------------------------------------------------------+
+//| CMcGinleyFilter: Resets the filter's state.                      |
+//+------------------------------------------------------------------+
+void CMcGinleyFilter::Init(int length)
+  {
+   m_length = (length < 1) ? 1 : length;
+   m_is_initialized = false; // Reset initialization flag
+   m_last_value = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| CMcGinleyFilter: Updates the filter with a new price value.      |
+//+------------------------------------------------------------------+
+double CMcGinleyFilter::Update(double price, const double &price_series[], int current_index)
+  {
+//--- Robust initialization with SMA on the first valid call
+   if(!m_is_initialized)
+     {
+      // Not enough data to calculate initial SMA
+      if(current_index < m_length - 1)
+         return EMPTY_VALUE;
+
+      double sum = 0;
+      for(int i = 0; i < m_length; i++)
+        {
+         sum += price_series[current_index - i];
+        }
+
+      if(m_length > 0)
+         m_last_value = sum / m_length;
+      else
+         m_last_value = price;
+
+      m_is_initialized = true;
+      return m_last_value;
+     }
+
+//--- Handle potential zero or negative previous values
+   if(m_last_value <= 0)
+     {
+      m_last_value = price;
+      return m_last_value;
+     }
+
+//--- Robust calculation with ratio clamping to prevent overflow ---
+   double ratio = price / m_last_value;
+
+// Clamp the ratio to prevent extreme 'k' values on volatile instruments
+   if(ratio > 2.0)
+      ratio = 2.0; // Cap ratio at 100% price increase
+   if(ratio < 0.5)
+      ratio = 0.5; // Cap ratio at 50% price decrease
+
+   double k = m_length * MathPow(ratio, 4);
+
+// Final guard clause to ensure the dynamic period is at least 1
+   if(k < 1.0)
+      k = 1.0;
+
+   m_last_value = m_last_value + (price - m_last_value) / k;
+   return m_last_value;
+  }
+
+//+==================================================================+
 //|                                                                  |
 //|         CLASS 1: CMcGinleyDynamicCalculator (Base Class)         |
 //|                                                                  |
@@ -18,7 +99,6 @@ protected:
    int               m_length;
    double            m_price[];
 
-   //--- Virtual method for preparing the price series.
    virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
 
 public:
@@ -43,34 +123,17 @@ bool CMcGinleyDynamicCalculator::Init(int length)
 //+------------------------------------------------------------------+
 void CMcGinleyDynamicCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type, double &mcginley_buffer[])
   {
-   if(rates_total < 2)
+   if(rates_total < m_length)
       return;
    if(!PreparePriceSeries(rates_total, open, high, low, close, price_type))
       return;
 
+   CMcGinleyFilter filter;
+   filter.Init(m_length);
+
    for(int i = 0; i < rates_total; i++)
      {
-      if(i == 0)
-        {
-         mcginley_buffer[i] = m_price[i];
-         continue;
-        }
-
-      double prev_mg = mcginley_buffer[i-1];
-      if(prev_mg == 0)
-        {
-         mcginley_buffer[i] = m_price[i];
-         continue;
-        }
-
-      double denominator = m_length * MathPow(m_price[i] / prev_mg, 4);
-      if(denominator == 0)
-        {
-         mcginley_buffer[i] = prev_mg;
-         continue;
-        }
-
-      mcginley_buffer[i] = prev_mg + (m_price[i] - prev_mg) / denominator;
+      mcginley_buffer[i] = filter.Update(m_price[i], m_price, i);
      }
   }
 
