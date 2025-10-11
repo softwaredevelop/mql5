@@ -2,92 +2,112 @@
 
 MQL5 Algo Forge / toh4iem9
 
+A collection of professionally coded, robust, and reusable MQL5 indicators, scripts, and trading tools.
+
 ---
 
 ## MQL5 Indicator & Script Collection: Comprehensive Catalogue
 
-## Introduction
+### Introduction
 
-This document provides a comprehensive overview of our custom-developed and refactored MQL5 indicator and script collection. Every tool in this library was built following three core principles:
+This document provides a comprehensive overview of our custom-developed MQL5 indicator collection. Every tool in this library was built following three core principles:
 
-1. **Stability Over Premature Optimization:** All indicators utilize a "full recalculation" model, ensuring robust and glitch-free performance during timeframe changes or history loading. Recursive calculations are carefully and manually initialized.
-2. **Modularity and Reusability:** Complex logic is encapsulated into centralized, object-oriented toolkits (e.g., `HeikinAshi_Tools.mqh`, `Jurik_Calculators.mqh`), promoting clean, maintainable, and reusable code.
-3. **Adherence to Definition:** Our indicators are implemented to match the original author's mathematical formula as closely as possible, aligning with the global standard used on professional platforms rather than platform-specific variations.
+1. **Stability Over Premature Optimization:** All indicators utilize a "full recalculation" model, ensuring robust and glitch-free performance. Recursive calculations are carefully and manually initialized.
+2. **Pragmatic Modularity:** Complex logic is encapsulated into centralized, object-oriented calculator engines (`_Calculator.mqh` or `_Engine.mqh`), promoting clean, maintainable, and reusable code across indicator families.
+3. **Definition-True Implementation:** Our indicators are implemented to match the original author's mathematical formula as closely as possible, aligning with the global standard used on professional platforms.
 
-Each indicator family includes a standard (candlestick) version and a "pure" Heikin Ashi variant where applicable. Many oscillators also have a separate "Oscillator" (histogram) version.
+A key feature of our "Pro" series is the unification of standard and Heikin Ashi calculations into a single, flexible indicator, allowing the user to choose the desired data source via input parameters.
 
 ---
 
-## 1. Core Indicators (`MyIndicators/`)
+## 1. Core Indicators
 
 ### 1.1 Trend-Following & Smoothing Indicators
 
-| Indicator Family | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity / Repainting |
+| Indicator | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity / Repainting |
 | :--- | :--- | :--- | :--- | :--- |
-| **Supertrend** | Identify trend direction and provide volatility-based trailing stop levels. | Robust, stepped line for clear signals. The Heikin Ashi version provides excellent noise filtering. | Trend Following, Trailing Stops | Low `O(N)` / No |
-| **Gann HiLo Activator** | Identify trend direction and MA-based trailing stop levels. | Uses separate MAs for Highs and Lows, providing clearer levels than a single MA. | Trend Following, Trailing Stops | Low `O(N)` / No |
-| **Adaptive MA (AMA)** | An "intelligent" moving average that adapts its speed based on market noise. | Slows down in ranges and speeds up in trends, helping to filter false signals. | **Day Trading**, Dynamic Filter | Medium `O(N)` / No |
-| **VIDYA** | An "intelligent" moving average that adapts its speed based on momentum (CMO). | Reacts to momentum, not noise. The Heikin Ashi version is extremely responsive. | Trend Following, Dynamic Filter | Medium `O(N)` / No |
-| **Holt MA (DES)** | A predictive, double-smoothed line that models both Level and Trend. | Exceptionally smooth with a **one-bar-ahead forecast**. The Oscillator version is a pure trend velocity meter. | **Early Trend Identification** | Medium `O(N)` / No |
-| **Jurik MA (JMA)** | An ultra-smooth, low-lag adaptive filter based on market volatility and phase. | Considered one of the most advanced MAs. Extremely smooth in ranges, extremely fast in trends. | Advanced Trend Following | High `O(N)` / No |
-| **MESA Adaptive MA (MAMA)** | A DSP-based filter that adapts to the market's dominant cycle period. | Measures the market's "rhythm" to adjust its speed. Used with its FAMA line for crossover signals. | **Cycle Analysis**, Crossovers | High `O(N)` / No |
-| **Fibonacci WMA** | A trend-following average using Fibonacci numbers for weighting. | An asymmetrically weighted MA that is highly responsive to recent price action. | Responsive Trend Following | Low `O(N)` / No |
-| **Symmetric WMAs** | A family of **smoothing filters** (Sine, Pascal, Symmetric) with zero lag. | Symmetrical, bell-shaped weighting. Excellent for **noise reduction** and identifying the market's "center of gravity". | **Mean Reversion**, Noise Filter | Low `O(N)` / No |
-| **Hull MA (HMA)** | An extremely fast and smooth moving average designed to minimize lag. | One of the most responsive moving averages available, hugging price action closely. | Short-Term Trend Following | Low `O(N)` / No |
-| **McGinley Dynamic** | A self-adjusting moving average that is more responsive than traditional MAs. | Its unique formula speeds up in down markets and slows down in up markets. | Dynamic Trend Following | Low `O(N)` / No |
-| **Linear Regression Pro** | Plots a statistically precise trend channel. | Fully manual, flexible implementation with selectable source price and channel calculation methods. | Trend Analysis, Mean Reversion | High `O(N^2)` / **Yes** |
-| **Std. Deviation Channel** | Plots a regression channel with adjustable deviation. | Uses the robust `OBJ_STDDEVCHANNEL` for a precise, MT5-native linear regression channel. | Trend Analysis | Low (Object-based) / **Yes** |
-| **Murrey Math Line X** | Plots a grid of support/resistance levels based on Gann's octave theory. | A complete, rule-based trading framework. Our version is fully MTF capable. | **Structural S/R Levels** | High `O(N)` / **Yes** |
+| **ALMA_Pro** | A low-lag, responsive moving average. | Reduces lag significantly while maintaining smoothness. Selectable candle source (Std/HA). | Responsive Trend Following | Medium `O(N^2)` / No |
+| **AMA_Pro** | Adapts its speed based on market noise. | Slows down in ranges, speeds up in trends. Selectable candle source (Std/HA). | Dynamic Trend Filtering | Medium `O(N)` / No |
+| **FibonacciWMA_Pro** | A WMA using Fibonacci numbers for weighting. | Asymmetrically weighted, highly responsive to recent prices. Selectable candle source (Std/HA). | Responsive Trend Following | Low `O(N)` / No |
+| **GannHiLo_Pro** | MA-based trend and trailing stop levels. | Uses separate MAs for Highs and Lows for clearer levels. Selectable candle source (Std/HA). | Trend Following, Trailing Stops | Medium `O(N)` / No |
+| **HMA_Pro** | An extremely fast and smooth moving average. | One of the most responsive MAs available. Selectable candle source (Std/HA). | Short-Term Trend Following | Medium `O(N)` / No |
+| **Holt_Pro** | A predictive, double-smoothed line with a forecast channel. | Exceptionally smooth with a **one-bar-ahead forecast**. Selectable candle source (Std/HA) & display mode. | Early Trend Identification | Low `O(N)` / No |
+| **Jurik_MA** | An ultra-smooth, low-lag adaptive filter. | Considered one of the most advanced MAs; extremely smooth yet fast. Separate Std/HA versions. | Advanced Trend Following | High `O(N)` / No |
+| **MAMA_FAMA_Pro** | Adapts to the market's dominant cycle period. | Measures market "rhythm" to adjust speed. Selectable algorithms (Ehlers/LazyBear) & candle source (Std/HA). | Cycle Analysis, Crossovers | High `O(N)` / No |
+| **McGinleyDynamic_Pro**| A self-adjusting, responsive moving average. | Speeds up in down markets, slows down in up markets. Selectable candle source (Std/HA). | Dynamic Trend Following | Low `O(N)` / No |
+| **MACD_Pro** | Classic momentum indicator. | TradingView-style display. Selectable MA types & candle source (Std/HA). | Trend Confirmation, Divergences | Medium `O(N)` / No |
+| **PascalWMA_Pro** | A zero-lag, symmetrical smoothing filter. | Symmetrical, bell-shaped weighting for superior noise reduction. Selectable candle source (Std/HA). | Mean Reversion, Noise Filter | Low `O(N)` / No |
+| **SineWMA_Pro** | A zero-lag, symmetrical smoothing filter. | Sine-based weighting for a smooth "center of gravity" line. Selectable candle source (Std/HA). | Mean Reversion, Noise Filter | Low `O(N)` / No |
+| **Supertrend_Pro** | Volatility-based trend and trailing stop levels. | Robust, stepped line for clear signals. Selectable candle & ATR source (Std/HA). | Trend Following, Trailing Stops | Medium `O(N)` / No |
+| **SymmetricWMA_Pro** | A zero-lag, symmetrical smoothing filter. | Simple triangular weighting for effective noise reduction. Selectable candle source (Std/HA). | Mean Reversion, Noise Filter | Low `O(N)` / No |
+| **VIDYA_Pro** | Adapts its speed based on momentum (CMO). | Reacts to momentum, not just noise. Selectable candle source (Std/HA). | Dynamic Trend Filtering | Medium `O(N)` / No |
 
-### 1.2 Momentum Oscillators
+### 1.2 Oscillators
 
-| Indicator Family | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity / Repainting |
+| Indicator | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity / Repainting |
 | :--- | :--- | :--- | :--- | :--- |
-| **MACD Pro** | Measure trend momentum via the difference between two moving averages. | TradingView-style 3-component display. Our "Pro" version has selectable MA types for all components. | Trend Confirmation, Divergences | Medium `O(N)` / No |
-| **RSI** | Measure internal strength and identify overbought/oversold levels. | A robust implementation of the classic Wilder's RSI, complete with a flexible signal line and oscillator version. | Mean Reversion, Divergences | Low `O(N)` / No |
-| **Cutler's RSI** | An RSI variant using SMA for smoothing instead of Wilder's method. | Provides a different character of momentum reading. Includes a flexible signal line and oscillator version. | Mean Reversion, Divergences | Low `O(N)` / No |
-| **Stochastic (Fast, Slow, Pro)** | Measure the price's position relative to its high-low range. | Our "Pro" version allows selecting the MA type for smoothing, enabling replication of classic and MT5-specific behaviors. | Ranging Markets, Reversals | Low `O(N)` / No |
-| **StochRSI (Fast, Slow, Pro)** | The "stochastic of the RSI." An extremely sensitive oscillator. | Our "Pro" version provides full flexibility in the smoothing methods, making it a highly adaptable tool. | Short-Term Overbought/Oversold | Medium `O(N)` / No |
-| **CCI (Efficient & Precise)** | Measure a security's variation from its statistical mean. | We offer two versions: a fast, sliding-window "Efficient" implementation and a mathematically "Precise" definition-true version. | Breakouts, Extreme Levels | Med-High `O(N^2)` (Precise) / No |
-| **Fisher Transform** | A statistical transformation that normalizes price, creating sharp turning points. | Excellent for identifying price extremes. Our version includes a robust initialization to prevent overflows. | Spotting Reversals | Medium `O(N)` / No |
-| **Ultimate Oscillator** | A multi-timeframe oscillator designed to produce more reliable divergence signals. | By combining three timeframes, it is less prone to generating false divergence signals. | **Divergence Trading** | Medium `O(N)` / No |
-| **WPR (%R)** | A simplified, inverted version of the Stochastic Oscillator. | A fast and simple oscillator for identifying overbought/oversold conditions. Includes a version with a signal line. | Short-Term Reversals | Low `O(N)` / No |
+| **ADX_Pro** | Measures trend strength (not direction). | The classic Wilder's ADX. Selectable candle source (Std/HA). | Trend Strength Filtering | Medium `O(N)` / No |
+| **CCI_Pro** | Measures variation from a statistical mean. | Definition-true calculation. Selectable candle source (Std/HA) & optional signal line. | Breakouts, Extreme Levels | Medium `O(N^2)` / No |
+| **CCI_Oscillator_Pro**| Histogram of the CCI and its signal line. | Visualizes CCI momentum. Selectable candle source (Std/HA). | Momentum Analysis | Medium `O(N^2)` / No |
+| **CutlerRSI_Pro** | An RSI variant using SMA for smoothing. | Provides a different character of momentum. Selectable candle source (Std/HA) & optional signal line. | Mean Reversion, Divergences | Low `O(N)` / No |
+| **CutlerRSI_Oscillator_Pro**| Histogram of the Cutler RSI and its signal line. | Visualizes Cutler RSI momentum. Selectable candle source (Std/HA). | Momentum Analysis | Low `O(N)` / No |
+| **FisherTransform_Pro**| Normalizes price to create sharp turning points. | Excellent for identifying price extremes. Selectable candle source (Std/HA). | Spotting Reversals | Medium `O(N)` / No |
+| **Holt_Oscillator_Pro**| Plots the "Trend" component of the Holt model. | A pure measure of trend velocity and acceleration. Selectable candle source (Std/HA). | Trend Velocity Analysis | Low `O(N)` / No |
+| **MFI_Pro** | A "volume-weighted RSI". | More robust than RSI as it incorporates volume. Selectable candle source (Std/HA) & optional signal line. | Divergences, Overbought/Oversold | Low `O(N)` / No |
+| **RSI_Pro** | Classic Wilder's RSI. | All-in-one tool with optional signal line and Bollinger Bands. Selectable candle source (Std/HA). | Mean Reversion, Divergences | Low `O(N)` / No |
+| **SMI_Pro** | A smoother version of the Stochastic Oscillator. | Measures close relative to the midpoint of the range. Selectable candle source (Std/HA). | Smoothed Momentum Signals | Medium `O(N)` / No |
+| **StochasticFast_Pro**| The raw, un-smoothed Stochastic Oscillator. | Highly responsive. Selectable candle source (Std/HA) & MA type for %D. | Ranging Markets, Reversals | Low `O(N)` / No |
+| **StochasticSlow_Pro**| The classic, smoothed Stochastic Oscillator. | The industry standard. Selectable candle source (Std/HA) & MA types for Slowing/%D. | Ranging Markets, Reversals | Medium `O(N)` / No |
+| **StochRSI_Fast_Pro**| Applies the Fast Stochastic formula to RSI data. | Extremely sensitive "indicator of an indicator". Selectable candle source (Std/HA) for RSI. | Short-Term Overbought/Oversold | Medium `O(N)` / No |
+| **StochRSI_Slow_Pro**| Applies the Slow Stochastic formula to RSI data. | Smoother than the Fast version. Selectable candle source (Std/HA) for RSI. | Short-Term Overbought/Oversold | Medium `O(N)` / No |
+| **TDI_Pro** | An "all-in-one" system based on RSI, MAs, and Volatility Bands. | Provides a comprehensive market view in one window. Selectable candle source (Std/HA) for RSI. | Complete Trading System | High `O(N^2)` / No |
+| **TSI_Pro** | A double-smoothed momentum oscillator. | Extremely smooth, with reliable zero-line crossovers. Selectable candle source (Std/HA). | Trend Following, Divergences | Medium `O(N)` / No |
+| **TSI_Oscillator_Pro**| Histogram of the TSI and its signal line. | Visualizes TSI momentum. Selectable candle source (Std/HA). | Momentum Analysis | Medium `O(N)` / No |
+| **UltimateOscillator_Pro**| A multi-timeframe oscillator for reliable divergences. | Combines three timeframes to reduce false signals. Selectable candle source (Std/HA) & optional signal line. | **Divergence Trading** | Low `O(N)` / No |
+| **WPR_Pro** | The inverse of the Fast Stochastic %K line. | A fast and simple oscillator. Selectable candle source (Std/HA) & optional signal line. | Short-Term Reversals | Low `O(N)` / No |
 
 ### 1.3 Volatility & Volume Indicators
 
-| Indicator Family | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity / Repainting |
+| Indicator | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity / Repainting |
 | :--- | :--- | :--- | :--- | :--- |
-| **ATR** | Measure market volatility (the average size of a price bar). | Our version uses the classic Wilder's (RMA) smoothing, which is the global standard. | Risk Management, Stop-loss | Low `O(N)` / No |
-| **ATR Trailing Stop** | Provide dynamic, volatility-based trailing stop levels. | Implements the classic "Chandelier Exit" algorithm. **Includes a full MTF version.** | Trailing Stops, Trend Following | Low `O(N)` / No |
-| **Keltner Channel** | A volatility-based channel around a moving average. | We have three versions: Standard (MA + Std ATR), Hybrid (HA MA + Std ATR), and Pure (HA MA + HA ATR). | Trend Following, Breakouts | Medium `O(N)` / No |
-| **Bollinger Bands** | A standard deviation-based channel around a moving average. | The most statistically precise measure of volatility. The "Squeeze" is its most famous signal. | Mean Reversion, Breakouts | Low `O(N)` / No |
-| **Accum./Distribution (ADL)** | A cumulative measure of money flow based on close position and volume. | A foundational volume indicator used for confirming trends and spotting divergences. | Trend Confirmation, Divergences | Low `O(N)` / No |
-| **Chaikin Oscillator (CHO)** | Measures the momentum of the Accumulation/Distribution Line. | Excellent for spotting shifts in buying/selling pressure before they are obvious in price. | Divergences, Money Flow | Medium `O(N)` / No |
-| **Money Flow Index (MFI)** | A "volume-weighted RSI" that measures money flowing into or out of a security. | More robust than RSI as it incorporates volume. Excellent for divergence signals. | Divergences, Overbought/Oversold | Low `O(N)` / No |
+| **AD_Pro** | A cumulative measure of money flow. | Confirms trends and spots divergences. Selectable candle source (Std/HA). | Trend Confirmation, Divergences | Low `O(N)` / No |
+| **AMA_TrendActivity_Pro**| Measures the slope/activity of the AMA line. | Quantifies "trendiness". Selectable candle source (Std/HA) for AMA & ATR. | Trend Filtering | Medium `O(N)` / No |
+| **ATR_Pro** | Measures market volatility (Wilder's definition). | The global standard for ATR. Selectable candle source (Std/HA). | Risk Management, Stop-loss | Low `O(N)` / No |
+| **Bollinger_Bands_Pro**| Standard deviation-based volatility channels. | The most statistically precise measure of volatility. Selectable candle source (Std/HA). | Mean Reversion, Breakouts | Medium `O(N^2)` / No |
+| **Bollinger_Band_Width_Pro**| Oscillator that measures the width of the Bollinger Bands. | Identifies volatility "squeezes". Selectable candle source (Std/HA). | Breakout Anticipation | Medium `O(N^2)` / No |
+| **Bollinger_Bands_PercentB**| Oscillator that shows price position within the bands. | Normalizes price relative to the bands. Selectable candle source (Std/HA). | Overbought/Oversold | Medium `O(N^2)` / No |
+| **CHO_Pro** | Measures the momentum of the ADL. | Spots shifts in buying/selling pressure. Selectable candle source (Std/HA) for ADL. | Divergences, Money Flow | Medium `O(N)` / No |
+| **Jurik_Bands** | Volatility bands based on the Jurik Volatility (JMA Volty). | Extremely responsive, low-lag channels. Separate Std/HA versions. | Advanced Breakout Trading | High `O(N)` / No |
+| **Jurik_Volatility** | A low-lag, adaptive measure of market volatility. | A superior alternative to ATR for fast-reacting systems. Separate Std/HA versions. | Advanced Risk Management | High `O(N)` / No |
+| **KeltnerChannel_Pro**| ATR-based volatility channels. | Highly flexible with selectable MA source and ATR source (Std/HA). | Trend Following, Breakouts | Medium `O(N)` / No |
+| **VIDYA_TrendActivity_Pro**| Measures the slope/activity of the VIDYA line. | Quantifies momentum-based "trendiness". Selectable candle source (Std/HA) for VIDYA & ATR. | Trend Filtering | Medium `O(N)` / No |
 
-### 1.4 Blau Authors Series (`MyIndicators/Authors/Blau/`)
+### 1.4 Other Indicators
 
-William Blau's unique, double-smoothed oscillators designed for maximum noise reduction.
-
-| Indicator Family | Primary Purpose | Key Feature / Why Use It? | Best For | Complexity |
-| :--- | :--- | :--- | :--- | :--- |
-| **Ergodic TSI** | A double-smoothed measure of **trend momentum** (price change). | The classic, globally accepted TSI. Extremely smooth, with reliable zero-line crossovers and divergences. | Trend Following, Divergences | Medium `O(N)` |
-| **Ergodic CMI** | A double-smoothed measure of **intra-bar momentum** (`Close-Open`). | Measures the "conviction" within each candle. Offers a unique insight into buying/selling pressure. | Momentum Confirmation | Medium `O(N)` |
-| **Ergodic DTI** | A double-smoothed measure of **directional momentum** (`High/Low` change). | A much smoother, cleaner alternative to the classic ADX for measuring trend direction and strength. | Trend Following, ADX Replacement | Medium `O(N)` |
-| **Ergodic SMI** | A double-smoothed measure of **Stochastic momentum**. | A hybrid of the Stochastic and TSI concepts. Smoother than a standard Stochastic. | Overbought/Oversold, Reversals | Medium `O(N)` |
-| **Ergodic MACD** | Applies an additional layer of double-smoothing to the classic MACD lines. | An "ultra-smooth" MACD designed to filter out all but the most significant, long-term momentum shifts. | Long-Term Trend Analysis | High `O(N)` |
+| Indicator | Primary Purpose | Key Feature / Why Use It? | Complexity / Repainting |
+| :--- | :--- | :--- | :--- |
+| **Chart_HeikinAshi** | Displays Heikin Ashi candles on the main chart. | A clean, simple implementation for trend visualization. | Low `O(N)` / No |
+| **LinearRegression_Pro**| Plots a statistically precise, non-repainting trend channel. | Updates only on new bars for efficiency. Selectable candle source (Std/HA). | Low `O(N)` / **Yes (by design)** |
+| **Murrey_Math_Line_X**| Plots a grid of S/R levels based on Gann's octave theory. | A complete, rule-based trading framework. | High `O(N)` / **Yes (by design)** |
 
 ---
 
-## 2. Scripts & Utilities (`MyScripts/` & `MyIncludes/`)
+## 2. Scripts & Utilities
 
-| Tool | Primary Purpose | Key Feature / Why Use It? | Type |
-| :--- | :--- | :--- | :--- |
-| **HeikinAshi_Tools.mqh** | Provides `CHeikinAshi_Calculator` class. | The core engine for all our Heikin Ashi indicators. Encapsulates complex logic for easy reuse. | Include Library |
-| **Jurik_Calculators.mqh** | Provides calculation engines for the JMA family. | A modular, object-oriented engine for standard and Heikin Ashi Jurik calculations. | Include Library |
-| **MESA_Calculator.mqh** | Provides calculation engines for the MAMA/FAMA family. | A modular, object-oriented engine for the complex MESA algorithm. | Include Library |
-| **Holt_Calculator.mqh** | Provides calculation engines for the Holt DES family. | A modular, object-oriented engine for standard and Heikin Ashi Holt calculations. | Include Library |
-| **AccountInfoDisplay** | Display real-time account statistics on the chart. | Clean, object-oriented code with a clear separation of data and presentation. | Script |
-| **Symbol Info Checkers** | List all `DOUBLE`, `INTEGER`, and `STRING` properties for a given symbol. | Professional, class-based diagnostic tools for developers. | Scripts |
-| **SymbolScannerPanel** | Scans and filters all available symbols based on user-defined criteria. | A powerful, class-based data mining tool for finding instruments that meet specific conditions. | Script |
-| **Candle Exporter** | Export historical candle data to a CSV file. | Clean, object-oriented design with robust file handling (RAII). | Script |
+| Tool | Primary Purpose | Key Feature / Why Use It? |
+| :--- | :--- | :--- |
+| **AccountInfoDisplay** | Displays real-time account statistics on the chart. | Clean, object-oriented code with a clear separation of data and presentation. |
+| **CalculateMarginSwap** | Calculates required margin and swap costs for a potential trade. | A crucial tool for risk management and position sizing. |
+| **SymbolInfo Checkers** | Lists all `DOUBLE`, `INTEGER`, and `STRING` properties for a symbol. | Professional, class-based diagnostic tools for developers. |
+| **SymbolScannerPanel** | Scans and filters all available symbols based on user-defined criteria. | A powerful, class-based data mining tool for finding instruments that meet specific conditions. |
+| **util_ExportCandlesToCSV** | Exports historical candle data to a CSV file. | Clean, object-oriented design with robust file handling. |
+
+---
+
+## 3. Include Libraries (`MyIncludes/`)
+
+This collection of `.mqh` files forms the backbone of our indicator suite, encapsulating all complex calculation logic for maximum reusability and easy maintenance.
+
+* **Core Engines:** `AD_Calculator.mqh`, `ADX_Calculator.mqh`, `ALMA_Calculator.mqh`, `AMA_Calculator.mqh`, `ATR_Calculator.mqh`, `Bollinger_Bands_Calculator.mqh`, `CCI_Engine.mqh`, `CHO_Calculator.mqh`, `CutlerRSI_Engine.mqh`, `FibonacciWMA_Calculator.mqh`, `FisherTransform_Calculator.mqh`, `GannHiLo_Calculator.mqh`, `HMA_Calculator.mqh`, `Holt_Engine.mqh`, `Jurik_Calculators.mqh`, `KeltnerChannel_Calculator.mqh`, `LinearRegression_Calculator.mqh`, `MACD_Calculator.mqh`, `MAMA_Engines.mqh`, `McGinleyDynamic_Calculator.mqh`, `MFI_Calculator.mqh`, `PascalWMA_Calculator.mqh`, `RSI_Pro_Calculator.mqh`, `SineWMA_Calculator.mqh`, `SMI_Calculator.mqh`, `Stochastic_Calculator.mqh`, `Supertrend_Calculator.mqh`, `SymmetricWMA_Calculator.mqh`, `TDI_Calculator.mqh`, `TSI_Engine.mqh`, `UltimateOscillator_Calculator.mqh`, `VIDYA_Calculator.mqh`, `WPR_Calculator.mqh`.
+* **Wrapper/Adapter Calculators:** `CCI_Calculator.mqh`, `CCI_Oscillator_Calculator.mqh`, `CutlerRSI_Calculator.mqh`, `CutlerRSI_Oscillator_Calculator.mqh`, `Holt_Calculator.mqh`, `Holt_Oscillator_Calculator.mqh`, `TSI_Calculator.mqh`, `TSI_Oscillator_Calculator.mqh`, etc.
+* **Toolkits:** `HeikinAshi_Tools.mqh`.
