@@ -7,8 +7,6 @@
 
 #include <MyIncludes\ATR_Calculator.mqh> // Re-use our robust ATR calculator
 
-//--- CORRECTED: The ENUM_ATR_SOURCE is now defined inside ATR_Calculator.mqh ---
-
 //+==================================================================+
 //|                                                                  |
 //|           CLASS 1: CSupertrendCalculator (Base Class)            |
@@ -19,9 +17,7 @@ class CSupertrendCalculator
 protected:
    int               m_atr_period;
    double            m_factor;
-
    CATRCalculator    *m_atr_calculator;
-
    double            m_src_high[], m_src_low[], m_src_close[];
 
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
@@ -32,7 +28,7 @@ public:
 
    bool              Init(int atr_p, double factor, ENUM_ATR_SOURCE atr_src);
    void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &st_buffer[], double &color_buffer[]);
+                               double &st_odd[], double &color_odd[], double &st_even[], double &color_even[]);
   };
 
 //+------------------------------------------------------------------+
@@ -40,7 +36,7 @@ public:
 //+------------------------------------------------------------------+
 CSupertrendCalculator::CSupertrendCalculator(void)
   {
-   m_atr_calculator = NULL; // Initialize pointer to NULL
+   m_atr_calculator = NULL;
   }
 
 //+------------------------------------------------------------------+
@@ -62,15 +58,10 @@ bool CSupertrendCalculator::Init(int atr_p, double factor, ENUM_ATR_SOURCE atr_s
 
    if(CheckPointer(m_atr_calculator) != POINTER_INVALID)
       delete m_atr_calculator;
-
    if(atr_src == ATR_SOURCE_HEIKIN_ASHI)
-     {
       m_atr_calculator = new CATRCalculator_HA();
-     }
    else
-     {
       m_atr_calculator = new CATRCalculator();
-     }
 
    if(CheckPointer(m_atr_calculator) == POINTER_INVALID)
       return false;
@@ -81,7 +72,7 @@ bool CSupertrendCalculator::Init(int atr_p, double factor, ENUM_ATR_SOURCE atr_s
 //| CSupertrendCalculator: Main Calculation Method (Shared Logic)    |
 //+------------------------------------------------------------------+
 void CSupertrendCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
-                                      double &st_buffer[], double &color_buffer[])
+                                      double &st_odd[], double &color_odd[], double &st_even[], double &color_even[])
   {
    if(rates_total <= m_atr_period || CheckPointer(m_atr_calculator) == POINTER_INVALID)
       return;
@@ -95,6 +86,8 @@ void CSupertrendCalculator::Calculate(int rates_total, const double &open[], con
    ArrayResize(trend, rates_total);
 
    m_atr_calculator.Calculate(rates_total, open, high, low, close, atr);
+
+   int trend_segment_index = 1;
 
    for(int i = 1; i < rates_total; i++)
      {
@@ -128,19 +121,42 @@ void CSupertrendCalculator::Calculate(int rates_total, const double &open[], con
                   trend[i] = trend[i-1];
            }
 
-      if(trend[i] == 1)
+      if(trend[i] != trend[i-1] && i > 1)
+         trend_segment_index++;
+
+      if(trend[i] == 1) // Uptrend
         {
-         st_buffer[i] = lower[i];
-         color_buffer[i] = 0;
-         if(trend[i-1] == -1)
-            st_buffer[i-1] = lower[i];
+         if(trend_segment_index % 2 != 0) // Odd segment
+           {
+            st_odd[i] = lower[i];
+            color_odd[i] = 0;
+            st_even[i] = EMPTY_VALUE;
+            color_even[i] = 0;
+           }
+         else // Even segment
+           {
+            st_even[i] = lower[i];
+            color_even[i] = 0;
+            st_odd[i] = EMPTY_VALUE;
+            color_odd[i] = 0;
+           }
         }
-      else
+      else // Downtrend
         {
-         st_buffer[i] = upper[i];
-         color_buffer[i] = 1;
-         if(trend[i-1] == 1)
-            st_buffer[i-1] = upper[i];
+         if(trend_segment_index % 2 != 0) // Odd segment
+           {
+            st_odd[i] = upper[i];
+            color_odd[i] = 1;
+            st_even[i] = EMPTY_VALUE;
+            color_even[i] = 1;
+           }
+         else // Even segment
+           {
+            st_even[i] = upper[i];
+            color_even[i] = 1;
+            st_odd[i] = EMPTY_VALUE;
+            color_odd[i] = 1;
+           }
         }
      }
   }
