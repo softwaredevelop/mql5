@@ -5,21 +5,28 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "3.01" // Corrected enum definition
+#property version   "3.10" // Implemented gapped line drawing
 #property description "Professional Supertrend with selectable candle and ATR source"
 #property description "(Standard or Heikin Ashi)."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_chart_window
-#property indicator_buffers 2 // Supertrend line and color
-#property indicator_plots   1
+#property indicator_buffers 4 // 2 for Supertrend lines, 2 for colors
+#property indicator_plots   2
 
-//--- Plot 1: Supertrend line
+//--- Plot 1: Supertrend line (Odd Segments)
 #property indicator_label1  "Supertrend"
 #property indicator_type1   DRAW_COLOR_LINE
 #property indicator_color1  clrLimeGreen, clrTomato
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
+
+//--- Plot 2: Supertrend line (Even Segments)
+#property indicator_label2  "" // No label for the second part
+#property indicator_type2   DRAW_COLOR_LINE
+#property indicator_color2  clrLimeGreen, clrTomato
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  1
 
 //--- Include the calculator engine ---
 #include <MyIncludes\Supertrend_Calculator.mqh>
@@ -38,8 +45,10 @@ input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
 input ENUM_ATR_SOURCE   InpAtrSource    = ATR_SOURCE_STANDARD;
 
 //--- Indicator Buffers ---
-double    BufferSupertrend[];
-double    BufferColor[];
+double    BufferSupertrend_Odd[];
+double    BufferColor_Odd[];
+double    BufferSupertrend_Even[];
+double    BufferColor_Even[];
 
 //--- Global calculator object (as a base class pointer) ---
 CSupertrendCalculator *g_calculator;
@@ -49,10 +58,18 @@ CSupertrendCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   SetIndexBuffer(0, BufferSupertrend, INDICATOR_DATA);
-   SetIndexBuffer(1, BufferColor,      INDICATOR_COLOR_INDEX);
-   ArraySetAsSeries(BufferSupertrend, false);
-   ArraySetAsSeries(BufferColor,      false);
+   SetIndexBuffer(0, BufferSupertrend_Odd,  INDICATOR_DATA);
+   SetIndexBuffer(1, BufferColor_Odd,       INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(2, BufferSupertrend_Even, INDICATOR_DATA);
+   SetIndexBuffer(3, BufferColor_Even,      INDICATOR_COLOR_INDEX);
+
+   ArraySetAsSeries(BufferSupertrend_Odd,  false);
+   ArraySetAsSeries(BufferColor_Odd,       false);
+   ArraySetAsSeries(BufferSupertrend_Even, false);
+   ArraySetAsSeries(BufferColor_Even,      false);
+
+   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    if(InpCandleSource == CANDLE_HEIKIN_ASHI)
      {
@@ -73,6 +90,7 @@ int OnInit()
 
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpAtrPeriod);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpAtrPeriod);
 
    return(INIT_SUCCEEDED);
   }
@@ -93,7 +111,7 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferSupertrend, BufferColor);
+   g_calculator.Calculate(rates_total, open, high, low, close, BufferSupertrend_Odd, BufferColor_Odd, BufferSupertrend_Even, BufferColor_Even);
    return(rates_total);
   }
 //+------------------------------------------------------------------+
