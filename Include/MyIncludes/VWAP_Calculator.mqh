@@ -45,6 +45,21 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
   {
    m_period      = period;
    m_volume_type = vol_type;
+
+//--- CORRECTED: Final, robust check for Real Volume availability ---
+   if(m_volume_type == VOLUME_REAL)
+     {
+      // If SYMBOL_VOLUME_LIMIT is > 0, the symbol supports real volumes.
+      // This is a DOUBLE property.
+      bool real_volume_available = (SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) > 0);
+
+      if(!real_volume_available)
+        {
+         Print("VWAP Error: Real Volume is not available for the current symbol '", _Symbol, "'. Indicator will not load. Please use Tick Volume.");
+         return false; // Initialization failed
+        }
+     }
+
    return true;
   }
 
@@ -98,7 +113,14 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
         {
          cumulative_tpv = 0;
          cumulative_vol = 0;
-         period_index++; // Increment period counter
+         period_index++;
+         if(i > 0)
+           {
+            if((period_index-1) % 2 != 0)
+               vwap_odd[i-1] = EMPTY_VALUE;
+            else
+               vwap_even[i-1] = EMPTY_VALUE;
+           }
         }
 
       long current_volume = (m_volume_type == VOLUME_TICK) ? tick_volume[i] : volume[i];
@@ -110,13 +132,12 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
 
       double vwap_value = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : (i > 0 ? (period_index % 2 != 0 ? vwap_odd[i-1] : vwap_even[i-1]) : EMPTY_VALUE);
 
-      // Write to the correct buffer based on period index (odd/even)
-      if(period_index % 2 != 0) // Odd period
+      if(period_index % 2 != 0)
         {
          vwap_odd[i] = vwap_value;
          vwap_even[i] = EMPTY_VALUE;
         }
-      else // Even period
+      else
         {
          vwap_even[i] = vwap_value;
          vwap_odd[i] = EMPTY_VALUE;
