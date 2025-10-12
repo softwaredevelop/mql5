@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Implemented gapped line drawing
+#property version   "1.11" // Added plot labels for clarity
 #property description "Volume Weighted Average Price (VWAP) with selectable reset period"
 #property description "and candle source (Standard or Heikin Ashi)."
 
@@ -16,18 +16,18 @@
 #include <MyIncludes\VWAP_Calculator.mqh>
 
 //--- Plot 1: VWAP Line (Odd Periods)
-#property indicator_label1  "VWAP"
+#property indicator_label1  "VWAP" // This label is shown on the chart
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrOrange
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Plot 2: VWAP Line (Even Periods)
-#property indicator_label2  "" // No label for the second part
+#property indicator_label2  "" // No label on the chart for the second part
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrOrange
 #property indicator_style2  STYLE_SOLID
-#property indicator_width2  2
+#property indicator_width2  1
 
 //--- Enum for selecting the candle source for calculation ---
 enum ENUM_CANDLE_SOURCE
@@ -65,11 +65,17 @@ int OnInit()
      {
       g_calculator = new CVWAPCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, "VWAP HA");
+      // Set labels for Data Window and Properties
+      PlotIndexSetString(0, PLOT_LABEL, "VWAP HA");
+      PlotIndexSetString(1, PLOT_LABEL, "VWAP HA (Segment)");
      }
    else
      {
       g_calculator = new CVWAPCalculator();
       IndicatorSetString(INDICATOR_SHORTNAME, "VWAP");
+      // Set labels for Data Window and Properties
+      PlotIndexSetString(0, PLOT_LABEL, "VWAP");
+      PlotIndexSetString(1, PLOT_LABEL, "VWAP (Segment)");
      }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpResetPeriod, InpVolumeType))
