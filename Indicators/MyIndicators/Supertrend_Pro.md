@@ -6,7 +6,7 @@ The Supertrend indicator, developed by Olivier Seban, is a simple yet effective 
 
 Our `Supertrend_Pro` implementation is a unified, professional version that combines three distinct calculation methodologies into a single, flexible indicator:
 
-1. **Standard:** Classic Supertrend using standard price data for both the trend calculation and the ATR.
+1. **Standard:** Classic Supertrend using standard price data.
 2. **HA-Hybrid:** A smoothed Supertrend based on Heikin Ashi prices, with channel width based on standard, real-market ATR.
 3. **HA-Pure:** A fully smoothed Supertrend where both the trend calculation and the ATR are based on Heikin Ashi data.
 
@@ -23,27 +23,22 @@ The Supertrend indicator combines a measure of volatility (Average True Range - 
 ### Calculation Steps (Algorithm)
 
 1. **Calculate the Average True Range (ATR)**.
-2. **Calculate the Basic Upper and Lower Bands:**
-    * $\text{Upper Basic Band} = \frac{\text{High} + \text{Low}}{2} + (\text{Factor} \times \text{ATR})$
-    * $\text{Lower Basic Band} = \frac{\text{High} + \text{Low}}{2} - (\text{Factor} \times \text{ATR})$
-3. **Calculate the Final Upper and Lower Bands** using the "stair-step" logic to ensure bands never move against the trend.
+2. **Calculate the Basic Upper and Lower Bands.**
+3. **Calculate the Final Upper and Lower Bands** using the "stair-step" logic.
 4. **Determine the Trend Direction** by comparing the closing price to the opposite band.
-5. **Plot the Supertrend Line:**
-    * If the trend is **up**, plot the **Final Lower Band**.
-    * If the trend is **down**, plot the **Final Upper Band**.
+5. **Plot the Supertrend Line:** Plot the Final Lower Band in an uptrend, and the Final Upper Band in a downtrend.
 
 ## 3. MQL5 Implementation Details
 
 Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Component-Based Design:** The Supertrend calculator (`Supertrend_Calculator.mqh`) **reuses** our existing, standalone `ATR_Calculator.mqh` module. This eliminates code duplication and ensures that the ATR component is always our robust, definition-true Wilder's ATR.
+* **Component-Based Design:** The `Supertrend_Calculator` **reuses** our existing, standalone `ATR_Calculator.mqh` module, ensuring the ATR component is always our robust, definition-true Wilder's ATR.
 
-* **Object-Oriented Logic:**
-  * The `CSupertrendCalculator` base class performs the full, state-dependent calculation.
-  * The `CSupertrendCalculator_HA` child class inherits all the complex logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices.
-  * The calculator internally checks the `InpAtrSource` parameter and instructs its contained `ATR_Calculator` object to use either standard or Heikin Ashi data, providing all three logical variations within a clean, unified structure.
+* **Object-Oriented Logic:** An elegant inheritance model (`CSupertrendCalculator` and `CSupertrendCalculator_HA`) allows the indicator to seamlessly switch between standard and Heikin Ashi price data for its core logic.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate`. For a state-dependent indicator like Supertrend, this is the most reliable method.
+* **Clean Gapped-Line Drawing:** To provide a clear visual separation at trend changes, the indicator uses a **"double buffer" technique**. It plots uptrend and downtrend segments on two separate, overlapping plot buffers. This creates a distinct visual gap when the trend flips, accurately representing the signal without drawing misleading connecting lines.
+
+* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
 
 ## 4. Parameters
 
