@@ -20,13 +20,9 @@ The VWAP is the cumulative ratio of the volume-weighted price to the cumulative 
 ### Calculation Steps (Algorithm)
 
 1. **Start of a New Period (e.g., new day):** Reset the cumulative values to zero.
-    * `Cumulative (TP x Volume) = 0`
-    * `Cumulative Volume = 0`
 2. **For Each Bar within the Period:**
     * Calculate the Typical Price: $\text{TP}_i = \frac{\text{High}_i + \text{Low}_i + \text{Close}_i}{3}$
-    * Update the cumulative sums:
-        * `Cumulative (TP x Volume) += TP_i \times \text{Volume}_i`
-        * `Cumulative Volume += \text{Volume}_i`
+    * Update the cumulative sums: `Cumulative (TP x Volume) += TP_i \times \text{Volume}_i` and `Cumulative Volume += \text{Volume}_i`
 3. **Calculate the VWAP:**
     * $\text{VWAP}_i = \frac{\text{Cumulative (TP * Volume)}}{\text{Cumulative Volume}}$
 
@@ -35,13 +31,13 @@ The VWAP is the cumulative ratio of the volume-weighted price to the cumulative 
 Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and a clean visual representation.
 
 * **Modular Calculation Engine (`VWAP_Calculator.mqh`):**
-    The entire calculation logic is encapsulated within a reusable include file.
-  * **`CVWAPCalculator`**: The base class that performs the full VWAP calculation.
-  * **`CVWAPCalculator_HA`**: A child class that inherits all logic and only overrides the data preparation step to use the Typical Price derived from smoothed Heikin Ashi candles.
+    The entire calculation logic is encapsulated within a reusable include file. This engine uses an elegant, object-oriented inheritance model (`CVWAPCalculator` and `CVWAPCalculator_HA`) to support both standard and Heikin Ashi data sources without code duplication.
 
 * **Robust Period Reset Logic:** The calculator uses `MqlDateTime` structures to accurately detect the start of a new session, week, or month, ensuring the VWAP resets correctly under all conditions.
 
-* **Clean Gapped-Line Drawing:** To provide a clear visual separation between periods, the indicator uses a "double buffer" technique. It plots odd-numbered periods (1st day, 3rd day, etc.) and even-numbered periods (2nd day, 4th day, etc.) on two separate, overlapping plot buffers. This creates a distinct visual gap at each reset point without losing any data from the current, ongoing period.
+* **Clean Gapped-Line Drawing:** To provide a clear and definition-true visual separation between periods, the indicator uses a **"double buffer" technique**. It plots odd-numbered periods (1st day, 3rd day, etc.) and even-numbered periods (2nd day, 4th day, etc.) on two separate, overlapping plot buffers. This creates a distinct visual gap at each reset point and ensures the current, ongoing period is always fully drawn to the last available bar.
+
+* **Intelligent Volume Handling:** The indicator automatically detects if the selected instrument provides **Real Volume**. If a user requests Real Volume on a symbol where it's unavailable (like Forex/CFDs), the indicator will fail to load and print an informative error message, preventing the display of a misleading, incorrectly calculated line.
 
 * **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
 
@@ -53,9 +49,7 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 
 ## 5. Usage and Interpretation
 
-* **Benchmark for "Fair Value":** The VWAP is often considered the "true" average price for the period.
-  * **Price > VWAP:** The market is considered to be in a bullish state for that period.
-  * **Price < VWAP:** The market is considered to be in a bearish state for that period.
+* **Benchmark for "Fair Value":** The VWAP is often considered the "true" average price for the period. Price action above the VWAP is generally considered bullish for the session, while price action below is bearish.
 * **Dynamic Support and Resistance:** The VWAP line itself acts as a powerful, dynamic level of support or resistance during the trading session.
 * **Mean Reversion:** A significant deviation of the price from the VWAP often leads to a reversion back towards it.
 * **Execution Benchmark:** Institutional traders often use the VWAP to gauge the quality of their trade executions. Buying below the VWAP or selling above it is considered a good execution.
