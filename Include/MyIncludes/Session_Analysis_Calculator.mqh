@@ -166,7 +166,7 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
                string vwap_line_name = m_prefix + "VWAP_" + (string)time[i];
                ObjectCreate(0, vwap_line_name, OBJ_TREND, 0, time[i-1], prev_vwap, time[i], current_vwap);
                ObjectSetInteger(0, vwap_line_name, OBJPROP_COLOR, m_color);
-               ObjectSetInteger(0, vwap_line_name, OBJPROP_WIDTH, 2);
+               ObjectSetInteger(0, vwap_line_name, OBJPROP_WIDTH, 1);
               }
             prev_vwap = current_vwap;
            }
@@ -234,8 +234,8 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
                   ObjectMove(0, lr_line_name, 1, time[i], end_price);
                  }
                ObjectSetInteger(0, lr_line_name, OBJPROP_COLOR, m_color);
-               ObjectSetInteger(0, lr_line_name, OBJPROP_STYLE, STYLE_DASHDOT);
-               ObjectSetInteger(0, lr_line_name, OBJPROP_WIDTH, 2);
+               ObjectSetInteger(0, lr_line_name, OBJPROP_STYLE, STYLE_SOLID);
+               ObjectSetInteger(0, lr_line_name, OBJPROP_WIDTH, 1);
               }
            }
         }
