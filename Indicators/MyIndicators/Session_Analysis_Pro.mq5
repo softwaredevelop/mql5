@@ -44,9 +44,9 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD; // Price for M
 //+------------------------------------------------------------------+
 input group "Pre-Market Session (Broker Time)"
 input bool   InpPreMarket_Enable = true;
-input string InpPreMarket_Start  = "08:00";
+input string InpPreMarket_Start  = "06:30";
 input string InpPreMarket_End    = "09:30";
-input color  InpPreMarket_Color  = C'33,150,243';
+input color  InpPreMarket_Color  = clrSlateBlue;
 input bool   InpPreMarket_VWAP   = true;
 input bool   InpPreMarket_Mean   = true;
 input bool   InpPreMarket_LinReg = true;
@@ -58,7 +58,7 @@ input group "Core Trading Session (Broker Time)"
 input bool   InpCore_Enable = true;
 input string InpCore_Start  = "09:30";
 input string InpCore_End    = "16:00";
-input color  InpCore_Color  = C'255,87,34';
+input color  InpCore_Color  = clrSlateBlue;
 input bool   InpCore_VWAP   = true;
 input bool   InpCore_Mean   = true;
 input bool   InpCore_LinReg = true;
@@ -70,7 +70,7 @@ input group "Post-Market Session (Broker Time)"
 input bool   InpPostMarket_Enable = true;
 input string InpPostMarket_Start  = "16:00";
 input string InpPostMarket_End    = "20:00";
-input color  InpPostMarket_Color  = C'103,58,183';
+input color  InpPostMarket_Color  = clrSlateBlue;
 input bool   InpPostMarket_VWAP   = true;
 input bool   InpPostMarket_Mean   = true;
 input bool   InpPostMarket_LinReg = true;
