@@ -213,7 +213,7 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
                ObjectSetInteger(0, mean_line_name, OBJPROP_TIME, 1, time[i]);
               }
             ObjectSetInteger(0, mean_line_name, OBJPROP_COLOR, m_color);
-            ObjectSetInteger(0, mean_line_name, OBJPROP_STYLE, STYLE_DOT);
+            ObjectSetInteger(0, mean_line_name, OBJPROP_STYLE, STYLE_SOLID);
            }
 
          if(m_show_linreg && bar_count > 1)
