@@ -42,24 +42,127 @@ The indicator identifies bars belonging to a specific time window and performs f
   * `Color`: The color for all graphical objects drawn for that session.
   * `VWAP / Mean / LinReg`: Toggles the visibility of each analytical line for that session.
 
-## 5. Recommended Session Times
+## 5. Trading Session Times Reference
 
-The following table provides recommended `Pre-Market`, `Core Trading`, and `Post-Market` times for the major global sessions, focusing on periods of highest liquidity and activity relevant to retail traders.
+This section provides a detailed reference for the trading hours of major global exchanges to help configure the indicator.
 
-**IMPORTANT:** All times are listed in **UTC/GMT**. You must convert these times to your broker's server time when configuring the indicator's input parameters. Be aware that you may need to adjust these times twice a year due to Daylight Saving Time (DST) changes.
+**IMPORTANT:** All times are listed in various time zones for comparison. You must use the times that correspond to your **broker's server time** in the indicator settings. Be aware that you may need to adjust these times twice a year due to Daylight Saving Time (DST) changes.
 
-| Market Session | Pre-Market (UTC) | Core Trading (UTC) | Post-Market (UTC) | Key Characteristics |
-| :--- | :--- | :--- | :--- | :--- |
-| **Asia (Tokyo/Sydney)** | 22:00 - 23:00 | **23:00 - 07:00** | 07:00 - 08:00 | Lower volatility. Best for JPY, AUD, NZD pairs. |
-| **Europe (Frankfurt)** | 06:00 - 07:00 | **07:00 - 16:00** | 16:00 - 17:30 | High liquidity begins. Catches the Frankfurt open. |
-| **Europe (London)** | 07:00 - 08:00 | **08:00 - 16:30** | 16:30 - 17:30 | Highest liquidity session. Overlaps with Frankfurt. |
-| **America (New York)** | 12:00 - 13:30 | **13:30 - 20:00** | 20:00 - 21:00 | High liquidity, especially during the London overlap. |
+---
 
-### **Alternative London Pre-Market Timing**
+### **New York Stock Exchange (NYSE)**
 
-For traders who wish to capture the very beginning of European market activity, including the Frankfurt open, an earlier start for the London Pre-Market session is recommended:
+* **Time Zone**: Eastern Time (ET)
+* **DST (USA) in 2025**: Starts March 9, Ends November 2.
 
-* **Early London Pre-Market:** `06:00 - 08:00 UTC`
+#### Summer (EDT, UTC-4)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **New York (EDT)** | 06:30–09:30 | 09:30–16:00 | 16:00–20:00 |
+| **UTC** | 10:30–13:30 | 13:30–20:00 | 20:00–00:00 |
+| **Nicosia (EEST, UTC+3)** | 13:30–16:30 | 16:30–23:00 | 23:00–03:00 |
+| **Budapest (CEST, UTC+2)**| 12:30–15:30 | 15:30–22:00 | 22:00–02:00 |
+
+#### Winter (EST, UTC-5)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **New York (EST)** | 06:30–09:30 | 09:30–16:00 | 16:00–20:00 |
+| **UTC** | 11:30–14:30 | 14:30–21:00 | 21:00–01:00 |
+| **Nicosia (EET, UTC+2)** | 13:30–16:30 | 16:30–23:00 | 23:00–03:00 |
+| **Budapest (CET, UTC+1)** | 12:30–15:30 | 15:30–22:00 | 22:00–02:00 |
+
+---
+
+### **London Stock Exchange (LSE)**
+
+* **Time Zone**: GMT / BST
+* **DST (Europe) in 2025**: Starts March 30, Ends October 26.
+
+#### Summer (BST, UTC+1)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **London (BST)** | 05:00–08:00 | 08:00–16:30 | 16:30–17:15 |
+| **UTC** | 04:00–07:00 | 07:00–15:30 | 15:30–16:15 |
+| **Nicosia (EEST, UTC+3)** | 07:00–10:00 | 10:00–18:30 | 18:30–19:15 |
+| **Budapest (CEST, UTC+2)**| 06:00–09:00 | 09:00–17:30 | 17:30–18:15 |
+
+#### Winter (GMT, UTC+0)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **London (GMT)** | 05:00–08:00 | 08:00–16:30 | 16:30–17:15 |
+| **UTC** | 05:00–08:00 | 08:00–16:30 | 16:30–17:15 |
+| **Nicosia (EET, UTC+2)** | 07:00–10:00 | 10:00–18:30 | 18:30–19:15 |
+| **Budapest (CET, UTC+1)** | 06:00–09:00 | 09:00–17:30 | 17:30–18:15 |
+
+---
+
+### **Frankfurt Stock Exchange (Xetra)**
+
+* **Time Zone**: CET / CEST
+* **DST (Europe) in 2025**: Starts March 30, Ends October 26.
+
+#### Summer (CEST, UTC+2)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **Frankfurt (CEST)**| 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
+| **UTC** | 06:00–07:00 | 07:00–15:30 | 15:30–18:00 |
+| **Nicosia (EEST, UTC+3)** | 09:00–10:00 | 10:00–18:30 | 18:30–21:00 |
+| **Budapest (CEST, UTC+2)**| 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
+
+#### Winter (CET, UTC+1)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **Frankfurt (CET)** | 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
+| **UTC** | 07:00–08:00 | 08:00–16:30 | 16:30–19:00 |
+| **Nicosia (EET, UTC+2)** | 09:00–10:00 | 10:00–18:30 | 18:30–21:00 |
+| **Budapest (CET, UTC+1)** | 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
+
+---
+
+### **Tokyo Stock Exchange (TSE)**
+
+* **Time Zone**: Japan Standard Time (JST), UTC+9 all year.
+* **No Daylight Saving Time.**
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **Tokyo (JST)** | 08:00–09:00 | 09:00–11:30 | 12:30–15:30 |
+| **UTC** | 23:00–00:00 | 00:00–02:30 | 03:30–06:30 |
+| **Nicosia** | 01:00–02:00 (W) / 02:00–03:00 (S) | 02:00–04:30 (W) / 03:00–05:30 (S) | 05:30–08:30 (W) / 06:30–09:30 (S) |
+| **Budapest** | 00:00–01:00 (W) / 01:00–02:00 (S) | 01:00–03:30 (W) / 02:00–04:30 (S) | 04:30–07:30 (W) / 05:30–08:30 (S) |
+
+---
+
+### **Sydney Stock Exchange (ASX)**
+
+* **Time Zone**: AEST / AEDT
+* **DST (Australia) in 2025**: Starts October 5, Ends April 6.
+
+#### Summer (AEDT, UTC+11) (Oct - Apr)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **Sydney (AEDT)** | 07:00–10:00 | 10:00–16:00 | 16:00–19:00 |
+| **UTC** | 20:00–23:00 | 23:00–05:00 | 05:00–08:00 |
+| **Nicosia (EET, UTC+2)** | 22:00–01:00 | 01:00–07:00 | 07:00–10:00 |
+| **Budapest (CET, UTC+1)** | 21:00–00:00 | 00:00–06:00 | 06:00–09:00 |
+
+#### Winter (AEST, UTC+10) (Apr - Oct)
+
+| Time Zone | Pre-Market | Core Trading | Post-Market |
+| :--- | :--- | :--- | :--- |
+| **Sydney (AEST)** | 07:00–10:00 | 10:00–16:00 | 16:00–19:00 |
+| **UTC** | 21:00–00:00 | 00:00–06:00 | 06:00–09:00 |
+| **Nicosia (EEST, UTC+3)** | 00:00–03:00 | 03:00–09:00 | 09:00–12:00 |
+| **Budapest (CEST, UTC+2)**| 23:00–02:00 | 02:00–08:00 | 08:00–11:00 |
+
+---
 
 ## 6. Usage and Interpretation
 
