@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                           Session_Analysis_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // Added Heikin Ashi support and full price selection
+#property version   "3.04" // Using Time+Rand for a truly unique instance ID
 #property description "Draws boxes, VWAP, Mean, and LinReg lines for user-defined trading sessions."
 #property description "Supports Standard and Heikin Ashi price sources. Times are based on broker's server time."
 #property indicator_chart_window
@@ -88,6 +87,12 @@ int OnInit()
   {
    g_last_bar_time = 0;
 
+//--- *** KEY CHANGE: Create a truly unique prefix using Time + Random value ***
+//--- Seed the random number generator to ensure it's different on each terminal launch
+   MathSrand((int)TimeCurrent());
+   string unique_prefix = StringFormat("_ID_%d_%d_", TimeCurrent(), MathRand());
+
+
    string ha_suffix = "";
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
@@ -105,15 +110,15 @@ int OnInit()
 
    if(CheckPointer(g_pre_market_analyzer) == POINTER_INVALID)
       return INIT_FAILED;
-   g_pre_market_analyzer.Init(InpPreMarket_Enable, InpPreMarket_Start, InpPreMarket_End, InpPreMarket_Color, InpFillBoxes, InpPreMarket_VWAP, InpPreMarket_Mean, InpPreMarket_LinReg, InpVolumeType, "PreMarket_");
+   g_pre_market_analyzer.Init(InpPreMarket_Enable, InpPreMarket_Start, InpPreMarket_End, InpPreMarket_Color, InpFillBoxes, InpPreMarket_VWAP, InpPreMarket_Mean, InpPreMarket_LinReg, InpVolumeType, unique_prefix + "PreMarket_");
 
    if(CheckPointer(g_core_market_analyzer) == POINTER_INVALID)
       return INIT_FAILED;
-   g_core_market_analyzer.Init(InpCore_Enable, InpCore_Start, InpCore_End, InpCore_Color, InpFillBoxes, InpCore_VWAP, InpCore_Mean, InpCore_LinReg, InpVolumeType, "CoreMarket_");
+   g_core_market_analyzer.Init(InpCore_Enable, InpCore_Start, InpCore_End, InpCore_Color, InpFillBoxes, InpCore_VWAP, InpCore_Mean, InpCore_LinReg, InpVolumeType, unique_prefix + "CoreMarket_");
 
    if(CheckPointer(g_post_market_analyzer) == POINTER_INVALID)
       return INIT_FAILED;
-   g_post_market_analyzer.Init(InpPostMarket_Enable, InpPostMarket_Start, InpPostMarket_End, InpPostMarket_Color, InpFillBoxes, InpPostMarket_VWAP, InpPostMarket_Mean, InpPostMarket_LinReg, InpVolumeType, "PostMarket_");
+   g_post_market_analyzer.Init(InpPostMarket_Enable, InpPostMarket_Start, InpPostMarket_End, InpPostMarket_Color, InpFillBoxes, InpPostMarket_VWAP, InpPostMarket_Mean, InpPostMarket_LinReg, InpVolumeType, unique_prefix + "PostMarket_");
 
    IndicatorSetString(INDICATOR_SHORTNAME, "Session Analysis" + ha_suffix);
    return(INIT_SUCCEEDED);
