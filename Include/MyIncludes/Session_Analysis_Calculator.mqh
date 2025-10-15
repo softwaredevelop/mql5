@@ -26,7 +26,6 @@ protected:
    bool              m_show_linreg;
    ENUM_APPLIED_VOLUME m_volume_type;
 
-   //--- Internal source buffers
    double            m_src_high[], m_src_low[], m_src_close[], m_src_price[];
 
    bool              IsTimeInSession(const MqlDateTime &dt);
@@ -38,8 +37,6 @@ public:
    void              Cleanup(void);
   };
 
-//+------------------------------------------------------------------+
-//| CSessionAnalyzer: Initialization                                 |
 //+------------------------------------------------------------------+
 void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_vwap, bool show_mean, bool show_linreg, ENUM_APPLIED_VOLUME vol_type, string prefix)
   {
@@ -66,26 +63,22 @@ void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, co
   }
 
 //+------------------------------------------------------------------+
-//| CSessionAnalyzer: Checks if a given time is within the session.  |
-//+------------------------------------------------------------------+
 bool CSessionAnalyzer::IsTimeInSession(const MqlDateTime &dt)
   {
    int current_time_in_minutes = dt.hour * 60 + dt.min;
    int start_time_in_minutes = m_start_hour * 60 + m_start_min;
    int end_time_in_minutes = m_end_hour * 60 + m_end_min;
 
-   if(end_time_in_minutes < start_time_in_minutes) // Overnight session (e.g., 22:00 to 04:00)
+   if(end_time_in_minutes < start_time_in_minutes)
      {
       return (current_time_in_minutes >= start_time_in_minutes || current_time_in_minutes < end_time_in_minutes);
      }
-   else // Same-day session
+   else
      {
       return (current_time_in_minutes >= start_time_in_minutes && current_time_in_minutes < end_time_in_minutes);
      }
   }
 
-//+------------------------------------------------------------------+
-//| CSessionAnalyzer: Deletes all objects created by this instance   |
 //+------------------------------------------------------------------+
 void CSessionAnalyzer::Cleanup(void)
   {
@@ -94,8 +87,6 @@ void CSessionAnalyzer::Cleanup(void)
    ObjectsDeleteAll(0, m_prefix);
   }
 
-//+------------------------------------------------------------------+
-//| CSessionAnalyzer: Main update logic                              |
 //+------------------------------------------------------------------+
 void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], ENUM_APPLIED_PRICE price_type)
   {
@@ -144,7 +135,6 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
          if(!is_in_current_session && in_session)
            {
             in_session = false;
-            // Session ended, no action needed as drawing is real-time
            }
 
       if(in_session)
@@ -163,7 +153,8 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
             double current_vwap = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : 0;
             if(prev_vwap > 0)
               {
-               string vwap_line_name = m_prefix + "VWAP_" + (string)time[i];
+               //--- *** KEY CHANGE: Name the VWAP segment by its STARTING time for consistency ***
+               string vwap_line_name = m_prefix + "VWAP_" + (string)time[i-1];
                ObjectCreate(0, vwap_line_name, OBJ_TREND, 0, time[i-1], prev_vwap, time[i], current_vwap);
                ObjectSetInteger(0, vwap_line_name, OBJPROP_COLOR, m_color);
                ObjectSetInteger(0, vwap_line_name, OBJPROP_WIDTH, 1);
@@ -183,7 +174,6 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
             bar_count++;
            }
 
-         // --- Real-time drawing of all components for the current session ---
          string box_name = m_prefix + "Box_" + (string)session_id;
          if(ObjectFind(0, box_name) < 0)
            {
@@ -303,22 +293,18 @@ protected:
 //+------------------------------------------------------------------+
 bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
-//--- CORRECTED SECTION: Declare all local HA arrays ---
    double ha_open[], ha_high[], ha_low[], ha_close[];
    ArrayResize(ha_open,  rates_total);
    ArrayResize(ha_high,  rates_total);
    ArrayResize(ha_low,   rates_total);
    ArrayResize(ha_close, rates_total);
 
-//--- Calculate all HA values into the local arrays
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-//--- Now, copy the calculated HA values to the class member arrays for analysis
    ArrayCopy(m_src_high,  ha_high,  0, 0, rates_total);
    ArrayCopy(m_src_low,   ha_low,   0, 0, rates_total);
    ArrayCopy(m_src_close, ha_close, 0, 0, rates_total);
 
-//--- Finally, prepare the specific m_src_price array based on user's choice
    ArrayResize(m_src_price, rates_total);
    switch(price_type)
      {
@@ -343,7 +329,7 @@ bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[
          for(int i=0; i<rates_total; i++)
             m_src_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
          break;
-      default: // PRICE_CLOSE
+      default:
          ArrayCopy(m_src_price, ha_close, 0, 0, rates_total);
          break;
      }
