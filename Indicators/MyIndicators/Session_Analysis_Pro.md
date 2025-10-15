@@ -25,8 +25,9 @@ The indicator identifies bars belonging to a specific time window and performs f
 ## 3. MQL5 Implementation Details
 
 * **Modular, Object-Oriented Design:** The entire logic is encapsulated within a `CSessionAnalyzer` class. The main indicator file instantiates three separate objects of this class, one for each user-defined session (Pre-Market, Core, Post-Market).
+* **Multi-Instance Support:** Each instance of the indicator generates a unique ID upon initialization (using a combination of a timestamp and a random number). This ID is used as a prefix for all graphical object names, ensuring that multiple copies of the indicator can run on the same chart without interfering with each other's drawings.
 * **Heikin Ashi Integration:** An inherited `CSessionAnalyzer_HA` class allows all calculations (VWAP, Mean, and LinReg) to be performed seamlessly on smoothed Heikin Ashi data.
-* **Efficient "On New Bar" Updates:** The entire complex calculation and object redrawing process is only performed **once per bar**, preventing unnecessary CPU load.
+* **Efficient "On New Bar" Updates:** The entire complex calculation and object redrawing process is only performed **once per bar**, preventing unnecessary CPU load on every tick.
 * **Robust Time Handling:** The indicator correctly identifies session boundaries regardless of the chart's timeframe and properly handles overnight sessions.
 * **Graphical Objects:** All visualizations are drawn using `OBJ_RECTANGLE` and `OBJ_TREND` objects for maximum flexibility.
 
