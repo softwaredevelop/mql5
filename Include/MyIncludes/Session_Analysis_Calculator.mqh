@@ -21,34 +21,30 @@ protected:
    string            m_prefix;
    bool              m_enabled;
    bool              m_fill_box;
-   bool              m_show_vwap;
    bool              m_show_mean;
    bool              m_show_linreg;
-   ENUM_APPLIED_VOLUME m_volume_type;
 
-   double            m_src_high[], m_src_low[], m_src_close[], m_src_price[];
+   double            m_src_high[], m_src_low[], m_src_price[];
 
    bool              IsTimeInSession(const MqlDateTime &dt);
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
-   void              DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[], const long &tick_volume[], const long &volume[]);
+   void              DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[]);
 
 public:
-   void              Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_vwap, bool show_mean, bool show_linreg, ENUM_APPLIED_VOLUME vol_type, string prefix);
-   void              Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], ENUM_APPLIED_PRICE price_type);
+   void              Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix);
+   void              Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
    void              Cleanup(void);
   };
 
 //+------------------------------------------------------------------+
-void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_vwap, bool show_mean, bool show_linreg, ENUM_APPLIED_VOLUME vol_type, string prefix)
+void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix)
   {
    m_enabled     = enabled;
    m_prefix      = prefix;
    m_color       = box_color;
    m_fill_box    = fill_box;
-   m_show_vwap   = show_vwap;
    m_show_mean   = show_mean;
    m_show_linreg = show_linreg;
-   m_volume_type = vol_type;
 
    string parts[];
    if(StringSplit(start_time, ':', parts) == 2)
@@ -71,13 +67,9 @@ bool CSessionAnalyzer::IsTimeInSession(const MqlDateTime &dt)
    int end_time_in_minutes = m_end_hour * 60 + m_end_min;
 
    if(end_time_in_minutes < start_time_in_minutes) // Overnight session
-     {
       return (current_time_in_minutes >= start_time_in_minutes || current_time_in_minutes < end_time_in_minutes);
-     }
    else // Same-day session
-     {
       return (current_time_in_minutes >= start_time_in_minutes && current_time_in_minutes < end_time_in_minutes);
-     }
   }
 
 //+------------------------------------------------------------------+
@@ -87,7 +79,7 @@ void CSessionAnalyzer::Cleanup(void)
   }
 
 //+------------------------------------------------------------------+
-void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], ENUM_APPLIED_PRICE price_type)
+void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
    if(!m_enabled || rates_total < 2)
       return;
@@ -115,7 +107,7 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
             MqlDateTime start_dt;
             TimeToStruct(time[session_start_bar], start_dt);
             long session_id = (long)time[session_start_bar] - (start_dt.hour * 3600 + start_dt.min * 60 + start_dt.sec);
-            DrawSession(session_start_bar, i - 1, session_id, time, tick_volume, volume);
+            DrawSession(session_start_bar, i - 1, session_id, time);
             session_start_bar = -1;
            }
      }
@@ -125,12 +117,12 @@ void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], con
       MqlDateTime start_dt;
       TimeToStruct(time[session_start_bar], start_dt);
       long session_id = (long)time[session_start_bar] - (start_dt.hour * 3600 + start_dt.min * 60 + start_dt.sec);
-      DrawSession(session_start_bar, rates_total - 1, session_id, time, tick_volume, volume);
+      DrawSession(session_start_bar, rates_total - 1, session_id, time);
      }
   }
 
 //+------------------------------------------------------------------+
-void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[], const long &tick_volume[], const long &volume[])
+void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[])
   {
    if(start_bar < 0 || end_bar < start_bar)
       return;
@@ -153,45 +145,25 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
       ObjectMove(0, box_name, 1, time[end_bar], session_low);
      }
 
-   if(m_show_vwap || m_show_mean || m_show_linreg)
+// --- Calculation for Mean and Linear Regression Lines ---
+// NOTE: The calculation is based on the m_src_price array, which is determined by the user's InpSourcePrice input.
+// The standard MT5 Regression Channel object calculates its centerline based on PRICE_MEDIAN ((High+Low)/2).
+// To match the built-in object perfectly, the user must select PRICE_MEDIAN as the source price.
+// Using other sources like PRICE_TYPICAL or PRICE_CLOSE will result in a valid, but different, regression line.
+   if(m_show_mean || m_show_linreg)
      {
-      double cumulative_tpv = 0, cumulative_vol = 0, prev_vwap = 0;
       double cumulative_price = 0;
       double sum_x = 0, sum_y = 0, sum_xy = 0, sum_x2 = 0;
 
       for(int i = start_bar; i <= end_bar; i++)
         {
-         if(m_show_vwap)
-           {
-            double typical_price = (m_src_high[i] + m_src_low[i] + m_src_close[i]) / 3.0;
-            long current_volume = (m_volume_type == VOLUME_TICK) ? tick_volume[i] : volume[i];
-            if(current_volume < 1)
-               current_volume = 1;
-            cumulative_tpv += typical_price * (double)current_volume;
-            cumulative_vol += (double)current_volume;
-            double current_vwap = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : 0;
-            if(prev_vwap > 0)
-              {
-               string vwap_line_name = m_prefix + "VWAP_" + (string)time[i - 1];
-               if(ObjectFind(0, vwap_line_name) < 0)
-                 {
-                  ObjectCreate(0, vwap_line_name, OBJ_TREND, 0, time[i - 1], prev_vwap, time[i], current_vwap);
-                  ObjectSetInteger(0, vwap_line_name, OBJPROP_COLOR, m_color);
-                  ObjectSetInteger(0, vwap_line_name, OBJPROP_WIDTH, 1);
-                 }
-              }
-            prev_vwap = current_vwap;
-           }
-         if(m_show_mean || m_show_linreg)
-           {
-            cumulative_price += m_src_price[i];
-            double x = i - start_bar;
-            double y = m_src_price[i];
-            sum_x += x;
-            sum_y += y;
-            sum_xy += x * y;
-            sum_x2 += x * x;
-           }
+         cumulative_price += m_src_price[i];
+         double x = i - start_bar;
+         double y = m_src_price[i];
+         sum_x += x;
+         sum_y += y;
+         sum_xy += x * y;
+         sum_x2 += x * x;
         }
 
       int bar_count = end_bar - start_bar + 1;
@@ -234,7 +206,6 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
      }
   }
 
-//--- PrepareSourceData and the HA class remain unchanged ---
 //+------------------------------------------------------------------+
 bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
@@ -242,8 +213,6 @@ bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], 
    ArrayCopy(m_src_high, high, 0, 0, rates_total);
    ArrayResize(m_src_low, rates_total);
    ArrayCopy(m_src_low, low, 0, 0, rates_total);
-   ArrayResize(m_src_close, rates_total);
-   ArrayCopy(m_src_close, close, 0, 0, rates_total);
    ArrayResize(m_src_price, rates_total);
    switch(price_type)
      {
@@ -274,6 +243,7 @@ bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], 
      }
    return true;
   }
+
 //+==================================================================+
 class CSessionAnalyzer_HA : public CSessionAnalyzer
   {
@@ -293,7 +263,6 @@ bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
    ArrayCopy(m_src_high,  ha_high,  0, 0, rates_total);
    ArrayCopy(m_src_low,   ha_low,   0, 0, rates_total);
-   ArrayCopy(m_src_close, ha_close, 0, 0, rates_total);
    ArrayResize(m_src_price, rates_total);
    switch(price_type)
      {
