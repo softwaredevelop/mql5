@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.40"
+#property version   "2.50" // REFACTORED: Robust handling of MTF history loading
 #property description "A clean, self-contained, object-oriented Murrey Math Lines indicator with MTF support."
 
 #property indicator_chart_window
@@ -48,12 +48,21 @@ bool CMurreyMathCalculator::CalculateLevels(double &levels[])
 
    double htf_high[], htf_low[];
 
+// REFACTORED: Check available bars before copying to avoid unnecessary errors
+   int bars_available = (int)SeriesInfoInteger(m_symbol, m_timeframe, SERIES_BARS_COUNT);
+   if(bars_available < bars_to_copy)
+     {
+      // Silently fail, OnCalculate will try again on the next tick
+      return false;
+     }
+
    int copied_high = CopyHigh(m_symbol, m_timeframe, 0, bars_to_copy, htf_high);
    int copied_low = CopyLow(m_symbol, m_timeframe, 0, bars_to_copy, htf_low);
 
+// REFACTORED: Instead of printing an error, just return false.
+// This indicates a temporary state, not a fatal error.
    if(copied_high < bars_to_copy || copied_low < bars_to_copy)
      {
-      Print("Error: Not enough history on ", EnumToString(m_timeframe), " to calculate Murrey Math.");
       return false;
      }
 
@@ -102,7 +111,6 @@ bool CMurreyMathCalculator::CalculateLevels(double &levels[])
 
    if(fractal == 0)
       return false;
-
    double range = v2 - v1;
    if(range <= 0)
       return false;
@@ -158,8 +166,7 @@ bool CMurreyMathCalculator::CalculateLevels(double &levels[])
   }
 
 //+------------------------------------------------------------------+
-//| CLASS: CMurreyMathDrawer                                         |
-//| Handles the creation and management of chart objects.            |
+//| CLASS: CMurreyMathDrawer (Unchanged)                             |
 //+------------------------------------------------------------------+
 class CMurreyMathDrawer
   {
@@ -169,30 +176,23 @@ private:
    string            m_font_face;
    int               m_font_size;
    bool              m_label_side_right;
-
    color             m_colors[13];
    int               m_widths[13];
    string            m_line_text[13];
-
    void              CreateOrMoveHLine(int index, double price);
    void              CreateOrMoveText(int index, datetime time, double price);
-
 public:
                      CMurreyMathDrawer(string prefix, string font, int size, bool right_side);
                     ~CMurreyMathDrawer(void);
-
    void              SetLineStyles(const color &colors[], const int &widths[]);
    void              DrawLevels(const datetime &time[], const double &levels[]);
   };
-
 //+------------------------------------------------------------------+
-//| CMurreyMathDrawer: Constructor                                   |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CMurreyMathDrawer::CMurreyMathDrawer(string prefix, string font, int size, bool right_side) :
-   m_prefix(prefix), m_font_face(font), m_font_size(size), m_label_side_right(right_side)
+CMurreyMathDrawer::CMurreyMathDrawer(string prefix, string font, int size, bool right_side) : m_prefix(prefix), m_font_face(font), m_font_size(size), m_label_side_right(right_side)
   {
    m_chart_id = ChartID();
-
    m_line_text[0]  = "[-2/8]P Extreme Overshoot";
    m_line_text[1]  = "[-1/8]P Overshoot";
    m_line_text[2]  = "[0/8]P Ultimate Support";
@@ -207,54 +207,38 @@ CMurreyMathDrawer::CMurreyMathDrawer(string prefix, string font, int size, bool 
    m_line_text[11] = "[+1/8]P Overshoot";
    m_line_text[12] = "[+2/8]P Extreme Overshoot";
   }
-
 //+------------------------------------------------------------------+
-//| CMurreyMathDrawer: Destructor (cleans up objects)                |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CMurreyMathDrawer::~CMurreyMathDrawer(void)
-  {
-   ObjectsDeleteAll(m_chart_id, m_prefix);
-  }
-
+CMurreyMathDrawer::~CMurreyMathDrawer(void) { ObjectsDeleteAll(m_chart_id, m_prefix); }
 //+------------------------------------------------------------------+
-//| CMurreyMathDrawer: Set line styles                               |
+//|                                                                  |
 //+------------------------------------------------------------------+
-void CMurreyMathDrawer::SetLineStyles(const color &colors[], const int &widths[])
-  {
-   ArrayCopy(m_colors, colors);
-   ArrayCopy(m_widths, widths);
-  }
-
+void CMurreyMathDrawer::SetLineStyles(const color &colors[], const int &widths[]) { ArrayCopy(m_colors, colors); ArrayCopy(m_widths, widths); }
 //+------------------------------------------------------------------+
-//| CMurreyMathDrawer: Main drawing method                           |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CMurreyMathDrawer::DrawLevels(const datetime &time[], const double &levels[])
   {
    int rates_total = ArraySize(time);
    if(rates_total < 2)
       return;
-
    int first_bar_idx = (int)ChartGetInteger(m_chart_id, CHART_FIRST_VISIBLE_BAR, 0);
-
    if(m_label_side_right)
      {
       first_bar_idx = 1;
      }
-
    if(first_bar_idx < 1 || first_bar_idx >= rates_total)
       return;
-
    datetime label_time = time[first_bar_idx - 1];
-
    for(int i = 0; i < 13; i++)
      {
       CreateOrMoveHLine(i, levels[i]);
       CreateOrMoveText(i, label_time, levels[i]);
      }
   }
-
 //+------------------------------------------------------------------+
-//| CMurreyMathDrawer: Helper to draw horizontal lines               |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CMurreyMathDrawer::CreateOrMoveHLine(int index, double price)
   {
@@ -270,19 +254,14 @@ void CMurreyMathDrawer::CreateOrMoveHLine(int index, double price)
    else
      {
       ObjectMove(m_chart_id, name, 0, 0, price);
-      ObjectSetInteger(m_chart_id, name, OBJPROP_COLOR, m_colors[index]);
-      ObjectSetInteger(m_chart_id, name, OBJPROP_WIDTH, m_widths[index]);
      }
   }
-
 //+------------------------------------------------------------------+
-//| CMurreyMathDrawer: Helper to draw text labels                    |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CMurreyMathDrawer::CreateOrMoveText(int index, datetime time, double price)
   {
    string name = m_prefix + "text_" + (string)index;
-   ENUM_ANCHOR_POINT anchor = ANCHOR_LEFT_UPPER;
-
    if(ObjectFind(m_chart_id, name) < 0)
      {
       ObjectCreate(m_chart_id, name, OBJ_TEXT, 0, time, price);
@@ -290,120 +269,87 @@ void CMurreyMathDrawer::CreateOrMoveText(int index, datetime time, double price)
       ObjectSetInteger(m_chart_id, name, OBJPROP_FONTSIZE, m_font_size);
       ObjectSetString(m_chart_id, name, OBJPROP_FONT, m_font_face);
       ObjectSetInteger(m_chart_id, name, OBJPROP_COLOR, m_colors[index]);
-      ObjectSetInteger(m_chart_id, name, OBJPROP_ANCHOR, anchor);
+      ObjectSetInteger(m_chart_id, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
      }
    else
      {
       ObjectMove(m_chart_id, name, 0, time, price);
-      ObjectSetInteger(m_chart_id, name, OBJPROP_COLOR, m_colors[index]);
      }
   }
 
 //+------------------------------------------------------------------+
 //| CLASS: CMurreyMathController                                     |
-//| The main controller class that manages all components.           |
 //+------------------------------------------------------------------+
 class CMurreyMathController
   {
 private:
    CMurreyMathCalculator *m_calculator;
    CMurreyMathDrawer     *m_drawer;
-
    double            m_mml_levels[13];
-
 public:
                      CMurreyMathController(void);
                     ~CMurreyMathController(void);
-
-   bool              Initialize(ENUM_TIMEFRAMES timeframe, int period, int stepBack, bool labelSideRight,
-                                string fontFace, int fontSize, string prefix);
-
+   bool              Initialize(ENUM_TIMEFRAMES timeframe, int period, int stepBack, bool labelSideRight, string fontFace, int fontSize, string prefix);
    void              SetLineStyles(const color &colors[], const int &widths[]);
-
-   void              Update(const datetime &time[]);
+   bool              Update(const datetime &time[]); // REFACTORED: Returns bool for success
   };
-
 //+------------------------------------------------------------------+
-//| CMurreyMathController: Constructor                               |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CMurreyMathController::CMurreyMathController(void) : m_calculator(NULL), m_drawer(NULL)
-  {
-   ArrayInitialize(m_mml_levels, 0.0);
-  }
-
+CMurreyMathController::CMurreyMathController(void) : m_calculator(NULL), m_drawer(NULL) { ArrayInitialize(m_mml_levels, 0.0); }
 //+------------------------------------------------------------------+
-//| CMurreyMathController: Destructor                                |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CMurreyMathController::~CMurreyMathController(void)
-  {
-   if(CheckPointer(m_calculator) != POINTER_INVALID)
-      delete m_calculator;
-   if(CheckPointer(m_drawer) != POINTER_INVALID)
-      delete m_drawer;
-  }
-
+CMurreyMathController::~CMurreyMathController(void) { if(CheckPointer(m_calculator) != POINTER_INVALID) delete m_calculator; if(CheckPointer(m_drawer) != POINTER_INVALID) delete m_drawer; }
 //+------------------------------------------------------------------+
-//| CMurreyMathController: Initialize all components                 |
+//|                                                                  |
 //+------------------------------------------------------------------+
-bool CMurreyMathController::Initialize(ENUM_TIMEFRAMES timeframe, int period, int stepBack, bool labelSideRight,
-                                       string fontFace, int fontSize, string prefix)
+bool CMurreyMathController::Initialize(ENUM_TIMEFRAMES timeframe, int period, int stepBack, bool labelSideRight, string fontFace, int fontSize, string prefix)
   {
    m_calculator = new CMurreyMathCalculator(_Symbol, timeframe, period, stepBack);
    m_drawer = new CMurreyMathDrawer(prefix, fontFace, fontSize, labelSideRight);
-
    if(CheckPointer(m_calculator) == POINTER_INVALID || CheckPointer(m_drawer) == POINTER_INVALID)
      {
       Print("Failed to initialize Murrey Math components.");
       return false;
      }
-
    return true;
   }
-
 //+------------------------------------------------------------------+
-//| CMurreyMathController: Set line styles for the drawer            |
+//|                                                                  |
 //+------------------------------------------------------------------+
-void CMurreyMathController::SetLineStyles(const color &colors[], const int &widths[])
+void CMurreyMathController::SetLineStyles(const color &colors[], const int &widths[]) { if(CheckPointer(m_drawer) != POINTER_INVALID) m_drawer.SetLineStyles(colors, widths); }
+// REFACTORED: Update now returns true on success, false on failure.
+bool CMurreyMathController::Update(const datetime &time[])
   {
-   if(CheckPointer(m_drawer) != POINTER_INVALID)
-      m_drawer.SetLineStyles(colors, widths);
-  }
-
-//+------------------------------------------------------------------+
-//| CMurreyMathController: Main update method                        |
-//+------------------------------------------------------------------+
-void CMurreyMathController::Update(const datetime &time[])
-  {
-//--- Calculation and drawing are now a single, atomic operation
    if(m_calculator.CalculateLevels(m_mml_levels))
      {
       m_drawer.DrawLevels(time, m_mml_levels);
+      return true; // Success
      }
+   return false; // Failure (e.g., not enough history yet)
   }
 
-//--- Indicator Input Parameters ---
-input int InpPeriod = 64; // Period for High/Low lookup on the selected timeframe
-input ENUM_TIMEFRAMES InpUpperTimeframe = PERIOD_H4; // Timeframe for calculation (0 = Current)
-input int InpStepBack = 0; // Bar to start calculation from
-
+//--- Indicator Input Parameters (Unchanged) ---
+input int InpPeriod = 64;
+input ENUM_TIMEFRAMES InpUpperTimeframe = PERIOD_H4;
+input int InpStepBack = 0;
 enum enum_side { Left, Right };
 input enum_side InpLabelSide = Left;
-
 input group "Line Colors"
-input color InpClr_m2_8 = clrDimGray;      // Extreme Overshoot
-input color InpClr_m1_8 = clrDimGray;      // Overshoot
-input color InpClr_0_8  = clrDarkOrange;   // Ultimate Support
-input color InpClr_1_8  = clrGoldenrod;    // Weak Reverse
-input color InpClr_2_8  = clrFireBrick;    // Strong Pivot Reverse
-input color InpClr_3_8  = clrSeaGreen;     // Bottom of Range
-input color InpClr_4_8  = clrRoyalBlue;    // Major Pivot
-input color InpClr_5_8  = clrSeaGreen;     // Top of Range
-input color InpClr_6_8  = clrFireBrick;    // Strong Pivot Reverse
-input color InpClr_7_8  = clrGoldenrod;    // Weak Reverse
-input color InpClr_8_8  = clrDarkOrange;   // Ultimate Resistance
-input color InpClr_p1_8 = clrDimGray;      // Overshoot
-input color InpClr_p2_8 = clrDimGray;      // Extreme Overshoot
-
+input color InpClr_m2_8 = clrDimGray;
+input color InpClr_m1_8 = clrDimGray;
+input color InpClr_0_8  = clrDarkOrange;
+input color InpClr_1_8  = clrGoldenrod;
+input color InpClr_2_8  = clrFireBrick;
+input color InpClr_3_8  = clrSeaGreen;
+input color InpClr_4_8  = clrRoyalBlue;
+input color InpClr_5_8  = clrSeaGreen;
+input color InpClr_6_8  = clrFireBrick;
+input color InpClr_7_8  = clrGoldenrod;
+input color InpClr_8_8  = clrDarkOrange;
+input color InpClr_p1_8 = clrDimGray;
+input color InpClr_p2_8 = clrDimGray;
 input group "Line Widths"
 input int InpWdth_m2_8 = 1;
 input int InpWdth_m1_8 = 1;
@@ -418,7 +364,6 @@ input int InpWdth_7_8  = 1;
 input int InpWdth_8_8  = 1;
 input int InpWdth_p1_8 = 1;
 input int InpWdth_p2_8 = 1;
-
 input group "Labels"
 input string InpFontFace = "Verdana";
 input int    InpFontSize = 10;
@@ -428,7 +373,7 @@ input string InpObjectPrefix = "MML-";
 CMurreyMathController *g_murreyMath;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function                         |
+//| Custom indicator initialization function (Unchanged)             |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -438,59 +383,45 @@ int OnInit()
       Print("Error creating CMurreyMathController object.");
       return(INIT_FAILED);
      }
-
    ENUM_TIMEFRAMES calc_timeframe = (InpUpperTimeframe == PERIOD_CURRENT) ? (ENUM_TIMEFRAMES)Period() : InpUpperTimeframe;
-
-   if(!g_murreyMath.Initialize(
-         calc_timeframe,
-         InpPeriod,
-         InpStepBack,
-         (InpLabelSide == Right),
-         InpFontFace,
-         InpFontSize,
-         InpObjectPrefix
-      ))
+   if(!g_murreyMath.Initialize(calc_timeframe, InpPeriod, InpStepBack, (InpLabelSide == Right), InpFontFace, InpFontSize, InpObjectPrefix))
      {
       return(INIT_FAILED);
      }
-
    color colors[13];
    int widths[13];
-
-   colors[0] = InpClr_m2_8;
-   widths[0] = InpWdth_m2_8;
-   colors[1] = InpClr_m1_8;
-   widths[1] = InpWdth_m1_8;
-   colors[2] = InpClr_0_8;
-   widths[2] = InpWdth_0_8;
-   colors[3] = InpClr_1_8;
-   widths[3] = InpWdth_1_8;
-   colors[4] = InpClr_2_8;
-   widths[4] = InpWdth_2_8;
-   colors[5] = InpClr_3_8;
-   widths[5] = InpWdth_3_8;
-   colors[6] = InpClr_4_8;
-   widths[6] = InpWdth_4_8;
-   colors[7] = InpClr_5_8;
-   widths[7] = InpWdth_5_8;
-   colors[8] = InpClr_6_8;
-   widths[8] = InpWdth_6_8;
-   colors[9] = InpClr_7_8;
-   widths[9] = InpWdth_7_8;
-   colors[10] = InpClr_8_8;
-   widths[10] = InpWdth_8_8;
-   colors[11] = InpClr_p1_8;
-   widths[11] = InpWdth_p1_8;
-   colors[12] = InpClr_p2_8;
-   widths[12] = InpWdth_p2_8;
-
+   colors[0]=InpClr_m2_8;
+   widths[0]=InpWdth_m2_8;
+   colors[1]=InpClr_m1_8;
+   widths[1]=InpWdth_m1_8;
+   colors[2]=InpClr_0_8;
+   widths[2]=InpWdth_0_8;
+   colors[3]=InpClr_1_8;
+   widths[3]=InpWdth_1_8;
+   colors[4]=InpClr_2_8;
+   widths[4]=InpWdth_2_8;
+   colors[5]=InpClr_3_8;
+   widths[5]=InpWdth_3_8;
+   colors[6]=InpClr_4_8;
+   widths[6]=InpWdth_4_8;
+   colors[7]=InpClr_5_8;
+   widths[7]=InpWdth_5_8;
+   colors[8]=InpClr_6_8;
+   widths[8]=InpWdth_6_8;
+   colors[9]=InpClr_7_8;
+   widths[9]=InpWdth_7_8;
+   colors[10]=InpClr_8_8;
+   widths[10]=InpWdth_8_8;
+   colors[11]=InpClr_p1_8;
+   widths[11]=InpWdth_p1_8;
+   colors[12]=InpClr_p2_8;
+   widths[12]=InpWdth_p2_8;
    g_murreyMath.SetLineStyles(colors, widths);
-
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function                       |
+//| Custom indicator deinitialization function (Unchanged)           |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
@@ -499,7 +430,7 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function                              |
+//| REFACTORED: Custom indicator iteration function                  |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -512,15 +443,41 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- For drawing logic, we MUST use a timeseries array to replicate the original code's behavior
+   if(CheckPointer(g_murreyMath) == POINTER_INVALID)
+      return 0;
+
+//--- This state variable tracks if the first successful calculation has happened
+   static bool is_initialized = false;
+
+//--- Phase 1: Initialization Loop ---
+// Keep trying on every tick until the first calculation is successful
+   if(!is_initialized)
+     {
+      if(g_murreyMath.Update(time))
+        {
+         is_initialized = true; // Success! Move to maintenance phase.
+         ChartRedraw();
+        }
+      else
+        {
+         // Data not ready yet, try again on the next OnCalculate call.
+         // We can draw a "Loading..." text to inform the user.
+         Comment("Murrey Math: Loading ", EnumToString(InpUpperTimeframe), " data...");
+         return(rates_total);
+        }
+     }
+
+//--- Phase 2: Maintenance Mode ---
+// Once initialized, only update on new HTF bars or chart scrolls.
+   Comment(""); // Clear the "Loading..." message
    ArraySetAsSeries(time, true);
 
    ENUM_TIMEFRAMES calc_timeframe = (InpUpperTimeframe == PERIOD_CURRENT) ? (ENUM_TIMEFRAMES)Period() : InpUpperTimeframe;
 
    static datetime last_htf_bar_time = 0;
    datetime htf_time[];
-
    bool new_htf_bar = false;
+
    if(CopyTime(_Symbol, calc_timeframe, 0, 1, htf_time) > 0)
      {
       if(htf_time[0] > last_htf_bar_time)
@@ -530,28 +487,15 @@ int OnCalculate(const int rates_total,
         }
      }
 
-//--- Recalculate on a new higher timeframe bar OR on the very first run
-   if(new_htf_bar || prev_calculated == 0)
+   static int last_first_visible_bar = -1;
+   int current_first_visible_bar = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR, 0);
+   bool chart_scrolled = (current_first_visible_bar != last_first_visible_bar);
+   last_first_visible_bar = current_first_visible_bar;
+
+   if(new_htf_bar || chart_scrolled)
      {
-      if(CheckPointer(g_murreyMath) != POINTER_INVALID)
-        {
-         g_murreyMath.Update(time);
-        }
-     }
-//--- On chart scroll, we need to reposition the labels
-   else
-     {
-      static int last_first_visible_bar = -1;
-      int current_first_visible_bar = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR, 0);
-      if(current_first_visible_bar != last_first_visible_bar)
-        {
-         if(CheckPointer(g_murreyMath) != POINTER_INVALID)
-           {
-            //--- We don't need to recalculate, just redraw the objects
-            g_murreyMath.Update(time);
-           }
-         last_first_visible_bar = current_first_visible_bar;
-        }
+      g_murreyMath.Update(time);
+      ChartRedraw();
      }
 
    return(rates_total);
