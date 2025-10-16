@@ -10,9 +10,10 @@
 //--- Enum for VWAP Reset Period ---
 enum ENUM_VWAP_PERIOD
   {
-   PERIOD_SESSION, // Reset every day
-   PERIOD_WEEK,    // Reset every week
-   PERIOD_MONTH    // Reset every month
+   PERIOD_SESSION,        // Reset every day
+   PERIOD_WEEK,           // Reset every week
+   PERIOD_MONTH,          // Reset every month
+   PERIOD_CUSTOM_SESSION  // NEW: Reset based on custom start/end times
   };
 
 //+==================================================================+
@@ -26,62 +27,114 @@ protected:
    ENUM_VWAP_PERIOD    m_period;
    ENUM_APPLIED_VOLUME m_volume_type;
    double              m_typical_price[];
+   bool                m_enabled; // NEW: To disable calculation if not needed
 
+   //--- NEW: For custom sessions ---
+   int                 m_start_hour, m_start_min;
+   int                 m_end_hour, m_end_min;
+
+   bool              IsTimeInSession(const MqlDateTime &dt);
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CVWAPCalculator(void) {};
+                     CVWAPCalculator(void) { m_enabled = false; };
    virtual          ~CVWAPCalculator(void) {};
 
-   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type);
+   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, bool enabled=true);
+   bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true); // NEW: Overloaded Init
    void              Calculate(int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[]);
   };
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Initialization                                  |
+//| CVWAPCalculator: Standard Initialization                         |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type)
+bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, bool enabled)
   {
+   m_enabled     = enabled;
+   if(!m_enabled)
+      return true;
+
    m_period      = period;
    m_volume_type = vol_type;
 
-//--- CORRECTED: Final, robust check for Real Volume availability ---
-   if(m_volume_type == VOLUME_REAL)
+   if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
-      // If SYMBOL_VOLUME_LIMIT is > 0, the symbol supports real volumes.
-      // This is a DOUBLE property.
-      bool real_volume_available = (SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) > 0);
-
-      if(!real_volume_available)
-        {
-         Print("VWAP Error: Real Volume is not available for the current symbol '", _Symbol, "'. Indicator will not load. Please use Tick Volume.");
-         return false; // Initialization failed
-        }
+      Print("VWAP Error: Real Volume is not available for '", _Symbol, "'.");
+      return false;
      }
-
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Main Calculation Method (Shared Logic)          |
+//| CVWAPCalculator: NEW Overloaded Init for Custom Sessions         |
+//+------------------------------------------------------------------+
+bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled)
+  {
+   m_enabled = enabled;
+   if(!m_enabled)
+      return true;
+
+   m_period      = PERIOD_CUSTOM_SESSION;
+   m_volume_type = vol_type;
+
+   string parts[];
+   if(StringSplit(start_time, ':', parts) == 2)
+     {
+      m_start_hour = (int)StringToInteger(parts[0]);
+      m_start_min  = (int)StringToInteger(parts[1]);
+     }
+   if(StringSplit(end_time, ':', parts) == 2)
+     {
+      m_end_hour = (int)StringToInteger(parts[0]);
+      m_end_min  = (int)StringToInteger(parts[1]);
+     }
+
+   if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
+     {
+      Print("VWAP Error: Real Volume is not available for '", _Symbol, "'.");
+      return false;
+     }
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| NEW: Helper function for custom session time check               |
+//+------------------------------------------------------------------+
+bool CVWAPCalculator::IsTimeInSession(const MqlDateTime &dt)
+  {
+   int current_time_in_minutes = dt.hour * 60 + dt.min;
+   int start_time_in_minutes = m_start_hour * 60 + m_start_min;
+   int end_time_in_minutes = m_end_hour * 60 + m_end_min;
+
+   if(end_time_in_minutes < start_time_in_minutes) // Overnight session
+      return (current_time_in_minutes >= start_time_in_minutes || current_time_in_minutes < end_time_in_minutes);
+   else // Same-day session
+      return (current_time_in_minutes >= start_time_in_minutes && current_time_in_minutes < end_time_in_minutes);
+  }
+
+//+------------------------------------------------------------------+
+//| CVWAPCalculator: Main Calculation Method (Expanded Logic)        |
 //+------------------------------------------------------------------+
 void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                 const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[])
   {
-   if(rates_total < 1)
+   if(!m_enabled || rates_total < 1)
       return;
    if(!PrepareSourceData(rates_total, open, high, low, close))
       return;
 
+   ArrayInitialize(vwap_odd, EMPTY_VALUE);
+   ArrayInitialize(vwap_even, EMPTY_VALUE);
+
    double cumulative_tpv = 0;
    double cumulative_vol = 0;
    int period_index = 0;
-
-   MqlDateTime time_struct, prev_time_struct;
+   bool in_session = false; // For custom session tracking
 
    for(int i = 0; i < rates_total; i++)
      {
+      MqlDateTime time_struct, prev_time_struct;
       TimeToStruct(time[i], time_struct);
       bool new_period = false;
 
@@ -92,20 +145,30 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
       else
         {
          TimeToStruct(time[i-1], prev_time_struct);
-         switch(m_period)
+         if(m_period == PERIOD_CUSTOM_SESSION)
            {
-            case PERIOD_SESSION:
-               if(time_struct.day_of_year != prev_time_struct.day_of_year || time_struct.year != prev_time_struct.year)
-                  new_period = true;
-               break;
-            case PERIOD_WEEK:
-               if(time_struct.day_of_week < prev_time_struct.day_of_week)
-                  new_period = true;
-               break;
-            case PERIOD_MONTH:
-               if(time_struct.mon != prev_time_struct.mon || time_struct.year != prev_time_struct.year)
-                  new_period = true;
-               break;
+            bool is_in_current_session = IsTimeInSession(time_struct);
+            if(is_in_current_session && !in_session)
+               new_period = true;
+            in_session = is_in_current_session;
+           }
+         else // Original logic for standard periods
+           {
+            switch(m_period)
+              {
+               case PERIOD_SESSION:
+                  if(time_struct.day_of_year != prev_time_struct.day_of_year || time_struct.year != prev_time_struct.year)
+                     new_period = true;
+                  break;
+               case PERIOD_WEEK:
+                  if(time_struct.day_of_week < prev_time_struct.day_of_week)
+                     new_period = true;
+                  break;
+               case PERIOD_MONTH:
+                  if(time_struct.mon != prev_time_struct.mon || time_struct.year != prev_time_struct.year)
+                     new_period = true;
+                  break;
+              }
            }
         }
 
@@ -114,13 +177,6 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
          cumulative_tpv = 0;
          cumulative_vol = 0;
          period_index++;
-         if(i > 0)
-           {
-            if((period_index-1) % 2 != 0)
-               vwap_odd[i-1] = EMPTY_VALUE;
-            else
-               vwap_even[i-1] = EMPTY_VALUE;
-           }
         }
 
       long current_volume = (m_volume_type == VOLUME_TICK) ? tick_volume[i] : volume[i];
@@ -130,17 +186,15 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
       cumulative_tpv += m_typical_price[i] * (double)current_volume;
       cumulative_vol += (double)current_volume;
 
-      double vwap_value = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : (i > 0 ? (period_index % 2 != 0 ? vwap_odd[i-1] : vwap_even[i-1]) : EMPTY_VALUE);
+      double vwap_value = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : EMPTY_VALUE;
 
-      if(period_index % 2 != 0)
+      // Only draw if we are inside the custom session, or if it's not a custom session
+      if(m_period != PERIOD_CUSTOM_SESSION || in_session)
         {
-         vwap_odd[i] = vwap_value;
-         vwap_even[i] = EMPTY_VALUE;
-        }
-      else
-        {
-         vwap_even[i] = vwap_value;
-         vwap_odd[i] = EMPTY_VALUE;
+         if(period_index % 2 != 0)
+            vwap_odd[i] = vwap_value;
+         else
+            vwap_even[i] = vwap_value;
         }
      }
   }
