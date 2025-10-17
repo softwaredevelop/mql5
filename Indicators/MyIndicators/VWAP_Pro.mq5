@@ -4,9 +4,9 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.11" // Added plot labels for clarity
-#property description "Volume Weighted Average Price (VWAP) with selectable reset period"
-#property description "and candle source (Standard or Heikin Ashi)."
+#property version   "1.30" // Added Custom Session inputs
+#property description "Volume Weighted Average Price (VWAP) with selectable reset period, timezone shift,"
+#property description "custom session times, and candle source (Standard or Heikin Ashi)."
 
 #property indicator_chart_window
 #property indicator_buffers 2 // Two buffers for gapped drawing
@@ -16,14 +16,14 @@
 #include <MyIncludes\VWAP_Calculator.mqh>
 
 //--- Plot 1: VWAP Line (Odd Periods)
-#property indicator_label1  "VWAP" // This label is shown on the chart
+#property indicator_label1  "VWAP"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrOrange
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 //--- Plot 2: VWAP Line (Even Periods)
-#property indicator_label2  "" // No label on the chart for the second part
+#property indicator_label2  ""
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrOrange
 #property indicator_style2  STYLE_SOLID
@@ -37,7 +37,14 @@ enum ENUM_CANDLE_SOURCE
   };
 
 //--- Input Parameters ---
+input group "Period Settings"
 input ENUM_VWAP_PERIOD    InpResetPeriod  = PERIOD_SESSION; // Reset Period
+input int                 InpSessionTimezoneShift = 0;      // [For Daily Session] Timezone shift in hours vs Broker Time
+input group "Custom Session (if selected above)"
+input string              InpCustomSessionStart = "09:30";  // Start time (HH:MM) for Custom Session
+input string              InpCustomSessionEnd   = "16:00";  // End time (HH:MM) for Custom Session
+
+input group "Calculation Settings"
 input ENUM_APPLIED_VOLUME InpVolumeType   = VOLUME_TICK;    // Volume Type
 input ENUM_CANDLE_SOURCE  InpCandleSource = CANDLE_STANDARD;  // Candle Source
 
@@ -61,11 +68,12 @@ int OnInit()
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
+   bool init_success = false;
+
    if(InpCandleSource == CANDLE_HEIKIN_ASHI)
      {
       g_calculator = new CVWAPCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, "VWAP HA");
-      // Set labels for Data Window and Properties
       PlotIndexSetString(0, PLOT_LABEL, "VWAP HA");
       PlotIndexSetString(1, PLOT_LABEL, "VWAP HA (Segment)");
      }
@@ -73,14 +81,29 @@ int OnInit()
      {
       g_calculator = new CVWAPCalculator();
       IndicatorSetString(INDICATOR_SHORTNAME, "VWAP");
-      // Set labels for Data Window and Properties
       PlotIndexSetString(0, PLOT_LABEL, "VWAP");
       PlotIndexSetString(1, PLOT_LABEL, "VWAP (Segment)");
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpResetPeriod, InpVolumeType))
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
      {
-      Print("Failed to create or initialize VWAP Calculator object.");
+      Print("Failed to create VWAP Calculator object.");
+      return(INIT_FAILED);
+     }
+
+// --- Conditional Initialization ---
+   if(InpResetPeriod == PERIOD_CUSTOM_SESSION)
+     {
+      init_success = g_calculator.Init(InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType);
+     }
+   else
+     {
+      init_success = g_calculator.Init(InpResetPeriod, InpVolumeType, InpSessionTimezoneShift);
+     }
+
+   if(!init_success)
+     {
+      Print("Failed to initialize VWAP Calculator logic.");
       return(INIT_FAILED);
      }
 
