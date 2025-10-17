@@ -4,9 +4,15 @@
 
 The Volume Weighted Average Price (VWAP) is a benchmark indicator used by traders, particularly in intraday analysis, to determine the average price a security has traded at throughout a period, based on both price and volume. It provides a much more accurate picture of the "true" average price by giving more weight to price levels with higher trading volume.
 
-A key feature of the VWAP is that it is **periodically reset**, typically at the start of a new day, week, or month.
+A key feature of the VWAP is that it is **periodically reset**.
 
-Our `VWAP_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data, and offers selectable reset periods.
+Our `VWAP_Pro` implementation is a highly flexible, professional version that offers multiple reset options:
+
+* Standard **Daily, Weekly, or Monthly** periods.
+* A **Timezone-Shifted Daily** period, allowing the "day" to be anchored to a specific exchange's midnight (e.g., NYSE) regardless of broker server time.
+* A fully **Custom Session** period defined by a specific start and end time.
+
+The indicator also allows the calculation to be based on either **standard** or **Heikin Ashi** price data.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
@@ -31,21 +37,36 @@ The VWAP is the cumulative ratio of the volume-weighted price to the cumulative 
 Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and a clean visual representation.
 
 * **Modular Calculation Engine (`VWAP_Calculator.mqh`):**
-    The entire calculation logic is encapsulated within a reusable include file. This engine uses an elegant, object-oriented inheritance model (`CVWAPCalculator` and `CVWAPCalculator_HA`) to support both standard and Heikin Ashi data sources without code duplication.
+    The entire calculation logic is encapsulated within a reusable `CVWAPCalculator` class. This engine uses an elegant, object-oriented inheritance model (`CVWAPCalculator` and `CVWAPCalculator_HA`) to support both standard and Heikin Ashi data sources without code duplication.
 
-* **Robust Period Reset Logic:** The calculator uses `MqlDateTime` structures to accurately detect the start of a new session, week, or month, ensuring the VWAP resets correctly under all conditions.
+* **Flexible and Robust Period Reset Logic:** The calculator uses `MqlDateTime` structures to accurately detect the start of a new period.
+  * For **Daily, Weekly, and Monthly** periods, it tracks the change in day, week, or month.
+  * For **Timezone-Shifted Daily** periods, it applies a user-defined hour offset to each bar's timestamp before checking for the day change.
+  * For **Custom Sessions**, it detects when the price enters the user-defined time window.
 
-* **Clean Gapped-Line Drawing:** To provide a clear and definition-true visual separation between periods, the indicator uses a **"double buffer" technique**. It plots odd-numbered periods (1st day, 3rd day, etc.) and even-numbered periods (2nd day, 4th day, etc.) on two separate, overlapping plot buffers. This creates a distinct visual gap at each reset point and ensures the current, ongoing period is always fully drawn to the last available bar.
+* **Clean Gapped-Line Drawing:** To provide a clear visual separation between periods, the indicator uses a **"double buffer" technique**. It plots odd-numbered periods and even-numbered periods on two separate, overlapping plot buffers. This creates a distinct visual gap at each reset point.
 
-* **Intelligent Volume Handling:** The indicator automatically detects if the selected instrument provides **Real Volume**. If a user requests Real Volume on a symbol where it's unavailable (like Forex/CFDs), the indicator will fail to load and print an informative error message, preventing the display of a misleading, incorrectly calculated line.
+* **Intelligent Volume Handling:** The indicator automatically detects if the selected instrument provides **Real Volume**. If a user requests Real Volume on a symbol where it's unavailable (like Forex/CFDs), the indicator will fail to load and print an informative error message.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
+* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability and accuracy.
 
 ## 4. Parameters
 
-* **Reset Period (`InpResetPeriod`):** The period at which the VWAP calculation resets. Options are `Session` (daily), `Week`, and `Month`.
-* **Volume Type (`InpVolumeType`):** Allows the user to select between Tick Volume and Real Volume.
-* **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the Typical Price calculation (`Standard` or `Heikin Ashi`).
+* **Period Settings:**
+  * `Reset Period (`InpResetPeriod`): The period at which the VWAP calculation resets.
+    * `PERIOD_SESSION`: Resets daily. The start of the "day" can be adjusted with the timezone shift parameter.
+    * `PERIOD_WEEK`: Resets at the start of each week (typically Monday 00:00 broker time).
+    * `PERIOD_MONTH`: Resets at the start of each month.
+    * `PERIOD_CUSTOM_SESSION`: Resets based on the custom start/end times defined below.
+  * `Session Timezone Shift (`InpSessionTimezoneShift`): **Only applies if`Reset Period` is `PERIOD_SESSION`**. This allows you to align the daily reset with a specific market's midnight. Enter the time difference in hours between your broker's server and the desired timezone (e.g., if your broker is UTC+3 and you want to align with NYSE which is UTC-4 in summer, the shift is -7).
+
+* **Custom Session (if selected above):**
+  * `Custom Session Start (`InpCustomSessionStart`): **Only applies if`Reset Period` is `PERIOD_CUSTOM_SESSION`**. The start time (HH:MM) for the custom VWAP calculation period.
+  * `Custom Session End (`InpCustomSessionEnd`): **Only applies if`Reset Period` is `PERIOD_CUSTOM_SESSION`**. The end time (HH:MM) for the custom VWAP calculation period.
+
+* **Calculation Settings:**
+  * `Volume Type (`InpVolumeType`): Allows the user to select between`Tick Volume` and `Real Volume`.
+  * `Candle Source (`InpCandleSource`): Allows the user to select the candle type for the Typical Price calculation (`Standard` or `Heikin Ashi`).
 
 ## 5. Usage and Interpretation
 
