@@ -10,10 +10,10 @@
 //--- Enum for VWAP Reset Period ---
 enum ENUM_VWAP_PERIOD
   {
-   PERIOD_SESSION,        // Reset every day
+   PERIOD_SESSION,        // Reset every day (can be shifted by timezone)
    PERIOD_WEEK,           // Reset every week
    PERIOD_MONTH,          // Reset every month
-   PERIOD_CUSTOM_SESSION  // NEW: Reset based on custom start/end times
+   PERIOD_CUSTOM_SESSION  // Reset based on custom start/end times
   };
 
 //+==================================================================+
@@ -27,9 +27,10 @@ protected:
    ENUM_VWAP_PERIOD    m_period;
    ENUM_APPLIED_VOLUME m_volume_type;
    double              m_typical_price[];
-   bool                m_enabled; // NEW: To disable calculation if not needed
+   bool                m_enabled;
+   long                m_tz_shift_seconds; // Timezone shift in seconds
 
-   //--- NEW: For custom sessions ---
+   //--- For custom sessions ---
    int                 m_start_hour, m_start_min;
    int                 m_end_hour, m_end_min;
 
@@ -37,19 +38,19 @@ protected:
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CVWAPCalculator(void) { m_enabled = false; };
+                     CVWAPCalculator(void) { m_enabled = false; m_tz_shift_seconds = 0; };
    virtual          ~CVWAPCalculator(void) {};
 
-   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, bool enabled=true);
-   bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true); // NEW: Overloaded Init
+   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true);
+   bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true);
    void              Calculate(int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[]);
   };
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Standard Initialization                         |
+//| CVWAPCalculator: Standard Initialization (Updated)               |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, bool enabled)
+bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours, bool enabled)
   {
    m_enabled     = enabled;
    if(!m_enabled)
@@ -57,6 +58,7 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
 
    m_period      = period;
    m_volume_type = vol_type;
+   m_tz_shift_seconds = tz_shift_hours * 3600;
 
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
@@ -67,7 +69,7 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
   }
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: NEW Overloaded Init for Custom Sessions         |
+//| CVWAPCalculator: Overloaded Init for Custom Sessions             |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled)
   {
@@ -77,6 +79,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
 
    m_period      = PERIOD_CUSTOM_SESSION;
    m_volume_type = vol_type;
+   m_tz_shift_seconds = 0; // Custom sessions don't use timezone shift
 
    string parts[];
    if(StringSplit(start_time, ':', parts) == 2)
@@ -99,7 +102,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
   }
 
 //+------------------------------------------------------------------+
-//| NEW: Helper function for custom session time check               |
+//| Helper function for custom session time check                    |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::IsTimeInSession(const MqlDateTime &dt)
   {
@@ -107,14 +110,14 @@ bool CVWAPCalculator::IsTimeInSession(const MqlDateTime &dt)
    int start_time_in_minutes = m_start_hour * 60 + m_start_min;
    int end_time_in_minutes = m_end_hour * 60 + m_end_min;
 
-   if(end_time_in_minutes < start_time_in_minutes) // Overnight session
+   if(end_time_in_minutes < start_time_in_minutes)
       return (current_time_in_minutes >= start_time_in_minutes || current_time_in_minutes < end_time_in_minutes);
-   else // Same-day session
+   else
       return (current_time_in_minutes >= start_time_in_minutes && current_time_in_minutes < end_time_in_minutes);
   }
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Main Calculation Method (Expanded Logic)        |
+//| CVWAPCalculator: Main Calculation Method (Updated Logic)         |
 //+------------------------------------------------------------------+
 void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                 const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[])
@@ -130,12 +133,10 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
    double cumulative_tpv = 0;
    double cumulative_vol = 0;
    int period_index = 0;
-   bool in_session = false; // For custom session tracking
+   bool in_session = false;
 
    for(int i = 0; i < rates_total; i++)
      {
-      MqlDateTime time_struct, prev_time_struct;
-      TimeToStruct(time[i], time_struct);
       bool new_period = false;
 
       if(i == 0)
@@ -144,30 +145,47 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
         }
       else
         {
-         TimeToStruct(time[i-1], prev_time_struct);
-         if(m_period == PERIOD_CUSTOM_SESSION)
+         switch(m_period)
            {
-            bool is_in_current_session = IsTimeInSession(time_struct);
-            if(is_in_current_session && !in_session)
-               new_period = true;
-            in_session = is_in_current_session;
-           }
-         else // Original logic for standard periods
-           {
-            switch(m_period)
+            case PERIOD_SESSION:
               {
-               case PERIOD_SESSION:
-                  if(time_struct.day_of_year != prev_time_struct.day_of_year || time_struct.year != prev_time_struct.year)
-                     new_period = true;
-                  break;
-               case PERIOD_WEEK:
-                  if(time_struct.day_of_week < prev_time_struct.day_of_week)
-                     new_period = true;
-                  break;
-               case PERIOD_MONTH:
-                  if(time_struct.mon != prev_time_struct.mon || time_struct.year != prev_time_struct.year)
-                     new_period = true;
-                  break;
+               // CORRECTED: Added (datetime) cast to prevent compiler warnings
+               datetime adjusted_time_curr = time[i] + (datetime)m_tz_shift_seconds;
+               datetime adjusted_time_prev = time[i-1] + (datetime)m_tz_shift_seconds;
+               MqlDateTime dt_curr, dt_prev;
+               TimeToStruct(adjusted_time_curr, dt_curr);
+               TimeToStruct(adjusted_time_prev, dt_prev);
+               if(dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year)
+                  new_period = true;
+               break;
+              }
+            case PERIOD_WEEK:
+              {
+               MqlDateTime dt_curr, dt_prev;
+               TimeToStruct(time[i], dt_curr);
+               TimeToStruct(time[i-1], dt_prev);
+               if(dt_curr.day_of_week < dt_prev.day_of_week)
+                  new_period = true;
+               break;
+              }
+            case PERIOD_MONTH:
+              {
+               MqlDateTime dt_curr, dt_prev;
+               TimeToStruct(time[i], dt_curr);
+               TimeToStruct(time[i-1], dt_prev);
+               if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
+                  new_period = true;
+               break;
+              }
+            case PERIOD_CUSTOM_SESSION:
+              {
+               MqlDateTime dt_curr;
+               TimeToStruct(time[i], dt_curr);
+               bool is_in_current_session = IsTimeInSession(dt_curr);
+               if(is_in_current_session && !in_session)
+                  new_period = true;
+               in_session = is_in_current_session;
+               break;
               }
            }
         }
@@ -188,7 +206,6 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
 
       double vwap_value = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : EMPTY_VALUE;
 
-      // Only draw if we are inside the custom session, or if it's not a custom session
       if(m_period != PERIOD_CUSTOM_SESSION || in_session)
         {
          if(period_index % 2 != 0)
