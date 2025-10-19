@@ -9,47 +9,45 @@
 > * **Laguerre Filter:** A fast, responsive moving average.
 > * **Laguerre RSI:** A smooth, noise-filtered momentum oscillator.
 
-The Laguerre Filter, developed by John Ehlers, is a sophisticated, low-lag moving average based on the principles of digital signal processing. Unlike traditional moving averages (like SMA or EMA) which suffer from significant inherent delay, the Laguerre Filter is designed to follow the price action very closely while still filtering out high-frequency market noise.
+The Laguerre Filter, developed by John Ehlers, is a sophisticated, low-lag moving average based on the principles of digital signal processing. It applies a weighted average to the components of a Laguerre-transformed price series, resulting in a unique balance between smoothness and responsiveness.
 
-It serves as a highly responsive trendline, providing a clearer and more timely view of the underlying trend.
+It serves as an advanced trendline, and optionally, it can display a comparative **FIR (Finite Impulse Response) filter** to visually demonstrate the smoothing effect of the Laguerre transformation.
 
 Our `Laguerre_Filter_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-The indicator's logic is centered around the recursive Laguerre filter, which is controlled by a single parameter, `gamma`.
+The indicator's logic is centered around the recursive Laguerre filter and a final weighted summation.
 
 ### Required Components
 
-* **Gamma (γ):** A coefficient between 0 and 1 that controls the filter's smoothing and responsiveness.
+* **Gamma (γ):** A coefficient between 0 and 1 that controls the filter's smoothing.
 * **Source Price (P):** The price series used for the calculation.
 
 ### Calculation Steps (Algorithm)
 
-The calculation relies on the state of four internal filter components from the previous bar (`L0`, `L1`, `L2`, `L3`).
-
-1. **Initialize Filter:** For the first bar, all `L` components are initialized with the current price.
-2. **Calculate Laguerre Filter Components:** For each subsequent bar `i`, the filter components are updated recursively:
+1. **Calculate Laguerre Filter Components:** For each bar `i`, the four internal filter components (`L0`...`L3`) are updated recursively.
     * $L0_i = (1 - \gamma) \times P_i + \gamma \times L0_{i-1}$
     * $L1_i = -\gamma \times L0_i + L0_{i-1} + \gamma \times L1_{i-1}$
-    * $L2_i = -\gamma \times L1_i + L1_{i-1} + \gamma \times L2_{i-1}$
-    * $L3_i = -\gamma \times L2_i + L2_{i-1} + \gamma \times L3_{i-1}$
-3. **Output:** The final value of the Laguerre Filter is the `L0` component.
-    * $\text{Laguerre Filter}_i = L0_i$
+    * ...and so on for `L2` and `L3`.
+2. **Calculate the Final Weighted Filter:** The final output is a weighted sum of the four components, as defined by Ehlers.
+    * $\text{Laguerre Filter}_i = \frac{L0_i + 2 \times L1_i + 2 \times L2_i + L3_i}{6}$
+3. **(Optional) Calculate the FIR Filter:** For comparison, a standard FIR filter with the same weights is calculated on the raw price data.
+    * $\text{FIR Filter}_i = \frac{P_i + 2 \times P_{i-1} + 2 \times P_{i-2} + P_{i-3}}{6}$
 
 ## 3. MQL5 Implementation Details
 
-* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. The `Laguerre_Filter_Calculator.mqh` is a thin adapter that includes this engine and simply outputs the `L0` component. This modular design ensures that all indicators in the Laguerre family (Filter, RSI, etc.) share the exact same, robust calculation core.
+* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. The `Laguerre_Filter_Calculator.mqh` is a thin adapter that includes this engine and performs the final weighted summation for both the Laguerre and the optional FIR filters.
 * **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate`. For a highly state-dependent and recursive filter like Laguerre, this is the most robust and reliable method.
+* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
 
 ## 4. Parameters
 
-* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This is the most important parameter and controls the indicator's speed.
-  * **Low Gamma (e.g., 0.1 - 0.3):** Slower, smoother line, similar to a longer-period traditional moving average.
-  * **Medium Gamma (e.g., 0.4 - 0.6):** A balanced setting, offering a good compromise between responsiveness and smoothing.
-  * **High Gamma (e.g., 0.7 - 0.9):** Faster, more responsive line that hugs the price very closely.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This parameter controls the trade-off between smoothing and lag.
+  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **smoother** line with **more lag**.
+  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more responsive** line (less lag) that is less smooth. At `gamma = 0`, the Laguerre Filter becomes identical to the FIR filter.
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
+* **Show FIR (`InpShowFIR`):** A boolean switch to show or hide the comparative FIR filter line on the chart.
 
 ## 5. Usage and Interpretation
 
