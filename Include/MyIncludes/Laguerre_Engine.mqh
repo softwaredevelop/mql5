@@ -26,7 +26,7 @@ public:
 
    bool              Init(double gamma);
    void              CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                                     double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[]);
+                                     double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[], double &filt_buffer[]);
   };
 
 //+------------------------------------------------------------------+
@@ -42,7 +42,7 @@ bool CLaguerreEngine::Init(double gamma)
 //| CLaguerreEngine: Core Filter Calculation                         |
 //+------------------------------------------------------------------+
 void CLaguerreEngine::CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                                      double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[])
+                                      double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[], double &filt_buffer[])
   {
    if(rates_total < 2)
       return;
@@ -53,6 +53,7 @@ void CLaguerreEngine::CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_
    ArrayResize(L1_buffer, rates_total);
    ArrayResize(L2_buffer, rates_total);
    ArrayResize(L3_buffer, rates_total);
+   ArrayResize(filt_buffer, rates_total);
 
 // --- Initialize filter components for the first bar ---
    double L0_prev = m_price[0], L1_prev = m_price[0], L2_prev = m_price[0], L3_prev = m_price[0];
@@ -60,6 +61,7 @@ void CLaguerreEngine::CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_
    L1_buffer[0] = m_price[0];
    L2_buffer[0] = m_price[0];
    L3_buffer[0] = m_price[0];
+   filt_buffer[0] = m_price[0];
 
 // --- Full recalculation loop for stability ---
    for(int i = 1; i < rates_total; i++)
@@ -69,6 +71,9 @@ void CLaguerreEngine::CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_
       L1_buffer[i] = -m_gamma * L0_buffer[i] + L0_prev + m_gamma * L1_prev;
       L2_buffer[i] = -m_gamma * L1_buffer[i] + L1_prev + m_gamma * L2_prev;
       L3_buffer[i] = -m_gamma * L2_buffer[i] + L2_prev + m_gamma * L3_prev;
+
+      // --- NEW: Calculate the final weighted filter output ---
+      filt_buffer[i] = (L0_buffer[i] + 2.0 * L1_buffer[i] + 2.0 * L2_buffer[i] + L3_buffer[i]) / 6.0;
 
       // --- Update previous values for the next iteration ---
       L0_prev = L0_buffer[i];
