@@ -47,16 +47,15 @@ The calculation is highly recursive, relying on the state of four internal filte
 
 * **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. The `Laguerre_RSI_Calculator.mqh` is a thin adapter that includes this engine, retrieves the filter's components, and then applies the final RSI-like formula. This modular design ensures consistency across the entire Laguerre family.
 * **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate`. For a highly state-dependent and recursive filter like Laguerre, this is the most robust and reliable method.
-* **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range to ensure it always fits perfectly within the standard oscillator window.
+* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
+* **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range.
 
 ## 4. Parameters
 
-* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This is the most important parameter and controls the indicator's speed.
-  * **Low Gamma (e.g., 0.1 - 0.3):** Slower, smoother line. Good for high-level trend filtering on higher timeframes.
-  * **Medium Gamma (e.g., 0.4 - 0.6):** A balanced setting, offering good smoothing while remaining responsive. An excellent starting point for most strategies.
-  * **High Gamma (e.g., 0.7 - 0.9):** Faster, more responsive line. Suitable for scalping on lower timeframes, but more prone to noise.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This parameter controls the indicator's speed and smoothness.
+  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** oscillator that gives fewer, but potentially more reliable, signals.
+  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more volatile** oscillator that reacts quickly to price changes but may produce more false signals.
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
 
 ## 5. Usage and Interpretation
 
