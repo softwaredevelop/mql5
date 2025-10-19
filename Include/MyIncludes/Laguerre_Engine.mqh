@@ -27,7 +27,19 @@ public:
    bool              Init(double gamma);
    void              CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                      double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[], double &filt_buffer[]);
+   // --- NEW: Public getter to safely access the prepared price data ---
+   void              GetPriceBuffer(double &dest_array[]);
   };
+
+//+------------------------------------------------------------------+
+//| CLaguerreEngine: Public getter for the internal price buffer.    |
+//+------------------------------------------------------------------+
+void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
+  {
+   int size = ArraySize(m_price);
+   ArrayResize(dest_array, size);
+   ArrayCopy(dest_array, m_price, 0, 0, size);
+  }
 
 //+------------------------------------------------------------------+
 //| CLaguerreEngine: Initialization                                  |
