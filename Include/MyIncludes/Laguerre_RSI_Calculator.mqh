@@ -36,7 +36,8 @@ void CLaguerreRSICalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price
       return;
 
    double L0[], L1[], L2[], L3[];
-   m_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0, L1, L2, L3);
+   double dummy_filt[]; // Dummy buffer to satisfy the engine's new signature
+   m_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0, L1, L2, L3, dummy_filt);
 
    for(int i = 1; i < rates_total; i++)
      {
