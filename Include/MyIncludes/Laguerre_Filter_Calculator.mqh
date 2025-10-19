@@ -32,9 +32,11 @@ bool CLaguerreFilterCalculator::Init(double gamma) { return m_engine.Init(gamma)
 //+------------------------------------------------------------------+
 void CLaguerreFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
   {
-   double L0[], L1[], L2[], L3[];
-   m_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0, L1, L2, L3);
-   ArrayCopy(filter_buffer, L0, 0, 0, rates_total);
+   double L0[], L1[], L2[], L3[], filt[]; // Add buffer for the final filter output
+   m_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0, L1, L2, L3, filt);
+
+// Copy the final, weighted filter result to the output buffer
+   ArrayCopy(filter_buffer, filt, 0, 0, rates_total);
   }
 
 //+==================================================================+
