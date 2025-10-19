@@ -22,7 +22,8 @@ public:
    virtual          ~CLaguerreFilterCalculator(void) { if(CheckPointer(m_engine) != POINTER_INVALID) delete m_engine; };
 
    bool              Init(double gamma);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
+   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &filter_buffer[], double &fir_buffer[]);
   };
 
 bool CLaguerreFilterCalculator::Init(double gamma) { return m_engine.Init(gamma); }
@@ -30,13 +31,26 @@ bool CLaguerreFilterCalculator::Init(double gamma) { return m_engine.Init(gamma)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CLaguerreFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
+void CLaguerreFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+      double &filter_buffer[], double &fir_buffer[])
   {
-   double L0[], L1[], L2[], L3[], filt[]; // Add buffer for the final filter output
+   double L0[], L1[], L2[], L3[], filt[];
    m_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0, L1, L2, L3, filt);
 
-// Copy the final, weighted filter result to the output buffer
+// Copy the final, weighted Laguerre filter result to the output buffer
    ArrayCopy(filter_buffer, filt, 0, 0, rates_total);
+
+// --- CORRECTED: Calculate the comparative FIR filter using the public getter ---
+   if(rates_total > 3)
+     {
+      double price_data[];
+      m_engine.GetPriceBuffer(price_data); // Safely get the price data from the engine
+
+      for(int i = 3; i < rates_total; i++)
+        {
+         fir_buffer[i] = (price_data[i] + 2.0 * price_data[i-1] + 2.0 * price_data[i-2] + price_data[i-3]) / 6.0;
+        }
+     }
   }
 
 //+==================================================================+
