@@ -2,7 +2,14 @@
 
 ## 1. Summary (Introduction)
 
-The Laguerre RSI, developed by the renowned digital signal processing (DSP) expert John Ehlers, is a sophisticated and modern version of the classic Relative Strength Index (RSI). Its core innovation is the use of a **Laguerre filter** to smooth the price data before the RSI calculation is applied.
+> **Part of the Laguerre Indicator Family**
+>
+> This indicator is a member of a family of tools based on John Ehlers' Laguerre filter. Each member utilizes the filter's extremely low-lag and smooth characteristics to analyze different aspects of market behavior.
+>
+> * **Laguerre Filter:** A fast, responsive moving average.
+> * **Laguerre RSI:** A smooth, noise-filtered momentum oscillator.
+
+The Laguerre RSI, developed by John Ehlers, is a sophisticated and modern version of the classic Relative Strength Index (RSI). Its core innovation is the use of a **Laguerre filter** to smooth the price data before the RSI calculation is applied.
 
 The result is an oscillator that is exceptionally **smooth** and produces significantly less noise and fewer "whipsaws" than a traditional RSI. Despite its smoothness, it remains highly responsive to changes in market momentum, making it a powerful tool for identifying overbought/oversold conditions and potential trend reversals.
 
@@ -38,11 +45,10 @@ The calculation is highly recursive, relying on the state of four internal filte
 
 ## 3. MQL5 Implementation Details
 
-* **Modular Calculation Engine (`Laguerre_RSI_Calculator.mqh`):**
-    The entire complex, recursive calculation is encapsulated within a reusable `CLaguerreRSICalculator` class. This separates the mathematical logic from the indicator's user interface.
-* **Heikin Ashi Integration:** An inherited `CLaguerreRSICalculator_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data by simply overriding the initial data preparation step.
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate`. For a highly state-dependent and recursive filter like Laguerre, this is the most robust and reliable method, eliminating potential desynchronization errors common with `prev_calculated` logic.
-* **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range to ensure it always fits perfectly within the standard oscillator window, even with extreme market conditions.
+* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. The `Laguerre_RSI_Calculator.mqh` is a thin adapter that includes this engine, retrieves the filter's components, and then applies the final RSI-like formula. This modular design ensures consistency across the entire Laguerre family.
+* **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
+* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate`. For a highly state-dependent and recursive filter like Laguerre, this is the most robust and reliable method.
+* **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range to ensure it always fits perfectly within the standard oscillator window.
 
 ## 4. Parameters
 
