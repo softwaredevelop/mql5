@@ -30,16 +30,19 @@ The indicator identifies bars belonging to a specific time window and performs d
 Our MQL5 implementation follows a modern, robust, and high-performance **hybrid architecture** to provide a smooth, freeze-free user experience.
 
 * **Hybrid Drawing Architecture:** The indicator uses two distinct systems, each optimized for its specific task:
-  * **VWAP via Indicator Buffers:** All VWAP calculations are handled by a dedicated `CVWAPCalculator` engine, which is a modified version of our standalone `VWAP_Pro` indicator. This engine writes its results directly into MQL5's fastest drawing mechanism: **indicator buffers** (`DRAW_LINE`). We use the **"double buffer" technique** to create clean visual gaps between sessions, ensuring maximum performance and eliminating any possibility of chart freezes.
-  * **Boxes & Stats via Graphical Objects:** The Session Box, Mean, and Linear Regression lines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`). This is handled by a separate, leaner `CSessionAnalyzer` class, providing flexibility for these non-continuous visual elements.
+  * **VWAP via Indicator Buffers:** All VWAP calculations are handled by a dedicated `CVWAPCalculator` engine. This engine writes its results directly into MQL5's fastest drawing mechanism: **indicator buffers** (`DRAW_LINE`). We use the **"double buffer" technique** to create clean visual gaps between sessions.
+  * **Boxes & Stats via Graphical Objects:** The Session Box, Mean, and Linear Regression lines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`). This is handled by a separate `CSessionAnalyzer` class, providing flexibility for these elements.
 
-* **Modular, Reusable Engines:** The logic is split between two powerful, reusable include files (`VWAP_Calculator.mqh` and `Session_Analysis_Calculator.mqh`), cleanly separating the responsibilities of buffer-based and object-based drawing.
+* **Unified Heikin Ashi Integration:** When `CANDLE_HEIKIN_ASHI` is selected, the indicator uses a unified approach. Both the `CVWAPCalculator` and the `CSessionAnalyzer` instantiate their respective `_HA` child classes. This ensures that **all visual components**—the VWAP lines, the session range boxes, the Mean, and the Linear Regression lines—are consistently calculated using the smoothed Heikin Ashi data.
 
-* **Robust Multi-Instance Support:** Each instance of the indicator on a chart generates a unique, stable ID for its graphical objects. This is achieved by programmatically finding the indicator's own sub-window index using `ChartWindowFind()`. This index is then used as a prefix for all object names, ensuring that multiple copies of the indicator can run on the same chart without any conflicts.
+* **Robust Multi-Instance Support:** Each instance of the indicator on a chart generates a unique, stable ID for its graphical objects using the `ChartWindowFind()` method. This ID is used as a prefix for all object names, ensuring that multiple copies of the indicator can run on the same chart without any conflicts.
+
+* **Robust Cleanup on Re-initialization:** To prevent "ghost" objects or line fragments after a timeframe change or parameter edit, the indicator employs a strict two-phase cleanup process:
+    1. **Object Cleanup:** In `OnInit`, it immediately deletes all graphical objects associated with its unique instance ID from the chart.
+    2. **Buffer Cleanup:** At the beginning of every **new bar calculation** in `OnCalculate`, it explicitly clears all 24 VWAP buffers by filling them with `EMPTY_VALUE`.
+    This "clean slate" approach guarantees a perfect and stable redraw under all conditions.
 
 * **Efficient "On New Bar" Updates:** All calculations and redraws are executed only **once per bar**, preventing unnecessary CPU load on every tick.
-
-* **Robust Cleanup:** The indicator performs a comprehensive cleanup of all its graphical objects and indicator buffers upon re-initialization (e.g., on a timeframe change), preventing "ghost" objects or line fragments from remaining on the chart.
 
 ## 4. Parameters
 
