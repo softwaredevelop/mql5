@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "6.00" // REFACTOR: Integrated custom VWAP engine for session-based VWAP
+#property version   "6.10" // REFACTORED: Improved object and buffer cleanup on re-init
 #property description "Draws boxes, analytics, and session-based VWAP via high-performance buffers."
 #property indicator_chart_window
 // Buffers: M1(Pre A/B, Core A/B, Post A/B, Full A/B) = 8. Total for 3 markets = 24
@@ -267,7 +267,7 @@ int OnInit()
    PlotIndexSetInteger(22, PLOT_LINE_COLOR, InpM3_FullDay_Color);
    PlotIndexSetInteger(23, PLOT_LINE_COLOR, InpM3_FullDay_Color);
 
-// --- Init Logic for Box/Mean/LinReg Analyzers (Object-based) ---
+// --- CORRECTED: Centralized Cleanup Logic ---
    MathSrand((int)TimeCurrent() + (int)ChartID());
    string temp_short_name = StringFormat("SessPro_TempID_%d_%d", TimeCurrent(), MathRand());
    IndicatorSetString(INDICATOR_SHORTNAME, temp_short_name);
@@ -276,8 +276,9 @@ int OnInit()
    if(window_index < 0)
       window_index = 0;
    string unique_prefix = StringFormat("SessPro_%d_%d_", ChartID(), window_index);
+   ObjectsDeleteAll(0, unique_prefix);
 
-// Market 1 Boxes
+// --- Init Logic for Box/Mean/LinReg Analyzers (Object-based) ---
    g_box_analyzers[0] = new CSessionAnalyzer();
    g_box_analyzers[0].Init(InpM1_Enable && InpM1_PreMarket_Enable, InpM1_PreMarket_Start, InpM1_PreMarket_End, InpM1_PreMarket_Color, InpFillBoxes, InpM1_PreMarket_Mean, InpM1_PreMarket_LinReg, unique_prefix + "M1_Pre_");
    g_box_analyzers[1] = new CSessionAnalyzer();
@@ -286,7 +287,6 @@ int OnInit()
    g_box_analyzers[2].Init(InpM1_Enable && InpM1_PostMarket_Enable, InpM1_PostMarket_Start, InpM1_PostMarket_End, InpM1_PostMarket_Color, InpFillBoxes, InpM1_PostMarket_Mean, InpM1_PostMarket_LinReg, unique_prefix + "M1_Post_");
    g_box_analyzers[3] = new CSessionAnalyzer();
    g_box_analyzers[3].Init(InpM1_Enable && InpM1_FullDay_Enable, InpM1_PreMarket_Start, InpM1_PostMarket_End, InpM1_FullDay_Color, InpFillBoxes, InpM1_FullDay_Mean, InpM1_FullDay_LinReg, unique_prefix + "M1_Full_");
-// Market 2 Boxes
    g_box_analyzers[4] = new CSessionAnalyzer();
    g_box_analyzers[4].Init(InpM2_Enable && InpM2_PreMarket_Enable, InpM2_PreMarket_Start, InpM2_PreMarket_End, InpM2_PreMarket_Color, InpFillBoxes, InpM2_PreMarket_Mean, InpM2_PreMarket_LinReg, unique_prefix + "M2_Pre_");
    g_box_analyzers[5] = new CSessionAnalyzer();
@@ -295,7 +295,6 @@ int OnInit()
    g_box_analyzers[6].Init(InpM2_Enable && InpM2_PostMarket_Enable, InpM2_PostMarket_Start, InpM2_PostMarket_End, InpM2_PostMarket_Color, InpFillBoxes, InpM2_PostMarket_Mean, InpM2_PostMarket_LinReg, unique_prefix + "M2_Post_");
    g_box_analyzers[7] = new CSessionAnalyzer();
    g_box_analyzers[7].Init(InpM2_Enable && InpM2_FullDay_Enable, InpM2_PreMarket_Start, InpM2_PostMarket_End, InpM2_FullDay_Color, InpFillBoxes, InpM2_FullDay_Mean, InpM2_FullDay_LinReg, unique_prefix + "M2_Full_");
-// Market 3 Boxes
    g_box_analyzers[8] = new CSessionAnalyzer();
    g_box_analyzers[8].Init(InpM3_Enable && InpM3_PreMarket_Enable, InpM3_PreMarket_Start, InpM3_PreMarket_End, InpM3_PreMarket_Color, InpFillBoxes, InpM3_PreMarket_Mean, InpM3_PreMarket_LinReg, unique_prefix + "M3_Pre_");
    g_box_analyzers[9] = new CSessionAnalyzer();
@@ -305,13 +304,8 @@ int OnInit()
    g_box_analyzers[11] = new CSessionAnalyzer();
    g_box_analyzers[11].Init(InpM3_Enable && InpM3_FullDay_Enable, InpM3_PreMarket_Start, InpM3_PostMarket_End, InpM3_FullDay_Color, InpFillBoxes, InpM3_FullDay_Mean, InpM3_FullDay_LinReg, unique_prefix + "M3_Full_");
 
-   for(int i=0; i<TOTAL_SESSIONS; i++)
-      if(CheckPointer(g_box_analyzers[i]))
-         g_box_analyzers[i].Cleanup();
-
 // --- Init Logic for VWAP Calculators (Buffer-based) ---
    bool is_ha_candle = (InpCandleSource == CANDLE_HEIKIN_ASHI);
-// Market 1
    g_vwap_calculators[0] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
    g_vwap_calculators[0].Init(InpM1_PreMarket_Start, InpM1_PreMarket_End, InpVolumeType, InpM1_Enable && InpM1_PreMarket_Enable && InpM1_PreMarket_VWAP);
    g_vwap_calculators[1] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
@@ -320,7 +314,6 @@ int OnInit()
    g_vwap_calculators[2].Init(InpM1_PostMarket_Start, InpM1_PostMarket_End, InpVolumeType, InpM1_Enable && InpM1_PostMarket_Enable && InpM1_PostMarket_VWAP);
    g_vwap_calculators[3] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
    g_vwap_calculators[3].Init(InpM1_PreMarket_Start, InpM1_PostMarket_End, InpVolumeType, InpM1_Enable && InpM1_FullDay_Enable && InpM1_FullDay_VWAP);
-// Market 2
    g_vwap_calculators[4] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
    g_vwap_calculators[4].Init(InpM2_PreMarket_Start, InpM2_PreMarket_End, InpVolumeType, InpM2_Enable && InpM2_PreMarket_Enable && InpM2_PreMarket_VWAP);
    g_vwap_calculators[5] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
@@ -329,7 +322,6 @@ int OnInit()
    g_vwap_calculators[6].Init(InpM2_PostMarket_Start, InpM2_PostMarket_End, InpVolumeType, InpM2_Enable && InpM2_PostMarket_Enable && InpM2_PostMarket_VWAP);
    g_vwap_calculators[7] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
    g_vwap_calculators[7].Init(InpM2_PreMarket_Start, InpM2_PostMarket_End, InpVolumeType, InpM2_Enable && InpM2_FullDay_Enable && InpM2_FullDay_VWAP);
-// Market 3
    g_vwap_calculators[8] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
    g_vwap_calculators[8].Init(InpM3_PreMarket_Start, InpM3_PreMarket_End, InpVolumeType, InpM3_Enable && InpM3_PreMarket_Enable && InpM3_PreMarket_VWAP);
    g_vwap_calculators[9] = is_ha_candle ? new CVWAPCalculator_HA() : new CVWAPCalculator();
@@ -363,6 +355,32 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total, const int, const datetime& time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
   {
+// --- CORRECTED: Explicitly clear all VWAP buffers at the start of each calculation ---
+   ArrayInitialize(BufferM1_Pre_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Pre_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Core_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Core_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Post_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Post_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Full_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM1_Full_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Pre_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Pre_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Core_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Core_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Post_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Post_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Full_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM2_Full_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Pre_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Pre_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Core_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Core_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Post_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Post_B, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Full_A, EMPTY_VALUE);
+   ArrayInitialize(BufferM3_Full_B, EMPTY_VALUE);
+
    if(rates_total > 0 && time[rates_total - 1] == g_last_bar_time && Bars(_Symbol, _Period) == rates_total)
       return(rates_total);
    if(rates_total > 0)
@@ -376,7 +394,6 @@ int OnCalculate(const int rates_total, const int, const datetime& time[], const 
      }
 
 // --- VWAP Buffer Calculation Logic ---
-// Market 1
    if(CheckPointer(g_vwap_calculators[0]))
       g_vwap_calculators[0].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Pre_A, BufferM1_Pre_B);
    if(CheckPointer(g_vwap_calculators[1]))
@@ -385,7 +402,6 @@ int OnCalculate(const int rates_total, const int, const datetime& time[], const 
       g_vwap_calculators[2].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Post_A, BufferM1_Post_B);
    if(CheckPointer(g_vwap_calculators[3]))
       g_vwap_calculators[3].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Full_A, BufferM1_Full_B);
-// Market 2
    if(CheckPointer(g_vwap_calculators[4]))
       g_vwap_calculators[4].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Pre_A, BufferM2_Pre_B);
    if(CheckPointer(g_vwap_calculators[5]))
@@ -394,7 +410,6 @@ int OnCalculate(const int rates_total, const int, const datetime& time[], const 
       g_vwap_calculators[6].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Post_A, BufferM2_Post_B);
    if(CheckPointer(g_vwap_calculators[7]))
       g_vwap_calculators[7].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Full_A, BufferM2_Full_B);
-// Market 3
    if(CheckPointer(g_vwap_calculators[8]))
       g_vwap_calculators[8].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM3_Pre_A, BufferM3_Pre_B);
    if(CheckPointer(g_vwap_calculators[9]))
