@@ -36,6 +36,9 @@ bool CRSIHCalculator::Init(int period)
   }
 
 //+------------------------------------------------------------------+
+//| RESTORED: Original, definition-true FIR-based calculation        |
+//| based on Ehlers' EasyLanguage code.                              |
+//+------------------------------------------------------------------+
 void CRSIHCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &rsih_buffer[])
   {
    if(rates_total < m_period + 1)
@@ -49,18 +52,17 @@ void CRSIHCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, 
       double cu = 0.0;
       double cd = 0.0;
 
-      // Inner loop to calculate Hann-windowed CU and CD
+      // Inner loop to calculate Hann-windowed CU and CD over the lookback period
       for(int j = 1; j <= m_period; j++)
         {
-         // Ehlers' formula uses count from 1 to Period. In MQL5 array terms, this is price[i-j+1] vs price[i-j]
-         // But his EasyLanguage code seems to use Close[count-1] - Close[count], which is a bit ambiguous.
-         // We will follow the more standard momentum calculation: price[current] - price[previous]
-         // Let's use a consistent diff calculation: price[i-j] vs price[i-j-1]
+         // Ehlers' EasyLanguage: Close[count-1] - Close[count]
+         // In our chronological array (non-timeseries), this corresponds to:
+         // count=1 -> m_price[i-1] - m_price[i] (most recent)
+         // count=m_period -> m_price[i-m_period] - m_price[i-m_period-1] (oldest)
+         // Let's use a consistent diff: m_price[i-j+1] - m_price[i-j]
          double diff = m_price[i - j + 1] - m_price[i - j];
 
-         // Hann Windowing Weight
-         // Ehlers' formula: (1 - Cosine(360*count / (RSILength + 1)))
-         // In radians: 1.0 - cos(2 * M_PI * j / (m_period + 1.0))
+         // Hann Windowing Weight, where j corresponds to Ehlers' 'count'
          double weight = 1.0 - cos(2 * M_PI * j / (m_period + 1.0));
 
          if(diff > 0)
@@ -72,7 +74,7 @@ void CRSIHCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, 
       if(cu + cd > 0)
          rsih_buffer[i] = (cu - cd) / (cu + cd);
       else
-         rsih_buffer[i] = 0;
+         rsih_buffer[i] = (i > 0) ? rsih_buffer[i-1] : 0.0; // Fallback to previous or 0
      }
   }
 
