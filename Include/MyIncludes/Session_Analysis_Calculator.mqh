@@ -27,10 +27,13 @@ protected:
    double            m_src_high[], m_src_low[], m_src_price[];
 
    bool              IsTimeInSession(const MqlDateTime &dt);
+   // RE-INTRODUCED: Made virtual to allow overriding for Heikin Ashi
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
    void              DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[]);
 
 public:
+                     CSessionAnalyzer(void) {};
+   virtual          ~CSessionAnalyzer(void) {};
    void              Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix);
    void              Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
    void              Cleanup(void);
@@ -79,10 +82,12 @@ void CSessionAnalyzer::Cleanup(void)
   }
 
 //+------------------------------------------------------------------+
+// CORRECTED: Update method signature is simplified
 void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
    if(!m_enabled || rates_total < 2)
       return;
+// The price_type is now passed directly to PrepareSourceData
    if(!PrepareSourceData(rates_total, open, high, low, close, price_type))
       return;
 
@@ -206,7 +211,7 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
      }
   }
 
-//+------------------------------------------------------------------+
+// Base implementation for standard prices
 bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
    ArrayResize(m_src_high, rates_total);
@@ -245,6 +250,10 @@ bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], 
   }
 
 //+==================================================================+
+//|                                                                  |
+//|       CLASS 2: CSessionAnalyzer_HA (Heikin Ashi) - RE-INTRODUCED |
+//|                                                                  |
+//+==================================================================+
 class CSessionAnalyzer_HA : public CSessionAnalyzer
   {
 private:
@@ -252,6 +261,9 @@ private:
 protected:
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type) override;
   };
+
+//+------------------------------------------------------------------+
+//| CSessionAnalyzer_HA: Prepares the HA source data.                |
 //+------------------------------------------------------------------+
 bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
@@ -261,8 +273,12 @@ bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[
    ArrayResize(ha_low,   rates_total);
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+
+// Prepare High and Low for the box drawing from HA candles
    ArrayCopy(m_src_high,  ha_high,  0, 0, rates_total);
    ArrayCopy(m_src_low,   ha_low,   0, 0, rates_total);
+
+// Prepare the source price for Mean/LinReg from HA candles
    ArrayResize(m_src_price, rates_total);
    switch(price_type)
      {
