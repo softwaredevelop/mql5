@@ -4,9 +4,9 @@
 
 The Session Analysis Pro is an advanced, multi-faceted analytical tool designed to visualize and analyze price action within specific, user-defined trading sessions. It is particularly useful for traders who focus on the dynamics of the major market opens.
 
-This powerful indicator can simultaneously display and analyze up to **three independent markets** (e.g., NYSE, LSE, TSE), each with its own customizable **Pre-Market, Core, Post-Market, and Full Day** sessions.
+This powerful indicator can simultaneously display and analyze up to **three independent markets** (e.g., NYSE, LSE, TSE), each with its own customizable **Pre-Market, Core, Post-Market, and optional Full Day** sessions.
 
-For each defined session, the indicator can display four key analytical components:
+For each defined session, the indicator can display several key analytical components:
 
 1. **Session Range Box:** A rectangle encompassing the high and low of the session.
 2. **Volume Weighted Average Price (VWAP):** The true average price for the session, weighted by volume, rendered using a high-performance, buffer-based drawing method for maximum speed and stability.
@@ -27,19 +27,19 @@ The indicator identifies bars belonging to a specific time window and performs d
 
 ## 3. MQL5 Implementation Details
 
-Our implementation follows a modern, robust, and high-performance hybrid architecture to provide a smooth, freeze-free user experience.
+Our MQL5 implementation follows a modern, robust, and high-performance **hybrid architecture** to provide a smooth, freeze-free user experience.
 
 * **Hybrid Drawing Architecture:** The indicator uses two distinct systems, each optimized for its specific task:
-  * **VWAP via Indicator Buffers:** All VWAP calculations are handled by a dedicated `CVWAPCalculator` engine. This engine writes its results directly into MQL5's fastest drawing mechanism: **indicator buffers** (`DRAW_LINE`). We use the **"double buffer" technique** (alternating between two buffers for consecutive sessions) to create clean visual gaps, ensuring maximum performance and eliminating any possibility of chart freezes.
-  * **Boxes & Stats via Graphical Objects:** The Session Box, Mean, and Linear Regression lines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`). This is handled by a separate `CSessionAnalyzer` class, providing flexibility for these non-continuous visual elements.
+  * **VWAP via Indicator Buffers:** All VWAP calculations are handled by a dedicated `CVWAPCalculator` engine, which is a modified version of our standalone `VWAP_Pro` indicator. This engine writes its results directly into MQL5's fastest drawing mechanism: **indicator buffers** (`DRAW_LINE`). We use the **"double buffer" technique** to create clean visual gaps between sessions, ensuring maximum performance and eliminating any possibility of chart freezes.
+  * **Boxes & Stats via Graphical Objects:** The Session Box, Mean, and Linear Regression lines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`). This is handled by a separate, leaner `CSessionAnalyzer` class, providing flexibility for these non-continuous visual elements.
 
-* **Modular, Reusable Engines:** The logic is split between two powerful, reusable include files (`VWAP_Calculator.mqh` and `Session_Analysis_Calculator.mqh`), separating the mathematical complexity from the main indicator file.
+* **Modular, Reusable Engines:** The logic is split between two powerful, reusable include files (`VWAP_Calculator.mqh` and `Session_Analysis_Calculator.mqh`), cleanly separating the responsibilities of buffer-based and object-based drawing.
 
-* **Robust Multi-Instance Support:** Each instance of the indicator on a chart generates a unique, stable ID. This is achieved by programmatically finding the indicator's own sub-window index using `ChartWindowFind()`. This index is then used as a prefix for all graphical object names, ensuring that multiple copies of the indicator can run on the same chart without any conflicts.
-
-* **Heikin Ashi Integration:** Both the VWAP and the object-drawing engines use class inheritance (`CVWAPCalculator_HA`, `CSessionAnalyzer_HA`) to seamlessly perform all calculations on smoothed Heikin Ashi data.
+* **Robust Multi-Instance Support:** Each instance of the indicator on a chart generates a unique, stable ID for its graphical objects. This is achieved by programmatically finding the indicator's own sub-window index using `ChartWindowFind()`. This index is then used as a prefix for all object names, ensuring that multiple copies of the indicator can run on the same chart without any conflicts.
 
 * **Efficient "On New Bar" Updates:** All calculations and redraws are executed only **once per bar**, preventing unnecessary CPU load on every tick.
+
+* **Robust Cleanup:** The indicator performs a comprehensive cleanup of all its graphical objects and indicator buffers upon re-initialization (e.g., on a timeframe change), preventing "ghost" objects or line fragments from remaining on the chart.
 
 ## 4. Parameters
 
@@ -54,7 +54,7 @@ Our implementation follows a modern, robust, and high-performance hybrid archite
   * **Session Settings (Pre-Market, Core, Post-Market, Full Day):**
     * `Enable`: Turns the analysis for that specific session on or off.
     * `Start / End`: The start and end times for the session in "HH:MM" format, based on the **broker's server time**.
-    * `Color`: The color for all graphical elements (box and lines) drawn for that session.
+    * `Color`: The color for all graphical elements (box and VWAP line) drawn for that session.
     * `VWAP / Mean / LinReg`: Toggles the visibility of each analytical component for that session.
 
 ## 5. Trading Session Times Reference
