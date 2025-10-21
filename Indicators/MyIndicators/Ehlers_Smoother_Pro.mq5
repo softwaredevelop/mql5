@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                         Ehlers_Smoother_Pro.mq5  |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
-#property description "John Ehlers' SuperSmoother and Ultimate Smoother filters."
+#property version   "2.00" // Definition-true implementation based on Ehlers' articles
+#property description "John Ehlers' SuperSmoother and UltimateSmoother filters."
 
 #property indicator_chart_window
 #property indicator_buffers 1
@@ -17,15 +16,6 @@
 #property indicator_width1  1
 
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
-
-enum ENUM_APPLIED_PRICE_HA_ALL
-  {
-   PRICE_HA_CLOSE    = -1, PRICE_HA_OPEN     = -2, PRICE_HA_HIGH     = -3, PRICE_HA_LOW      = -4,
-   PRICE_HA_MEDIAN   = -5, PRICE_HA_TYPICAL  = -6, PRICE_HA_WEIGHTED = -7,
-   PRICE_CLOSE_STD   = PRICE_CLOSE, PRICE_OPEN_STD    = PRICE_OPEN, PRICE_HIGH_STD    = PRICE_HIGH,
-   PRICE_LOW_STD     = PRICE_LOW, PRICE_MEDIAN_STD  = PRICE_MEDIAN, PRICE_TYPICAL_STD = PRICE_TYPICAL,
-   PRICE_WEIGHTED_STD= PRICE_WEIGHTED
-  };
 
 //--- Input Parameters ---
 input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER; // Type of smoother
@@ -63,7 +53,7 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 4);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
