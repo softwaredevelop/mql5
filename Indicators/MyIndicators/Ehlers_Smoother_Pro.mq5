@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00" // Definition-true implementation based on Ehlers' articles
+#property version   "2.10" // Refactored calculation for definition-true stability
 #property description "John Ehlers' SuperSmoother and UltimateSmoother filters."
 
 #property indicator_chart_window
@@ -53,7 +53,7 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 3); // Draw from the 4th bar (index 3)
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
