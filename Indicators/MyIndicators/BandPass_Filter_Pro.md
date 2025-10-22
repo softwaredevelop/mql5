@@ -6,7 +6,7 @@
 >
 > This indicator is a member of a family of advanced digital filters described in John Ehlers' article, "The Ultimate Smoother." Each filter is designed to provide a superior balance between smoothing and lag compared to traditional moving averages.
 >
-> * [Ehlers Smoother Pro](./Ehlers_Smoother_Pro.md): A 2-in-1 indicator featuring the **SuperSmoother** (for maximum smoothing) and the **Ultimate Smoother** (for near-zero lag).
+> * [Ehlers Smoother Pro](./Ehlers_Smoother_Pro.md): A 2-in-1 indicator featuring the **SuperSmoother** (for maximum smoothing) and the **UltimateSmoother** (for near-zero lag).
 > * **Band-Pass Filter:** An oscillator that isolates the cyclical components of the market within a specific frequency band.
 
 The Band-Pass Filter, developed by John Ehlers, is an oscillator-style indicator designed to isolate the primary cyclical rhythm of the market. It achieves this by filtering out both very low-frequency movements (long-term trends) and very high-frequency movements (market noise).
