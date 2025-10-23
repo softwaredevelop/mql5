@@ -2,54 +2,60 @@
 
 ## 1. Summary (Introduction)
 
-The Zero-Lag Exponential Moving Average (ZLEMA), based on a concept developed by John Ehlers, is an enhanced version of the traditional Exponential Moving Average (EMA). Its primary goal is to **reduce or eliminate the inherent lag** associated with standard moving averages.
+The Zero-Lag Exponential Moving Average (ZLEMA), based on concepts by John Ehlers, is an enhanced version of the traditional EMA designed to **reduce or eliminate lag**.
 
-All moving averages lag behind the price because they are based on past data. The ZLEMA addresses this problem by adding a "momentum" or "error correction" term to the standard EMA calculation. This term essentially measures the lag of the EMA in the recent past and adds it back to the current value.
+This indicator offers two distinct calculation modes:
 
-The result is a moving average that is **more responsive to recent price changes** and "hugs" the price more closely than a standard EMA of the same period, while still providing a good degree of smoothing. It is an excellent tool for traders who require more timely signals from their moving averages.
+1. **Standard ZLEMA (Default):** A fast and robust implementation based on a "double EMA" technique. It provides a significant reduction in lag compared to a standard EMA, making it an excellent, responsive trendline. This is the recommended mode for most trading applications.
+2. **Ehlers' Error Correcting Mode (Advanced):** An experimental mode that implements Ehlers' original, self-optimizing "Error Correcting" algorithm. On every bar, it searches for an optimal `gain` factor to minimize the error between the filter and the price. While academically interesting, this mode is significantly more CPU-intensive and may not necessarily produce better trading signals.
+
+The result is a versatile moving average that can be used as either a fast, standard ZLEMA or as a platform for experimenting with Ehlers' more complex adaptive theories.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-While Ehlers' original article describes a more complex, adaptive "Error Correcting" filter, the most widely adopted and robust implementation of the Zero-Lag EMA concept uses a "double EMA" technique to de-lag the average.
+The indicator can operate in one of two modes, each with a different underlying formula.
 
-### Required Components
+### Standard ZLEMA (Double EMA Method)
 
-* **Period (N):** The lookback period for the underlying EMA calculations.
-* **Source Price (P):** The price series used for the calculation.
+This is the most common and efficient implementation of the zero-lag concept.
 
-### Calculation Steps (Algorithm)
+1. Calculate a standard `N`-period EMA on the source price (`EMA1`).
+2. Calculate a second `N`-period EMA on the `EMA1` series (`EMA2`).
+3. The "lag" is identified as the difference `(EMA1 - EMA2)`.
+4. This lag is added back to the first EMA to produce the de-lagged value:
+    $\text{ZLEMA} = \text{EMA1} + (\text{EMA1} - \text{EMA2})$
 
-1. **Calculate the First EMA:** A standard `N`-period EMA is calculated on the source price.
-    * `EMA1 = EMA(Price, N)`
-2. **Calculate the Second EMA:** A second `N`-period EMA is calculated, but this time its input is the result of the first EMA.
-    * `EMA2 = EMA(EMA1, N)`
-3. **Identify the "Lag" or "Error":** The difference between the two EMAs represents the lag.
-    * `Lag = EMA1 - EMA2`
-4. **Calculate the Final ZLEMA:** The calculated lag is added back to the first EMA to produce the final, de-lagged value.
-    * `ZLEMA = EMA1 + Lag`  (which simplifies to `2 * EMA1 - EMA2`)
+### Ehlers' Error Correcting (EC) Method
+
+This method uses a feedback loop to continuously adjust the filter's responsiveness.
+
+1. Calculate a standard `N`-period EMA of the price.
+2. On each bar, iterate through a range of possible `gain` values.
+3. For each `gain`, calculate a trial EC value using the formula:
+    $\text{EC}_{\text{trial}} = \alpha(\text{EMA} + \text{gain}(P_i - \text{EC}_{i-1})) + (1-\alpha)\text{EC}_{i-1}$
+4. Find the `BestGain` that results in the minimum error (`|P_i - EC_trial|`).
+5. Calculate the final EC value for the bar using this `BestGain`.
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained Calculator (`ZeroLag_EMA_Calculator.mqh`):** The entire two-stage, recursive calculation is encapsulated within a dedicated, reusable calculator class.
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation is doubly recursive. To ensure absolute stability and prevent desynchronization errors, the indicator employs a **full recalculation** on every `OnCalculate` call. The recursive state is managed internally within the calculation loop.
-* **Robust Initialization:** The internal EMAs are carefully initialized with a Simple Moving Average (SMA) to provide a stable starting point for the recursive calculations.
+* **Dual-Mode Calculator (`ZeroLag_EMA_Calculator.mqh`):** The calculator class contains both calculation methods, selectable via a boolean flag during initialization.
+* **Heikin Ashi Integration:** An inherited `_HA` class allows both modes to be calculated seamlessly on smoothed Heikin Ashi data.
+* **Stability via Full Recalculation:** Both modes are recursive. The indicator employs a full recalculation on every `OnCalculate` call to ensure stability.
 
 ## 4. Parameters
 
-* **Period (`InpPeriod`):** The lookback period (`N`) used for both underlying EMA calculations. This is the primary parameter for controlling the indicator's speed and smoothness.
-  * A **shorter period** (e.g., 12) results in a faster, more responsive ZLEMA.
-  * A **longer period** (e.g., 50) results in a slower, smoother ZLEMA.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **Period (`InpPeriod`):** The lookback period (`N`) for the underlying EMA calculations in both modes.
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
+* **Advanced Settings:**
+  * `Optimize Gain (`InpOptimizeGain`): If`true`, the indicator uses the slower, experimental "Error Correcting" method. If`false` (default), it uses the fast and standard "Double EMA" method. **It is recommended to keep this set to `false` for general use.**
+  * `Gain Limit (`InpGainLimit`): Only applies if`Optimize Gain` is `true`. Sets the range (`+/- GainLimit`) for the optimization search loop.
 
 ## 5. Usage and Interpretation
 
-The ZLEMA should be used in the same way as a traditional moving average, but with the understanding that its signals will be more timely.
+The ZLEMA should be used as a faster, more responsive alternative to a traditional moving average. The interpretation is the same, but the signals are more timely.
 
-* **Dynamic Support and Resistance:** The ZLEMA line acts as a dynamic level of support in an uptrend and resistance in a downtrend. Because it has less lag, it will often be tested sooner and more accurately than a standard EMA.
-* **Trend Filtering:** A longer-period ZLEMA (e.g., 50 or 100) can be used to define the overall market bias. Its reduced lag can provide an earlier warning of a potential trend change.
-* **Crossover Signals:**
-  * **Price Crossover:** A crossover of the price and the ZLEMA line is a potential trade signal. These signals will occur earlier than with a standard EMA.
-  * **Two-Line Crossover:** A system using a fast ZLEMA (e.g., 21-period) and a slow ZLEMA (e.g., 50-period) will generate crossover signals sooner than an equivalent EMA-based system, allowing for earlier entry into new trends.
+* **Dynamic Support and Resistance:** The ZLEMA line acts as a dynamic S/R level. Due to its reduced lag, it will be tested sooner and more accurately than a standard EMA.
+* **Trend Filtering:** A longer-period ZLEMA can be used to define the overall market bias, providing earlier warnings of potential trend changes.
+* **Crossover Signals:** Crossover systems (price-cross or two-line cross) will generate signals earlier than equivalent EMA-based systems, allowing for faster entry into new trends.
 
-**Caution:** The ZLEMA's increased responsiveness also means it can be more susceptible to "whipsaws" in choppy, sideways markets compared to a smoother, slower-moving average. It is most effective in clear, trending market conditions.
+**Caution:** The ZLEMA's increased responsiveness also means it can be more susceptible to "whipsaws" in choppy, sideways markets. It is most effective in clear, trending market conditions.
