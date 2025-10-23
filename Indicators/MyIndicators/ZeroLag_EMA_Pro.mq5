@@ -4,8 +4,9 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
-#property description "Zero-Lag Exponential Moving Average (ZLEMA) based on John Ehlers' concept."
+#property version   "2.00" // Added Ehlers' optimized gain (Error Correcting) mode
+#property description "Zero-Lag Exponential Moving Average (ZLEMA). Supports standard"
+#property description "and Ehlers' optimized gain (Error Correcting) modes."
 
 #property indicator_chart_window
 #property indicator_buffers 1
@@ -21,6 +22,9 @@
 //--- Input Parameters ---
 input int                       InpPeriod       = 20;    // EMA Period
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input group "Advanced Settings"
+input bool                      InpOptimizeGain = false; // Use Ehlers' Error Correcting (slower)
+input double                    InpGainLimit    = 5.0;   // Gain Limit for optimization (e.g., 5.0 = +/- 50 steps)
 
 //--- Indicator Buffers ---
 double    BufferZLEMA[];
@@ -45,7 +49,7 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ZLEMA(%d)", InpPeriod));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod))
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpOptimizeGain, InpGainLimit))
      {
       Print("Failed to initialize Zero-Lag EMA Calculator.");
       return(INIT_FAILED);
