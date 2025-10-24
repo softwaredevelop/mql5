@@ -224,3 +224,4 @@ bool CZeroLagEMACalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_
      }
    return true;
   }
+//+------------------------------------------------------------------+
