@@ -13,7 +13,7 @@ class CHoltMACalculator
 public:
    virtual bool      Init(int period, double alpha, double beta, int forecast_p)=0;
    virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                          double &forecast_out[], double &upper_band_out[], double &lower_band_out[])=0;
+                               double &forecast_out[], double &upper_band_out[], double &lower_band_out[])=0;
   };
 
 //--- Standard version
@@ -27,7 +27,7 @@ public:
 
    virtual bool      Init(int period, double alpha, double beta, int forecast_p) override { return m_engine.Init(period, alpha, beta, forecast_p); }
    virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                          double &forecast_out[], double &upper_band_out[], double &lower_band_out[]) override
+                               double &forecast_out[], double &upper_band_out[], double &lower_band_out[]) override
      {
       if(CheckPointer(m_engine)==POINTER_INVALID)
          return;
@@ -49,7 +49,7 @@ public:
 
    virtual bool      Init(int period, double alpha, double beta, int forecast_p) override { return m_engine.Init(period, alpha, beta, forecast_p); }
    virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                          double &forecast_out[], double &upper_band_out[], double &lower_band_out[]) override
+                               double &forecast_out[], double &upper_band_out[], double &lower_band_out[]) override
      {
       if(CheckPointer(m_engine)==POINTER_INVALID)
          return;
