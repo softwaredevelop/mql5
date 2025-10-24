@@ -45,27 +45,6 @@ enum ENUM_DISPLAY_MODE
    DISPLAY_RSI_AND_SIGNAL  // Display RSI and its signal line
   };
 
-//--- Custom Enum for Price Source, including Heikin Ashi ---
-enum ENUM_APPLIED_PRICE_HA_ALL
-  {
-//--- Heikin Ashi Prices (negative values for easy identification)
-   PRICE_HA_CLOSE    = -1,
-   PRICE_HA_OPEN     = -2,
-   PRICE_HA_HIGH     = -3,
-   PRICE_HA_LOW      = -4,
-   PRICE_HA_MEDIAN   = -5,
-   PRICE_HA_TYPICAL  = -6,
-   PRICE_HA_WEIGHTED = -7,
-//--- Standard Prices (using built-in ENUM_APPLIED_PRICE values)
-   PRICE_CLOSE_STD   = PRICE_CLOSE,
-   PRICE_OPEN_STD    = PRICE_OPEN,
-   PRICE_HIGH_STD    = PRICE_HIGH,
-   PRICE_LOW_STD     = PRICE_LOW,
-   PRICE_MEDIAN_STD  = PRICE_MEDIAN,
-   PRICE_TYPICAL_STD = PRICE_TYPICAL,
-   PRICE_WEIGHTED_STD= PRICE_WEIGHTED
-  };
-
 //--- Input Parameters ---
 input int                       InpPeriodRSI    = 14;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
