@@ -60,3 +60,13 @@ The Laguerre Filter is used as a superior, low-lag alternative to traditional mo
   * **Price Crossover:** A crossover of the price and the Laguerre Filter line can be used as a trade signal, similar to a standard moving average crossover. Due to its low lag, these signals are often more timely.
   * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.5` for the fast line and `0.2` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
 * **Dynamic Support and Resistance:** In a trending market, the Laguerre Filter line often acts as a dynamic level of support (in an uptrend) or resistance (in a downtrend), providing potential entry points on pullbacks.
+
+### **Combined Strategy with Laguerre Momentum (Advanced)**
+
+The filter's characteristics can be better understood when used with its companion oscillator, the `Laguerre_Momentum_Pro`. A key predictive relationship exists between them:
+
+* **The Momentum Oscillator's zero-cross predicts the Filter's turning point.**
+  * When the `Laguerre_Momentum` oscillator crosses **above its zero line**, it provides an early warning that the `Laguerre_Filter` on the main chart is about to form a **trough (a bottom)**.
+  * When the `Laguerre_Momentum` oscillator crosses **below its zero line**, it provides an early warning that the `Laguerre_Filter` is about to form a **peak (a top)**.
+
+This relationship allows a trader to use the momentum oscillator as a **leading indicator** to anticipate the turning points of the smoother, lagging Laguerre Filter.
