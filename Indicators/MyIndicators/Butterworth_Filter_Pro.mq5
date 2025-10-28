@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Adapted to new universal calculator
 #property description "John Ehlers' Higher-Order Butterworth Filter."
 
 #property indicator_chart_window
@@ -46,7 +46,8 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Butterworth(%d,%d)", InpPeriod, (int)InpPoles));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpPoles))
+// CORRECTED: Pass the source type to the Init function
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpPoles, SOURCE_PRICE))
      {
       Print("Failed to initialize Butterworth Calculator.");
       return(INIT_FAILED);
