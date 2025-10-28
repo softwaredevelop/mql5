@@ -8,10 +8,6 @@
 #include "Laguerre_Engine.mqh"
 
 //+==================================================================+
-//|                                                                  |
-//|         CLASS 1: CLaguerreFilterCalculator (Base Class)          |
-//|                                                                  |
-//+==================================================================+
 class CLaguerreFilterCalculator
   {
 protected:
@@ -21,15 +17,17 @@ public:
                      CLaguerreFilterCalculator(void) { m_engine = new CLaguerreEngine(); };
    virtual          ~CLaguerreFilterCalculator(void) { if(CheckPointer(m_engine) != POINTER_INVALID) delete m_engine; };
 
-   bool              Init(double gamma);
+   bool              Init(double gamma, ENUM_INPUT_SOURCE source_type);
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &filter_buffer[], double &fir_buffer[]);
   };
 
-bool CLaguerreFilterCalculator::Init(double gamma) { return m_engine.Init(gamma); }
-
 //+------------------------------------------------------------------+
-//|                                                                  |
+bool CLaguerreFilterCalculator::Init(double gamma, ENUM_INPUT_SOURCE source_type)
+  {
+   return m_engine.Init(gamma, source_type);
+  }
+
 //+------------------------------------------------------------------+
 void CLaguerreFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &filter_buffer[], double &fir_buffer[])
@@ -37,14 +35,12 @@ void CLaguerreFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
    double L0[], L1[], L2[], L3[], filt[];
    m_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0, L1, L2, L3, filt);
 
-// Copy the final, weighted Laguerre filter result to the output buffer
    ArrayCopy(filter_buffer, filt, 0, 0, rates_total);
 
-// --- CORRECTED: Calculate the comparative FIR filter using the public getter ---
    if(rates_total > 3)
      {
       double price_data[];
-      m_engine.GetPriceBuffer(price_data); // Safely get the price data from the engine
+      m_engine.GetPriceBuffer(price_data);
 
       for(int i = 3; i < rates_total; i++)
         {
@@ -53,10 +49,6 @@ void CLaguerreFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
      }
   }
 
-//+==================================================================+
-//|                                                                  |
-//|       CLASS 2: CLaguerreFilterCalculator_HA (Heikin Ashi)        |
-//|                                                                  |
 //+==================================================================+
 class CLaguerreFilterCalculator_HA : public CLaguerreFilterCalculator
   {
