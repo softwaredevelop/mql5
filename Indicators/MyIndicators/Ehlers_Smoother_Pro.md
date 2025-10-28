@@ -8,6 +8,7 @@
 >
 > * **Ehlers Smoother Pro:** A 2-in-1 indicator featuring the **SuperSmoother** (for maximum smoothing) and the **UltimateSmoother** (for near-zero lag).
 > * [Band-Pass Filter](./BandPass_Filter_Pro.md): An oscillator that isolates the cyclical components of the market.
+> * [Ehlers Smoother Momentum Pro](./Ehlers_Smoother_Momentum_Pro.md): The oscillator version of this smoother.
 
 The Ehlers Smoother Pro is a versatile, "two-in-one" indicator that implements two of John Ehlers' most advanced digital filters: the **SuperSmoother** and the **UltimateSmoother**.
 
@@ -65,6 +66,16 @@ The SuperSmoother is best used as a high-quality replacement for any traditional
 The Ultimate Smoother excels where responsiveness is critical, making it an excellent tool for identifying **dynamic support/resistance zones**.
 
 * Because it has minimal lag, it can be used to time entries at the exact end of a pullback. When the price touches the Ultimate Smoother and turns, the signal is immediate.
+
+### Combined Strategy with Smoother Momentum (Advanced)
+
+The filter's true potential is unlocked when used with its companion oscillator, the **[Ehlers Smoother Momentum Pro](./Ehlers_Smoother_Momentum_Pro.md)**. A key predictive relationship exists between them:
+
+* **The Momentum Oscillator's zero-cross predicts the Smoother's turning point.**
+  * When the `Smoother Momentum` oscillator crosses **above its zero line**, it provides an early warning that the `Ehlers Smoother` on the main chart is about to form a **trough (a bottom)**.
+  * When the `Smoother Momentum` oscillator crosses **below the zero line**, it provides an early warning that the `Ehlers Smoother` is about to form a **peak (a top)**.
+
+This relationship allows a trader to use the momentum oscillator as a **leading indicator** to anticipate the turning points of the smoother, lagging filter on the price chart.
 
 ### Combined Strategy with the Band-Pass Filter (Recommended)
 
