@@ -46,8 +46,18 @@ The Gaussian Filter is a 2-pole Infinite Impulse Response (IIR) filter. Its calc
 
 The Gaussian Filter should be used as a high-quality, low-lag replacement for traditional moving averages, particularly the EMA. Its usage is identical to other trend-following moving averages.
 
-* **Dynamic Support and Resistance:** The filter line acts as a dynamic level of support in an uptrend and resistance in a downtrend. Due to its low lag, it provides timely signals when price pulls back to test the trend.
-* **Trend Filtering:** A longer-period Gaussian filter can be used to define the overall market bias. Price trading above the line indicates a bullish environment, while price below indicates a bearish one.
-* **Crossover Signals:** A system using a fast and a slow Gaussian filter will generate crossover signals with less lag than an equivalent EMA-based system, allowing for earlier entry into new trends.
+* **Dynamic Support and Resistance:** The filter line acts as a dynamic level of support in an uptrend and resistance in a downtrend.
+* **Trend Filtering:** A longer-period Gaussian filter can be used to define the overall market bias.
+* **Crossover Signals:** A system using a fast and a slow Gaussian filter will generate crossover signals with less lag than an equivalent EMA-based system.
 
-The key advantage of the Gaussian filter is its excellent balance between smoothing and responsiveness, making it a superior all-around tool for trend analysis compared to standard moving averages.
+The key advantage of the Gaussian filter is its excellent balance between smoothing and responsiveness.
+
+### **Combined Strategy with Gaussian Momentum (Advanced)**
+
+The filter's true potential is unlocked when used with its companion oscillator, the `Gaussian_Momentum_Pro`. A key predictive relationship exists between them:
+
+* **The Momentum Oscillator's zero-cross predicts the Filter's turning point.**
+  * When the `Gaussian_Momentum` oscillator crosses **above its zero line**, it provides an early warning that the `Gaussian_Filter` is about to form a **trough (a bottom)**.
+  * When the `Gaussian_Momentum` oscillator crosses **below its zero line**, it provides an early warning that the `Gaussian_Filter` is about to form a **peak (a top)**.
+
+This relationship allows a trader to use the momentum oscillator as a **leading indicator** to anticipate the turning points of the smoother, lagging Gaussian Filter, providing a significant edge in timing entries and exits.
