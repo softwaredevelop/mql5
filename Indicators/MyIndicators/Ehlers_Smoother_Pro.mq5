@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // Refactored calculation for definition-true stability
+#property version   "2.20" // Adapted to new universal calculator
 #property description "John Ehlers' SuperSmoother and UltimateSmoother filters."
 
 #property indicator_chart_window
@@ -18,8 +18,8 @@
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 
 //--- Input Parameters ---
-input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER; // Type of smoother
-input int                       InpPeriod       = 20;            // Critical Period for the filter
+input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER;
+input int                       InpPeriod       = 20;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
@@ -47,13 +47,13 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("%s(%d)", name, InpPeriod));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpSmootherType))
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpSmootherType, SOURCE_PRICE))
      {
       Print("Failed to initialize Ehlers Smoother Calculator.");
       return(INIT_FAILED);
      }
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 3); // Draw from the 4th bar (index 3)
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 3);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
