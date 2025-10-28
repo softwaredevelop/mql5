@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Adapted to new universal calculator
 #property description "John Ehlers' 2-Pole Gaussian Filter."
 
 #property indicator_chart_window
@@ -45,7 +45,8 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Gaussian(%d)", InpPeriod));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod))
+// CORRECTED: Pass the source type to the Init function
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, SOURCE_PRICE))
      {
       Print("Failed to initialize Gaussian Filter Calculator.");
       return(INIT_FAILED);
