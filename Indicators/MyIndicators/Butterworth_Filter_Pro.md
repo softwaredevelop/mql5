@@ -67,7 +67,7 @@ For more confirmation, two instances of the indicator can be used on the same ch
 
 The key advantage of the Butterworth filter over a standard EMA is its ability to ignore minor, insignificant price fluctuations, allowing the trader to focus on the true, underlying trend.
 
-### **Combined Strategy with Butterworth Momentum (Advanced)**
+### **Combined Strategy with Butterworth_Calculator (Advanced)**
 
 The filter's characteristics can be better understood when used with its companion oscillator, the `Butterworth_Momentum_Pro`. A key relationship exists between them:
 
