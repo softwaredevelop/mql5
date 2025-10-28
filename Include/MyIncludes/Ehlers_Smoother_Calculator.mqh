@@ -1,30 +1,29 @@
 //+------------------------------------------------------------------+
 //|                                   Ehlers_Smoother_Calculator.mqh |
 //|      Calculation engine for John Ehlers' SuperSmoother and       |
-//|      Ultimate Smoother filters. Definition-true implementation.  |
+//|      Ultimate Smoother filters. Can be applied to Price or Momentum.|
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//--- Enum names now match the Ehlers articles exactly
 enum ENUM_SMOOTHER_TYPE
   {
    SUPERSMOOTHER,
    ULTIMATESMOOTHER
   };
 
-//+==================================================================+
-//|                                                                  |
-//|           CLASS 1: CEhlersSmootherCalculator (Base)              |
-//|                                                                  |
+// NEW: Enum to select the data source
+enum ENUM_INPUT_SOURCE { SOURCE_PRICE, SOURCE_MOMENTUM };
+
 //+==================================================================+
 class CEhlersSmootherCalculator
   {
 protected:
    int                 m_period;
    ENUM_SMOOTHER_TYPE  m_type;
+   ENUM_INPUT_SOURCE   m_source_type;
    double              m_price[];
 
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
@@ -33,20 +32,19 @@ public:
                      CEhlersSmootherCalculator(void) {};
    virtual          ~CEhlersSmootherCalculator(void) {};
 
-   bool              Init(int period, ENUM_SMOOTHER_TYPE type);
+   bool              Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type);
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-bool CEhlersSmootherCalculator::Init(int period, ENUM_SMOOTHER_TYPE type)
+bool CEhlersSmootherCalculator::Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type)
   {
    m_period = (period < 2) ? 2 : period;
    m_type = type;
+   m_source_type = source_type;
    return true;
   }
 
-//+------------------------------------------------------------------+
-//| REFACTORED: Using internal state variables for robust recursion. |
 //+------------------------------------------------------------------+
 void CEhlersSmootherCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
   {
@@ -54,34 +52,34 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
       return;
    if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
       return;
-
-// --- Calculate coefficients exactly as per Ehlers' articles ---
    double a1 = exp(-M_SQRT2 * M_PI / m_period);
    double b1 = 2.0 * a1 * cos(M_SQRT2 * M_PI / m_period);
    double c2 = b1;
    double c3 = -a1 * a1;
    double c1 = 0;
-
    if(m_type == SUPERSMOOTHER)
      {
       c1 = 1.0 - c2 - c3;
      }
-   else // ULTIMATESMOOTHER
+   else
      {
       c1 = (1.0 + c2 - c3) / 4.0;
      }
-
-// --- State variables for recursive calculation ---
-   double f1=0, f2=0; // f[1], f[2]
-
-// --- Initialization for the first few bars, as per Ehlers' code ---
-   filter_buffer[0] = m_price[0];
-   filter_buffer[1] = m_price[1];
-   filter_buffer[2] = m_price[2];
-   f1 = filter_buffer[2];
-   f2 = filter_buffer[1];
-
-// --- Full recalculation loop for stability ---
+   double f1=0, f2=0;
+   if(rates_total > 0)
+      filter_buffer[0] = m_price[0];
+   if(rates_total > 1)
+     {
+      filter_buffer[1] = m_price[1];
+      f2 = filter_buffer[0];
+      f1 = filter_buffer[1];
+     }
+   if(rates_total > 2)
+     {
+      filter_buffer[2] = m_price[2];
+      f2 = filter_buffer[1];
+      f1 = filter_buffer[2];
+     }
    for(int i = 3; i < rates_total; i++)
      {
       double current_f = 0;
@@ -89,18 +87,11 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
         {
          current_f = c1 * (m_price[i] + m_price[i-1]) / 2.0 + c2 * f1 + c3 * f2;
         }
-      else // ULTIMATESMOOTHER
+      else
         {
-         current_f = (1.0 - c1) * m_price[i]
-                     + (2.0 * c1 - c2) * m_price[i-1]
-                     - (c1 + c3) * m_price[i-2]
-                     + c2 * f1
-                     + c3 * f2;
+         current_f = (1.0 - c1) * m_price[i] + (2.0 * c1 - c2) * m_price[i-1] - (c1 + c3) * m_price[i-2] + c2 * f1 + c3 * f2;
         }
-
       filter_buffer[i] = current_f;
-
-      // Update state for next iteration
       f2 = f1;
       f1 = current_f;
      }
@@ -110,40 +101,47 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
 bool CEhlersSmootherCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
    ArrayResize(m_price, rates_total);
-   switch(price_type)
+   if(m_source_type == SOURCE_PRICE)
      {
-      case PRICE_CLOSE:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(m_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-         break;
-      default:
-         return false;
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            ArrayCopy(m_price, close, 0, 0, rates_total);
+            break;
+         case PRICE_OPEN:
+            ArrayCopy(m_price, open, 0, 0, rates_total);
+            break;
+         case PRICE_HIGH:
+            ArrayCopy(m_price, high, 0, 0, rates_total);
+            break;
+         case PRICE_LOW:
+            ArrayCopy(m_price, low, 0, 0, rates_total);
+            break;
+         case PRICE_MEDIAN:
+            for(int i=0; i<rates_total; i++)
+               m_price[i] = (high[i]+low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            for(int i=0; i<rates_total; i++)
+               m_price[i] = (high[i]+low[i]+close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            for(int i=0; i<rates_total; i++)
+               m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
+            break;
+         default:
+            return false;
+        }
+     }
+   else // SOURCE_MOMENTUM
+     {
+      for(int i=0; i<rates_total; i++)
+         m_price[i] = close[i] - open[i];
      }
    return true;
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+
+//+==================================================================+
 class CEhlersSmootherCalculator_HA : public CEhlersSmootherCalculator
   {
 private:
@@ -151,8 +149,7 @@ private:
 protected:
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
-//+------------------------------------------------------------------+
-//|                                                                  |
+
 //+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -162,35 +159,44 @@ bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPL
    ArrayResize(ha_low, rates_total);
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+
    ArrayResize(m_price, rates_total);
-   switch(price_type)
+   if(m_source_type == SOURCE_PRICE)
      {
-      case PRICE_CLOSE:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
-         break;
-      default:
-         return false;
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            ArrayCopy(m_price, ha_close, 0, 0, rates_total);
+            break;
+         case PRICE_OPEN:
+            ArrayCopy(m_price, ha_open, 0, 0, rates_total);
+            break;
+         case PRICE_HIGH:
+            ArrayCopy(m_price, ha_high, 0, 0, rates_total);
+            break;
+         case PRICE_LOW:
+            ArrayCopy(m_price, ha_low, 0, 0, rates_total);
+            break;
+         case PRICE_MEDIAN:
+            for(int i=0; i<rates_total; i++)
+               m_price[i] = (ha_high[i]+ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            for(int i=0; i<rates_total; i++)
+               m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            for(int i=0; i<rates_total; i++)
+               m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i]+ha_close[i])/4.0;
+            break;
+         default:
+            return false;
+        }
+     }
+   else // SOURCE_MOMENTUM
+     {
+      for(int i=0; i<rates_total; i++)
+         m_price[i] = ha_close[i] - ha_open[i];
      }
    return true;
   }
