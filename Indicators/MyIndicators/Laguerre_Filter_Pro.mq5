@@ -5,42 +5,38 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.10" // Added optional FIR comparison line
+#property version   "1.10" // Adapted to new universal engine
 #property description "John Ehlers' Laguerre Filter as a low-lag moving average."
 #property description "Includes an optional FIR filter for comparison."
 
-//--- Indicator Window and Plot Properties ---
 #property indicator_chart_window
 #property indicator_buffers 2
 #property indicator_plots   2
 
-//--- Plot 1: Laguerre Filter
 #property indicator_label1  "Laguerre Filter"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrCrimson
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
-//--- Plot 2: FIR Filter (for comparison)
 #property indicator_label2  "FIR Filter"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrGray
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
-//--- Include the calculator engine ---
 #include <MyIncludes\Laguerre_Filter_Calculator.mqh>
 
 //--- Input Parameters ---
-input double                    InpGamma        = 0.5; // Laguerre filter coefficient (0 to 1)
+input double                    InpGamma        = 0.5;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
-input bool                      InpShowFIR      = false; // Show the comparative FIR filter line
+input bool                      InpShowFIR      = false;
 
 //--- Indicator Buffers ---
 double    BufferFilter[];
 double    BufferFIR[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CLaguerreFilterCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -63,7 +59,7 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Filter(%.2f)", InpGamma));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma))
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma, SOURCE_PRICE))
      {
       Print("Failed to create or initialize Laguerre Filter Calculator object.");
       return(INIT_FAILED);
@@ -97,15 +93,13 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
 
    g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferFilter, BufferFIR);
 
-// Hide the FIR buffer if not enabled by the user
    if(!InpShowFIR)
      {
       for(int i = 0; i < rates_total; i++)
-        {
          BufferFIR[i] = EMPTY_VALUE;
-        }
      }
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
