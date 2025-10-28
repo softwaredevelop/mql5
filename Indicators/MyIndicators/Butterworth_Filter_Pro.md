@@ -66,3 +66,14 @@ For more confirmation, two instances of the indicator can be used on the same ch
 * **Sell Signal:** The fast filter crosses below the slow filter.
 
 The key advantage of the Butterworth filter over a standard EMA is its ability to ignore minor, insignificant price fluctuations, allowing the trader to focus on the true, underlying trend.
+
+### **Combined Strategy with Butterworth Momentum (Advanced)**
+
+The filter's characteristics can be better understood when used with its companion oscillator, the `Butterworth_Momentum_Pro`. A key relationship exists between them:
+
+* **The Momentum Oscillator's zero-cross confirms the Filter's turning point.**
+  * Because the Butterworth filter is designed for maximum smoothing, it has a significant lag. The `Butterworth_Momentum` oscillator's zero-cross will occur **after** the price has already turned, but it serves as a **very smooth and reliable confirmation** that the trend captured by the `Butterworth_Filter` has indeed changed direction.
+  * A cross of the momentum line above zero confirms that the filter has formed a stable **trough (bottom)**.
+  * A cross of the momentum line below zero confirms that the filter has formed a stable **peak (top)**.
+
+This combination is useful for strategies that require a high degree of confirmation before entering a trade based on a major trend change.
