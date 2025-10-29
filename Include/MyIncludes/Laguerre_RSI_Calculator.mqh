@@ -25,10 +25,9 @@ public:
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &lrsi_buffer[]);
   };
 
-bool CLaguerreRSICalculator::Init(double gamma) { return m_engine.Init(gamma); }
+// CORRECTED: Pass the required SOURCE_PRICE to the engine's Init method.
+bool CLaguerreRSICalculator::Init(double gamma) { return m_engine.Init(gamma, SOURCE_PRICE); }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
 //+------------------------------------------------------------------+
 void CLaguerreRSICalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &lrsi_buffer[])
   {
@@ -70,10 +69,6 @@ void CLaguerreRSICalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price
      }
   }
 
-//+==================================================================+
-//|                                                                  |
-//|       CLASS 2: CLaguerreRSICalculator_HA (Heikin Ashi)           |
-//|                                                                  |
 //+==================================================================+
 class CLaguerreRSICalculator_HA : public CLaguerreRSICalculator
   {
