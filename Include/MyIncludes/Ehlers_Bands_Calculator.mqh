@@ -45,14 +45,14 @@ bool CEhlersBandsCalculator::Init(int period, double multiplier, ENUM_SMOOTHER_T
    m_period = (period < 2) ? 2 : period;
    m_multiplier = multiplier;
 
-// Instantiate the correct smoother type here if not already done (for HA)
    if(CheckPointer(m_calc_center) == POINTER_INVALID)
       m_calc_center = new CEhlersSmootherCalculator();
 
    if(CheckPointer(m_calc_center) == POINTER_INVALID)
       return false;
 
-   return(m_calc_center.Init(m_period, smoother_type));
+// CORRECTED: Pass the required SOURCE_PRICE to the smoother's Init method.
+   return(m_calc_center.Init(m_period, smoother_type, SOURCE_PRICE));
   }
 
 //+------------------------------------------------------------------+
