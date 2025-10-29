@@ -136,9 +136,29 @@ bool CStochasticRoofingCalculator::PreparePriceSeries(int rates_total, ENUM_APPL
       case PRICE_CLOSE:
          ArrayCopy(m_price, close, 0, 0, rates_total);
          break;
-      default:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
+      case PRICE_OPEN:
+         ArrayCopy(m_price, open, 0, 0, rates_total);
          break;
+      case PRICE_HIGH:
+         ArrayCopy(m_price, high, 0, 0, rates_total);
+         break;
+      case PRICE_LOW:
+         ArrayCopy(m_price, low, 0, 0, rates_total);
+         break;
+      case PRICE_MEDIAN:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (high[i]+low[i])/2.0;
+         break;
+      case PRICE_TYPICAL:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (high[i]+low[i]+close[i])/3.0;
+         break;
+      case PRICE_WEIGHTED:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
+         break;
+      default:
+         return false;
      }
    return true;
   }
@@ -169,9 +189,29 @@ bool CStochasticRoofingCalculator_HA::PreparePriceSeries(int rates_total, ENUM_A
       case PRICE_CLOSE:
          ArrayCopy(m_price, ha_close, 0, 0, rates_total);
          break;
-      default:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
+      case PRICE_OPEN:
+         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
          break;
+      case PRICE_HIGH:
+         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
+         break;
+      case PRICE_LOW:
+         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
+         break;
+      case PRICE_MEDIAN:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
+         break;
+      case PRICE_TYPICAL:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
+         break;
+      case PRICE_WEIGHTED:
+         for(int i=0; i<rates_total; i++)
+            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i]+ha_close[i])/4.0;
+         break;
+      default:
+         return false;
      }
    return true;
   }
