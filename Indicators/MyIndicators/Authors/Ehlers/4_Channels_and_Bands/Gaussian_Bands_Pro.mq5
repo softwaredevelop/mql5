@@ -14,12 +14,15 @@
 #property indicator_label1  "Upper"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrSeaGreen
+#property indicator_style1  STYLE_SOLID
 #property indicator_label2  "Lower"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrSeaGreen
+#property indicator_style2  STYLE_SOLID
 #property indicator_label3  "Middle"
 #property indicator_type3   DRAW_LINE
 #property indicator_color3  clrSeaGreen
+#property indicator_style3  STYLE_SOLID
 
 #include <MyIncludes\Gaussian_Bands_Calculator.mqh>
 
