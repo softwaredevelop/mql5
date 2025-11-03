@@ -21,8 +21,8 @@
 
 #property indicator_label2  "FIR Filter"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrGray
-#property indicator_style2  STYLE_DOT
+#property indicator_color2  clrDarkBlue
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 #include <MyIncludes\Laguerre_Filter_Calculator.mqh>
