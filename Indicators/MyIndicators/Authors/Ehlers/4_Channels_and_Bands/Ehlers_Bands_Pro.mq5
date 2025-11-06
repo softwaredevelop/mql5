@@ -13,14 +13,16 @@
 
 #property indicator_label1  "Upper"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrBlue
+#property indicator_color1  clrGray
+#property indicator_style1  STYLE_SOLID
 #property indicator_label2  "Lower"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrBlue
+#property indicator_color2  clrGray
+#property indicator_style2  STYLE_SOLID
 #property indicator_label3  "Middle"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrBlue
-#property indicator_style3  STYLE_DOT
+#property indicator_color3  clrGray
+#property indicator_style3  STYLE_SOLID
 
 // We need the smoother enum from this file
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
