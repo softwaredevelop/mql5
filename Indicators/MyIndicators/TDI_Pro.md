@@ -37,11 +37,12 @@ The TDI is constructed in a layered, sequential process.
 
 Our MQL5 implementation is a robust, definition-true representation of the TDI, built with a modular and stable architecture.
 
-* **Component-Based Design:** The TDI calculator (`TDI_Calculator.mqh`) **reuses** our existing, standalone `RSI_Pro_Calculator.mqh` module. This eliminates code duplication and ensures that the base RSI is always our robust, definition-true Wilder's RSI.
+* **Self-Contained Calculation Engine (`TDI_Calculator.mqh`):**
+    The entire multi-stage calculation logic is encapsulated within a single, dedicated include file. The calculator first computes the base Wilder's RSI and then sequentially calculates all TDI components (Price Line, Signal Line, Base Line, and Volatility Bands) in an efficient, single-pass process.
 
-* **Object-Oriented Logic:**
-  * The `CTDICalculator` base class contains a pointer to an `CRSIProCalculator` object.
-  * The Heikin Ashi version (`CTDICalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module (`CRSIProCalculator_HA`).
+* **Object-Oriented Design (Inheritance):**
+  * A base class, `CTDICalculator`, performs the full TDI calculation on a given source price.
+  * A derived class, `CTDICalculator_HA`, inherits all the complex logic and only overrides the initial data preparation step (`PreparePriceSeries`) to use smoothed Heikin Ashi prices as its input. This object-oriented approach eliminates code duplication.
 
 * **Stability via Full Recalculation:** The TDI's calculation is highly state-dependent. To ensure perfect accuracy, our implementation employs a "brute-force" **full recalculation** on every tick.
 
@@ -54,7 +55,29 @@ Our MQL5 implementation is a robust, definition-true representation of the TDI, 
 * **Bands Deviation (`InpBandsDeviation`):** The standard deviation multiplier for the blue volatility bands. The standard value is `1.618`.
 * **Source Price (`InpSourcePrice`):** The price data for the base RSI calculation. This unified dropdown allows you to select from all standard and Heikin Ashi price types.
 
-## 5. Usage and Interpretation
+## 5. Suggested Settings for the RSI Indicator Family
+
+To use the `RSI_Pro`, `VIDYA_RSI_Pro`, and `TDI_Pro` as a coherent system, their parameters should be synchronized. The core of the system is the base RSI Period. Here are two suggested configurations:
+
+| Indicator           | Parameter             | **Standard Setting (13)** | **Fast Setting (8)** |
+| ------------------- | --------------------- | :-----------------------: | :------------------: |
+| **RSI_Pro**         | `InpPeriodRSI`        |            **13**             |         **8**          |
+|                     |                       |                           |                      |
+| **VIDYA_RSI_Pro**   | `InpPeriodRSI`        |            **13**             |         **8**          |
+|                     | `InpPeriodEMA`        |            `20`             |         `12`         |
+|                     |                       |                           |                      |
+| **TDI_Pro** (RSI)   | `InpRsiPeriod`        |            **13**             |         **8**          |
+|                     | `InpPriceLinePeriod`  |             `2`             |         `2`          |
+|                     | `InpSignalLinePeriod` |             `7`             |         `5`          |
+|                     | `InpBaseLinePeriod`   |            `34`             |         `34`         |
+|                     | `InpBandsDeviation`   |           `1.618`           |       `1.618`        |
+
+### Rationale for Settings
+
+* **Standard Setting (13):** This is a balanced, medium-term configuration suitable for most timeframes (e.g., H1, H4). It provides a good compromise between responsiveness and signal smoothness. The TDI parameters are the classic, industry-standard values designed for this RSI period.
+* **Fast Setting (8):** This is a more sensitive configuration, ideal for lower timeframes (e.g., M5, M15). The `VIDYA EMA Period` and `TDI Signal Line Period` are reduced to better track the faster, more volatile RSI signal. The `TDI Base Line Period` is kept at `34` to maintain a stable long-term context.
+
+## 6. Usage and Interpretation
 
 * **Trend Direction (Market Base Line - Yellow):** The yellow line indicates the overall medium-term trend.
 * **Momentum (Price Line - Green):** The green line shows the short-term momentum.
