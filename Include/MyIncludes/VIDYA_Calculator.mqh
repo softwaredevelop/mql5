@@ -1,16 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                             VIDYA_Calculator.mqh |
-//|         Calculation engine for Standard and Heikin Ashi VIDYA.   |
+//|         Universal engine for VIDYA (single and multi-color).     |
+//|         VERSION 3.00: Implemented method overloading.            |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//+==================================================================+
-//|                                                                  |
-//|             CLASS 1: CVIDYACalculator (Base Class)               |
-//|                                                                  |
 //+==================================================================+
 class CVIDYACalculator
   {
@@ -26,11 +23,16 @@ public:
    virtual          ~CVIDYACalculator(void) {};
 
    bool              Init(int cmo_p, int ema_p);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &vidya_buffer[]);
+
+   //--- Overloaded Method 1: For single-color VIDYA
+   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &vidya_buffer[]);
+
+   //--- Overloaded Method 2: For multi-color VIDYA
+   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &vidya_up_buffer[], double &vidya_down_buffer[]);
   };
 
-//+------------------------------------------------------------------+
-//| CVIDYACalculator: Initialization                                 |
 //+------------------------------------------------------------------+
 bool CVIDYACalculator::Init(int cmo_p, int ema_p)
   {
@@ -40,9 +42,10 @@ bool CVIDYACalculator::Init(int cmo_p, int ema_p)
   }
 
 //+------------------------------------------------------------------+
-//| CVIDYACalculator: Main Calculation Method (Shared Logic)         |
+//| Implementation for SINGLE-COLOR VIDYA                            |
 //+------------------------------------------------------------------+
-void CVIDYACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &vidya_buffer[])
+void CVIDYACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                                 double &vidya_buffer[])
   {
    int start_pos = m_cmo_period + m_ema_period;
    if(rates_total <= start_pos)
@@ -51,6 +54,7 @@ void CVIDYACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type,
       return;
 
    double alpha = 2.0 / (m_ema_period + 1.0);
+
    for(int i = 1; i < rates_total; i++)
      {
       if(i == start_pos)
@@ -63,8 +67,64 @@ void CVIDYACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type,
         }
       if(i > start_pos)
         {
-         double cmo = MathAbs(CalculateCMO(i, m_cmo_period, m_price));
-         vidya_buffer[i] = m_price[i] * alpha * cmo + vidya_buffer[i-1] * (1 - alpha * cmo);
+         double cmo_abs = MathAbs(CalculateCMO(i, m_cmo_period, m_price));
+         vidya_buffer[i] = m_price[i] * alpha * cmo_abs + vidya_buffer[i-1] * (1 - alpha * cmo_abs);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Implementation for MULTI-COLOR VIDYA                             |
+//+------------------------------------------------------------------+
+void CVIDYACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                                 double &vidya_up_buffer[], double &vidya_down_buffer[])
+  {
+   int start_pos = m_cmo_period + m_ema_period;
+   if(rates_total <= start_pos)
+      return;
+   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
+      return;
+
+   double alpha = 2.0 / (m_ema_period + 1.0);
+   double prev_vidya = 0.0;
+
+   for(int i = 1; i < rates_total; i++)
+     {
+      vidya_up_buffer[i] = EMPTY_VALUE;
+      vidya_down_buffer[i] = EMPTY_VALUE;
+
+      if(i == start_pos)
+        {
+         double sum=0;
+         for(int j=0; j<m_ema_period; j++)
+            sum+=m_price[i-j];
+         prev_vidya = sum/m_ema_period;
+
+         double cmo_raw = CalculateCMO(i, m_cmo_period, m_price);
+         if(cmo_raw > 0)
+            vidya_up_buffer[i] = prev_vidya;
+         else
+            vidya_down_buffer[i] = prev_vidya;
+        }
+      if(i > start_pos)
+        {
+         double cmo_raw = CalculateCMO(i, m_cmo_period, m_price);
+         double cmo_abs = MathAbs(cmo_raw);
+         double current_vidya = m_price[i] * alpha * cmo_abs + prev_vidya * (1 - alpha * cmo_abs);
+
+         if(cmo_raw > 0)
+            vidya_up_buffer[i] = current_vidya;
+         else
+            vidya_down_buffer[i] = current_vidya;
+
+         double cmo_raw_prev = CalculateCMO(i-1, m_cmo_period, m_price);
+         if((cmo_raw > 0) != (cmo_raw_prev > 0))
+           {
+            vidya_up_buffer[i-1] = prev_vidya;
+            vidya_down_buffer[i-1] = prev_vidya;
+           }
+
+         prev_vidya = current_vidya;
         }
      }
   }
@@ -89,7 +149,6 @@ double CVIDYACalculator::CalculateCMO(int position, int period, const double &pr
       return 0.0;
    return (sum_up - sum_down) / (sum_up + sum_down);
   }
-
 //+------------------------------------------------------------------+
 //| CVIDYACalculator: Prepares the standard source price.            |
 //+------------------------------------------------------------------+
@@ -127,11 +186,6 @@ bool CVIDYACalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE pr
      }
    return true;
   }
-
-//+==================================================================+
-//|                                                                  |
-//|           CLASS 2: CVIDYACalculator_HA (Heikin Ashi)             |
-//|                                                                  |
 //+==================================================================+
 class CVIDYACalculator_HA : public CVIDYACalculator
   {
@@ -140,9 +194,6 @@ private:
 protected:
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
-
-//+------------------------------------------------------------------+
-//| CVIDYACalculator_HA: Prepares the HA source price.               |
 //+------------------------------------------------------------------+
 bool CVIDYACalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -152,7 +203,6 @@ bool CVIDYACalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE
    ArrayResize(ha_low, rates_total);
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
    ArrayResize(m_price, rates_total);
    switch(price_type)
      {
