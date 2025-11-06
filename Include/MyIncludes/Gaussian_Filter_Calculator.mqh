@@ -1,14 +1,15 @@
 //+------------------------------------------------------------------+
 //|                                   Gaussian_Filter_Calculator.mqh |
 //|      Calculation engine for the John Ehlers' Gaussian Filter.    |
-//|      Can be applied to Price or Momentum.                        |
+//|      VERSION 2.10: Corrected state management & centralized enums|
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-// NEW: Enum to select the data source
+//--- Enums are now centralized here to be available for all consumers ---
+enum ENUM_CANDLE_SOURCE { SOURCE_STD, SOURCE_HA };
 enum ENUM_INPUT_SOURCE { SOURCE_PRICE, SOURCE_MOMENTUM };
 
 //+==================================================================+
@@ -19,13 +20,16 @@ protected:
    ENUM_INPUT_SOURCE m_source_type;
    double            m_price[];
 
-   // Filter coefficients
+   //--- Filter coefficients
    double            c0, a1, a2;
+
+   //--- State variables for the recursive filter (CRITICAL FIX)
+   double            m_f1, m_f2;
 
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CGaussianFilterCalculator(void) {};
+                     CGaussianFilterCalculator(void) : m_f1(0), m_f2(0) {}; // Initialize state
    virtual          ~CGaussianFilterCalculator(void) {};
 
    bool              Init(int period, ENUM_INPUT_SOURCE source_type);
@@ -37,8 +41,9 @@ bool CGaussianFilterCalculator::Init(int period, ENUM_INPUT_SOURCE source_type)
   {
    m_period = (period < 2) ? 2 : period;
    m_source_type = source_type;
+   m_f1 = 0;
+   m_f2 = 0; // Reset state on init
 
-// Pre-calculate filter coefficients
    double beta = 2.451 * (1.0 - cos(2.0 * M_PI / m_period));
    double alpha = -beta + sqrt(beta * beta + 2.0 * beta);
 
@@ -57,19 +62,21 @@ void CGaussianFilterCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
    if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
       return;
 
-   double f1=0, f2=0;
-
-   filter_buffer[0] = m_price[0];
-   filter_buffer[1] = m_price[1];
-   f1 = filter_buffer[1];
-   f2 = filter_buffer[0];
+//--- On the very first calculation, initialize the first few values robustly
+   if(ArraySize(filter_buffer) == 0 || filter_buffer[0] == 0)
+     {
+      filter_buffer[0] = m_price[0];
+      filter_buffer[1] = m_price[1];
+      m_f1 = filter_buffer[1];
+      m_f2 = filter_buffer[0];
+     }
 
    for(int i = 2; i < rates_total; i++)
      {
-      double current_f = c0 * m_price[i] + a1 * f1 + a2 * f2;
+      double current_f = c0 * m_price[i] + a1 * m_f1 + a2 * m_f2;
       filter_buffer[i] = current_f;
-      f2 = f1;
-      f1 = current_f;
+      m_f2 = m_f1;
+      m_f1 = current_f;
      }
   }
 
@@ -114,7 +121,6 @@ bool CGaussianFilterCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED
      }
    return true;
   }
-
 //+==================================================================+
 class CGaussianFilterCalculator_HA : public CGaussianFilterCalculator
   {
@@ -123,7 +129,6 @@ private:
 protected:
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
-
 //+------------------------------------------------------------------+
 bool CGaussianFilterCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -133,7 +138,6 @@ bool CGaussianFilterCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPL
    ArrayResize(ha_low, rates_total);
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
    ArrayResize(m_price, rates_total);
    if(m_source_type == SOURCE_PRICE)
      {
