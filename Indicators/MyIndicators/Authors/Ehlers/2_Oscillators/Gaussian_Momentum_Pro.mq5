@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Refactored to use centralized enums
 #property description "Gaussian-smoothed Momentum Oscillator based on Ehlers' concepts."
 
 #property indicator_separate_window
@@ -21,8 +21,6 @@
 #property indicator_levelcolor clrGray
 
 #include <MyIncludes\Gaussian_Filter_Calculator.mqh>
-
-enum ENUM_CANDLE_SOURCE { SOURCE_STD, SOURCE_HA };
 
 //--- Input Parameters ---
 input int                InpPeriod       = 20;    // Cutoff Period for the filter
@@ -76,7 +74,6 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-// price_type is not used in momentum mode, but we pass a default value
    g_calculator.Calculate(rates_total, PRICE_CLOSE, open, high, low, close, BufferMomentum);
    return(rates_total);
   }
