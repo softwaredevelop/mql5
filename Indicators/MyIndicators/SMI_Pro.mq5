@@ -13,9 +13,13 @@
 #property indicator_separate_window
 #property indicator_buffers 2 // SMI and Signal Line
 #property indicator_plots   2
-#property indicator_level1  40.0
-#property indicator_level2  0.0
-#property indicator_level3 -40.0
+#property indicator_level1  80.0
+#property indicator_level2  60.0
+#property indicator_level3  40.0
+#property indicator_level4  0.0
+#property indicator_level5 -40.0
+#property indicator_level6 -60.0
+#property indicator_level7 -80.0
 #property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: SMI line
