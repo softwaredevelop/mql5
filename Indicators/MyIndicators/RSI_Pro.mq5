@@ -4,9 +4,9 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.10"
-#property description "A professional, unified RSI with selectable price source (incl. Heikin Ashi),"
-#property description "a flexible MA signal line, and optional Bollinger Bands."
+#property version   "3.22" // Fixed enum conflicts
+#property description "A professional, unified RSI with selectable price source, a flexible"
+#property description "signal line (incl. SuperSmoother), and optional Bollinger Bands."
 
 #property indicator_separate_window
 #property indicator_buffers 4
@@ -51,14 +51,15 @@ enum ENUM_DISPLAY_MODE
 
 //--- Input Parameters ---
 input group "RSI Settings"
-input int                      InpPeriodRSI    = 14;
+input int                       InpPeriodRSI    = 14;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group "Overlay Settings"
-input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_RSI_AND_BANDS;
-input int                InpPeriodMA     = 20;
-input ENUM_MA_METHOD     InpMethodMA     = MODE_SMA;
-input double             InpBandsDev     = 2.0;
+input ENUM_DISPLAY_MODE         InpDisplayMode  = DISPLAY_RSI_AND_BANDS;
+input int                       InpPeriodMA     = 20;
+//--- UPDATED: Use the new, non-conflicting enum ---
+input ENUM_SMOOTHING_METHOD     InpMethodMA     = SMOOTH_SMA;
+input double                    InpBandsDev     = 2.0;
 
 //--- Indicator Buffers ---
 double    BufferRSI[], BufferSignalMA[], BufferUpperBand[], BufferLowerBand[];
@@ -75,7 +76,6 @@ int OnInit()
    SetIndexBuffer(1, BufferSignalMA,  INDICATOR_DATA);
    SetIndexBuffer(2, BufferUpperBand, INDICATOR_DATA);
    SetIndexBuffer(3, BufferLowerBand, INDICATOR_DATA);
-
    ArraySetAsSeries(BufferRSI,       false);
    ArraySetAsSeries(BufferSignalMA,  false);
    ArraySetAsSeries(BufferUpperBand, false);
@@ -83,15 +83,9 @@ int OnInit()
 
 //--- Dynamic Calculator Instantiation ---
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
       g_calculator = new CRSIProCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSI Pro HA(%d)", InpPeriodRSI));
-     }
    else
-     {
       g_calculator = new CRSIProCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RSI Pro(%d)", InpPeriodRSI));
-     }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
       !g_calculator.Init(InpPeriodRSI, InpPeriodMA, InpMethodMA, InpBandsDev))
@@ -105,7 +99,6 @@ int OnInit()
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, draw_begin);
-
    return(INIT_SUCCEEDED);
   }
 
