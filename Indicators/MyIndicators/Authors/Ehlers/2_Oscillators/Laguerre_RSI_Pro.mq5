@@ -21,9 +21,11 @@
 //--- Scale and Level Properties (scaled to 0-100) ---
 #property indicator_minimum 0   // CORRECTED: Back to standard 0
 #property indicator_maximum 100 // CORRECTED: Back to standard 100
-#property indicator_level1 20.0
-#property indicator_level2 50.0
-#property indicator_level3 80.0
+#property indicator_level1 10.0
+#property indicator_level2 20.0
+#property indicator_level3 50.0
+#property indicator_level4 80.0
+#property indicator_level5 90.0
 #property indicator_levelcolor clrGray
 #property indicator_levelstyle STYLE_DOT
 
