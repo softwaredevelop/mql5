@@ -54,16 +54,18 @@ This indicator can be used both as a standalone momentum line and as the base fo
 * **Zero Line Crossover:** When the MACD Line crosses above the zero line, it indicates that the fast filter is now above the slow filter, signaling a shift to bullish momentum. A cross below zero signals a shift to bearish momentum.
 * **Slope and Peaks/Troughs:** The steepness of the line indicates the strength of the momentum. Extreme peaks and troughs can signal potential momentum exhaustion.
 
-### Building a Full MACD System (Recommended Use)
+### Building a Full MACD System for Testing (Recommended Use)
 
-The primary purpose of this indicator is to be combined with a signal line.
+The primary purpose of this indicator is to serve as a clean base for visually testing different types of signal lines. The MetaTrader 5 platform's built-in "Moving Average" indicator is the perfect tool for this.
 
-**How to add a Signal Line:**
+**How to add a Signal Line for experimentation:**
 
 1. Add the `MACD_Laguerre_Line_Pro` indicator to a chart window.
-2. Drag our `Signal_Line_Pro` indicator **onto the same indicator window**.
-3. In the `Signal_Line_Pro` settings, go to the **"Source Indicator Settings"** group.
-4. **Crucially, ensure that the `InpSourceGamma1` and `InpSourceGamma2` values exactly match the gamma values you set for the `MACD_Laguerre_Line_Pro` indicator.**
-5. Now, you can freely experiment with the **"Signal Line Settings"** (`InpSignalPeriod`, `InpSignalMAType`) to find the best-fitting signal line for your strategy.
+2. Open the "Navigator" window (Ctrl+N).
+3. Find the built-in "Moving Average" indicator under the "Indicators" -> "Trend" section.
+4. **Drag and drop** the "Moving Average" indicator directly **onto the `MACD_Laguerre_Line_Pro` indicator's window**.
+5. The Moving Average properties window will appear. Go to the "Parameters" tab.
+6. In the **"Apply to:"** dropdown menu, select **"Previous Indicator's Data"**.
+7. Now, you can freely experiment with the `Period`, `MA method` (SMA, EMA, etc.), and `Shift` settings to find the best-fitting signal line for your strategy. The moving average will be calculated on the MACD Line and displayed in the same window.
 
-By combining these two modular indicators, you can visually test and create a fully customized Laguerre MACD system.
+By combining these two indicators, you can visually test and create a fully customized Laguerre MACD system before committing to a final implementation.
