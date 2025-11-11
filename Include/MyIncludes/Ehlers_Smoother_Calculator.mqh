@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                   Ehlers_Smoother_Calculator.mqh |
-//|      VERSION 2.30: Corrected state management for stability.     |
+//|      VERSION 2.31: Added public GetPeriod() method.              |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -18,18 +18,19 @@ protected:
    ENUM_SMOOTHER_TYPE  m_type;
    ENUM_INPUT_SOURCE   m_source_type;
    double              m_price[];
-
-   //--- State variables for the recursive filter (CRITICAL FIX)
    double              m_f1, m_f2;
 
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CEhlersSmootherCalculator(void) : m_f1(0), m_f2(0) {}; // Initialize state
+                     CEhlersSmootherCalculator(void) : m_f1(0), m_f2(0) {};
    virtual          ~CEhlersSmootherCalculator(void) {};
 
    bool              Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type);
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
+
+   //--- NEW: Public getter for the period
+   int               GetPeriod(void) const { return m_period; }
   };
 
 //+------------------------------------------------------------------+
