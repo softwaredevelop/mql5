@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include "Laguerre_Engine.mqh"
+#include <MyIncludes\Laguerre_Engine.mqh>
 
 //+==================================================================+
 class CLaguerreFilterCalculator
