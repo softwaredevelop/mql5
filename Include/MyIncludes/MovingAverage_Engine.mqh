@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      Universal engine for standard moving averages (SMA, EMA...).|
+//|      VERSION 1.10: Fixed array resizing bug in PreparePriceSeries.|
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -117,11 +117,14 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
      }
   }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+//--- CORRECTED PreparePriceSeries ---
 bool CMovingAverageCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
+//--- CRITICAL FIX: Ensure the internal buffer is correctly sized ---
+   if(ArraySize(m_price) != rates_total)
+      if(ArrayResize(m_price, rates_total) != rates_total)
+         return false;
+
    switch(price_type)
      {
       case PRICE_CLOSE:
@@ -154,10 +157,7 @@ bool CMovingAverageCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_
    return true;
   }
 
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+//--- CORRECTED PreparePriceSeries for HA ---
 bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
    double ha_open[], ha_high[], ha_low[], ha_close[];
@@ -167,7 +167,11 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLI
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-//--- Corrected: The HA version now uses the selected price type from the HA candles
+//--- CRITICAL FIX: Ensure the internal buffer is correctly sized ---
+   if(ArraySize(m_price) != rates_total)
+      if(ArrayResize(m_price, rates_total) != rates_total)
+         return false;
+
    switch(price_type)
      {
       case PRICE_CLOSE:
@@ -199,4 +203,5 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLI
      }
    return true;
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
