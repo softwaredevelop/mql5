@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 1.10: Fixed array resizing bug in PreparePriceSeries.|
+//|      VERSION 1.11: Added public GetPeriod() method.              |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -32,6 +32,9 @@ public:
 
    bool              Init(int period, ENUM_MA_TYPE ma_type);
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &ma_buffer[]);
+
+   //--- NEW: Public getter for the period
+   int               GetPeriod(void) const { return m_period; }
   };
 
 //--- Derived class for Heikin Ashi version ---
