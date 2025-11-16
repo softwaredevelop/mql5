@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                 UltimateOscillator_Calculator.mqh|
-//| Calculation engine for Standard and Heikin Ashi Ultimate Oscillator.|
+//|      VERSION 2.20: Optimized moving sum calculation.             |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -44,7 +44,7 @@ bool CUltimateOscillatorCalculator::Init(int p1, int p2, int p3, int signal_p, E
   }
 
 //+------------------------------------------------------------------+
-//| CUltimateOscillatorCalculator: Main Calculation Method           |
+//| CUltimateOscillatorCalculator: Main Calculation Method (Optimized)|
 //+------------------------------------------------------------------+
 void CUltimateOscillatorCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
       double &uo_buffer[], double &signal_buffer[])
@@ -67,6 +67,7 @@ void CUltimateOscillatorCalculator::Calculate(int rates_total, const double &ope
       tr[i] = MathMax(m_src_high[i], m_src_close[i-1]) - true_low;
      }
 
+//--- OPTIMIZED: Use efficient moving sum calculation ---
    double sum_bp1=0, sum_tr1=0, sum_bp2=0, sum_tr2=0, sum_bp3=0, sum_tr3=0;
    for(int i = 1; i < rates_total; i++)
      {
@@ -76,22 +77,24 @@ void CUltimateOscillatorCalculator::Calculate(int rates_total, const double &ope
       sum_tr2+=tr[i];
       sum_bp3+=bp[i];
       sum_tr3+=tr[i];
-      if(i>m_p1)
+
+      if(i >= m_p1)
         {
          sum_bp1-=bp[i-m_p1];
          sum_tr1-=tr[i-m_p1];
         }
-      if(i>m_p2)
+      if(i >= m_p2)
         {
          sum_bp2-=bp[i-m_p2];
          sum_tr2-=tr[i-m_p2];
         }
-      if(i>m_p3)
+      if(i >= m_p3)
         {
          sum_bp3-=bp[i-m_p3];
          sum_tr3-=tr[i-m_p3];
         }
-      if(i >= max_period)
+
+      if(i >= max_period -1)
         {
          double avg1 = (sum_tr1 > 0) ? sum_bp1 / sum_tr1 : 0;
          double avg2 = (sum_tr2 > 0) ? sum_bp2 / sum_tr2 : 0;
