@@ -1,19 +1,20 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 1.11: Added public GetPeriod() method.              |
+//|      VERSION 1.20: Added Triangular Moving Average (TMA).        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//--- Enum to select the MA type for calculation ---
+//--- UPDATED: Enum to select the MA type for calculation ---
 enum ENUM_MA_TYPE
   {
    SMA,
    EMA,
    SMMA,
-   LWMA
+   LWMA,
+   TMA // New type added
   };
 
 //+==================================================================+
@@ -32,12 +33,12 @@ public:
 
    bool              Init(int period, ENUM_MA_TYPE ma_type);
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &ma_buffer[]);
-
-   //--- NEW: Public getter for the period
    int               GetPeriod(void) const { return m_period; }
   };
 
-//--- Derived class for Heikin Ashi version ---
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 class CMovingAverageCalculator_HA : public CMovingAverageCalculator
   {
 private:
@@ -108,6 +109,33 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
                ma_buffer[i]=sum/w_sum;
            }
          break;
+         case TMA:
+           {
+            // A TMA is a double-smoothed SMA. This is the most common and efficient calculation method.
+            // First SMA period
+            int period1 = (int)ceil((m_period + 1.0) / 2.0);
+            // Second SMA period
+            int period2 = m_period - period1 + 1;
+
+            // Calculate first SMA pass
+            double sum1 = 0;
+            for(int j = 0; j < period1; j++)
+               sum1 += m_price[i - j];
+            double sma1 = sum1 / period1;
+
+            // Calculate second SMA pass on the results of the first
+            // We need to calculate the previous SMA1 values as well
+            double sum2 = 0;
+            for(int k=0; k<period2; k++)
+              {
+               double temp_sum1 = 0;
+               for(int j=0; j<period1; j++)
+                  temp_sum1 += m_price[i - k - j];
+               sum2 += temp_sum1 / period1;
+              }
+            ma_buffer[i] = sum2 / period2;
+            break;
+           }
          default: // SMA
            {
             double sum=0;
@@ -120,10 +148,11 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
      }
   }
 
-//--- CORRECTED PreparePriceSeries ---
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool CMovingAverageCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-//--- CRITICAL FIX: Ensure the internal buffer is correctly sized ---
    if(ArraySize(m_price) != rates_total)
       if(ArrayResize(m_price, rates_total) != rates_total)
          return false;
@@ -160,7 +189,9 @@ bool CMovingAverageCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_
    return true;
   }
 
-//--- CORRECTED PreparePriceSeries for HA ---
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
    double ha_open[], ha_high[], ha_low[], ha_close[];
@@ -170,7 +201,6 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLI
    ArrayResize(ha_close, rates_total);
    m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-//--- CRITICAL FIX: Ensure the internal buffer is correctly sized ---
    if(ArraySize(m_price) != rates_total)
       if(ArrayResize(m_price, rates_total) != rates_total)
          return false;
