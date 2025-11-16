@@ -4,8 +4,8 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.02" // Corrected function name to StringToUpper
-#property description "Universal Moving Average (SMA, EMA, SMMA, LWMA) with Standard/Heikin Ashi source."
+#property version   "1.10" // Added DEMA and TEMA types
+#property description "Universal Moving Average (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA)."
 #property indicator_chart_window
 #property indicator_buffers 1
 #property indicator_plots   1
