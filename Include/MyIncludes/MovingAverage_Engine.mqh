@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 1.20: Added Triangular Moving Average (TMA).        |
+//|      VERSION 1.30: Added DEMA and TEMA for lag reduction.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -14,7 +14,9 @@ enum ENUM_MA_TYPE
    EMA,
    SMMA,
    LWMA,
-   TMA // New type added
+   TMA,
+   DEMA,
+   TEMA
   };
 
 //+==================================================================+
@@ -26,6 +28,7 @@ protected:
    double            m_price[];
 
    virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   void              CalculateEMA(int rates_total, int period, const double &source[], double &dest[]);
 
 public:
                      CMovingAverageCalculator(void) {};
@@ -72,12 +75,17 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
       return;
 
    int start_pos = m_period - 1;
-   for(int i = start_pos; i < rates_total; i++)
+   for(int i = 0; i < rates_total; i++) // Clear all values initially
+      ma_buffer[i] = EMPTY_VALUE;
+
+   switch(m_ma_type)
      {
-      switch(m_ma_type)
-        {
-         case EMA:
-         case SMMA:
+      case EMA:
+         CalculateEMA(rates_total, m_period, m_price, ma_buffer);
+         break;
+      case SMMA:
+         for(int i = start_pos; i < rates_total; i++)
+           {
             if(i == start_pos)
               {
                double sum=0;
@@ -86,17 +94,11 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
                ma_buffer[i]=sum/m_period;
               }
             else
-              {
-               if(m_ma_type==EMA)
-                 {
-                  double pr=2.0/(m_period+1.0);
-                  ma_buffer[i]=m_price[i]*pr+ma_buffer[i-1]*(1.0-pr);
-                 }
-               else
-                  ma_buffer[i]=(ma_buffer[i-1]*(m_period-1)+m_price[i])/m_period;
-              }
-            break;
-         case LWMA:
+               ma_buffer[i]=(ma_buffer[i-1]*(m_period-1)+m_price[i])/m_period;
+           }
+         break;
+      case LWMA:
+         for(int i = start_pos; i < rates_total; i++)
            {
             double sum=0, w_sum=0;
             for(int j=0; j<m_period; j++)
@@ -109,34 +111,56 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
                ma_buffer[i]=sum/w_sum;
            }
          break;
-         case TMA:
+      case TMA:
+        {
+         double sma1_buffer[];
+         ArrayResize(sma1_buffer, rates_total);
+         int period1 = (int)ceil((m_period + 1.0) / 2.0);
+
+         for(int i = period1 - 1; i < rates_total; i++)
            {
-            // A TMA is a double-smoothed SMA. This is the most common and efficient calculation method.
-            // First SMA period
-            int period1 = (int)ceil((m_period + 1.0) / 2.0);
-            // Second SMA period
-            int period2 = m_period - period1 + 1;
-
-            // Calculate first SMA pass
-            double sum1 = 0;
+            double sum = 0;
             for(int j = 0; j < period1; j++)
-               sum1 += m_price[i - j];
-            double sma1 = sum1 / period1;
-
-            // Calculate second SMA pass on the results of the first
-            // We need to calculate the previous SMA1 values as well
-            double sum2 = 0;
-            for(int k=0; k<period2; k++)
-              {
-               double temp_sum1 = 0;
-               for(int j=0; j<period1; j++)
-                  temp_sum1 += m_price[i - k - j];
-               sum2 += temp_sum1 / period1;
-              }
-            ma_buffer[i] = sum2 / period2;
-            break;
+               sum += m_price[i-j];
+            sma1_buffer[i] = sum / period1;
            }
-         default: // SMA
+
+         int period2 = m_period - period1 + 1;
+         for(int i = period1 + period2 - 2; i < rates_total; i++)
+           {
+            double sum = 0;
+            for(int j = 0; j < period2; j++)
+               sum += sma1_buffer[i-j];
+            ma_buffer[i] = sum / period2;
+           }
+        }
+      break;
+      case DEMA:
+        {
+         double ema1[], ema2[];
+         ArrayResize(ema1, rates_total);
+         ArrayResize(ema2, rates_total);
+         CalculateEMA(rates_total, m_period, m_price, ema1);
+         CalculateEMA(rates_total, m_period, ema1, ema2);
+         for(int i = (m_period - 1) * 2; i < rates_total; i++)
+            ma_buffer[i] = 2 * ema1[i] - ema2[i];
+         break;
+        }
+      case TEMA:
+        {
+         double ema1[], ema2[], ema3[];
+         ArrayResize(ema1, rates_total);
+         ArrayResize(ema2, rates_total);
+         ArrayResize(ema3, rates_total);
+         CalculateEMA(rates_total, m_period, m_price, ema1);
+         CalculateEMA(rates_total, m_period, ema1, ema2);
+         CalculateEMA(rates_total, m_period, ema2, ema3);
+         for(int i = (m_period - 1) * 3; i < rates_total; i++)
+            ma_buffer[i] = 3 * ema1[i] - 3 * ema2[i] + ema3[i];
+         break;
+        }
+      default: // SMA
+         for(int i = start_pos; i < rates_total; i++)
            {
             double sum=0;
             for(int j=0; j<m_period; j++)
@@ -144,7 +168,34 @@ void CMovingAverageCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pri
             ma_buffer[i]=sum/m_period;
            }
          break;
-        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CMovingAverageCalculator::CalculateEMA(int rates_total, int period, const double &source[], double &dest[])
+  {
+   if(rates_total < period)
+      return;
+   int start_pos = period - 1;
+   double pr = 2.0 / (double)(period + 1.0);
+
+   for(int i=0; i<start_pos; i++)
+      dest[i] = EMPTY_VALUE;
+
+   double sum=0;
+   for(int j=0; j<period; j++)
+      if(source[start_pos-j] != EMPTY_VALUE)
+         sum += source[start_pos-j];
+   dest[start_pos] = sum / period;
+
+   for(int i = start_pos + 1; i < rates_total; i++)
+     {
+      if(source[i] != EMPTY_VALUE)
+         dest[i] = source[i] * pr + dest[i-1] * (1.0 - pr);
+      else
+         dest[i] = dest[i-1];
      }
   }
 
