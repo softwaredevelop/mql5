@@ -4,7 +4,7 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Added customizable colors
+#property version   "1.01" // Corrected object cleanup with stable prefix
 #property description "Draws a single, moving Curvilinear Regression Channel using objects."
 
 #property indicator_chart_window
@@ -14,15 +14,12 @@
 #include <MyIncludes\Polynomial_Regression_Object_Calculator.mqh>
 
 //--- Input Parameters ---
-input group "Channel Settings"
 input int                       InpPeriod      = 50;    // Regression Period
 input double                    InpDeviation   = 2.0;   // Deviation for bands
+input color                     InpMidlineColor = clrDeepSkyBlue;     // Midline Color
+input color                     InpUpperBandColor = clrDeepSkyBlue;   // Upper Band Color
+input color                     InpLowerBandColor = clrDeepSkyBlue;   // Lower Band Color
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
-
-input group "Color Settings"
-input color InpMidlineColor = clrDeepSkyBlue;     // Midline Color
-input color InpUpperBandColor = clrDeepSkyBlue;   // Upper Band Color
-input color InpLowerBandColor = clrDeepSkyBlue;   // Lower Band Color
 
 //--- Global variables ---
 CPolynomialRegressionObjectCalculator *g_calculator;
@@ -31,7 +28,18 @@ string                               g_unique_prefix;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_unique_prefix = StringFormat("PolyRegObj_%d_%d", ChartID(), GetTickCount());
+//--- CORRECTED: Create a STABLE and unique prefix for our objects ---
+   long chart_id = ChartID();
+// Find the subwindow where this indicator instance is running
+   int window_index = ChartWindowFind();
+   if(window_index < 0) // Safety check
+     {
+      Print("Error: Could not find indicator window.");
+      return(INIT_FAILED);
+     }
+   g_unique_prefix = StringFormat("PolyRegObj_%d_%d_", chart_id, window_index);
+
+//--- This will now correctly find and delete old objects on re-init ---
    ObjectsDeleteAll(0, g_unique_prefix);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -39,7 +47,6 @@ int OnInit()
    else
       g_calculator = new CPolynomialRegressionObjectCalculator();
 
-//--- Pass the new color parameters to Init ---
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
       !g_calculator.Init(InpPeriod, InpDeviation, g_unique_prefix, InpMidlineColor, InpUpperBandColor, InpLowerBandColor))
      {
