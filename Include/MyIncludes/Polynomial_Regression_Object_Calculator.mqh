@@ -1,19 +1,20 @@
 //+------------------------------------------------------------------+
 //|                   Polynomial_Regression_Object_Calculator.mqh    |
-//|      Engine for drawing a Polynomial Regression Channel object.  |
+//|      VERSION 1.10: Added customizable colors.                    |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//+==================================================================+
+//+================================----------------==================+
 class CPolynomialRegressionObjectCalculator
   {
 protected:
    int               m_period;
    double            m_deviation;
    string            m_prefix;
+   color             m_mid_color, m_upper_color, m_lower_color;
    double            m_price[];
    int               m_last_rates_total;
 
@@ -24,7 +25,7 @@ public:
                      CPolynomialRegressionObjectCalculator(void) : m_last_rates_total(0) {};
    virtual          ~CPolynomialRegressionObjectCalculator(void) {};
 
-   bool              Init(int period, double deviation, string prefix);
+   bool              Init(int period, double deviation, string prefix, color mid_clr, color upper_clr, color lower_clr);
    void              Calculate(int rates_total, const datetime &time[], ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
   };
 
@@ -46,11 +47,14 @@ protected:
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool CPolynomialRegressionObjectCalculator::Init(int period, double deviation, string prefix)
+bool CPolynomialRegressionObjectCalculator::Init(int period, double deviation, string prefix, color mid_clr, color upper_clr, color lower_clr)
   {
    m_period = (period < 3) ? 3 : period;
    m_deviation = (deviation <= 0) ? 2.0 : deviation;
    m_prefix = prefix;
+   m_mid_color = mid_clr;
+   m_upper_color = upper_clr;
+   m_lower_color = lower_clr;
    return true;
   }
 
@@ -132,21 +136,24 @@ void CPolynomialRegressionObjectCalculator::DrawChannelObjects(int rates_total, 
      {
       string mid_name = m_prefix + "_mid_" + (string)j;
       ObjectCreate(0, mid_name, OBJ_TREND, 0, points_time[j], points_mid[j], points_time[j+1], points_mid[j+1]);
-      ObjectSetInteger(0, mid_name, OBJPROP_COLOR, clrCrimson);
+      ObjectSetInteger(0, mid_name, OBJPROP_COLOR, m_mid_color);
       ObjectSetInteger(0, mid_name, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, mid_name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, mid_name, OBJPROP_BACK, true);
 
       string upper_name = m_prefix + "_upper_" + (string)j;
       ObjectCreate(0, upper_name, OBJ_TREND, 0, points_time[j], points_upper[j], points_time[j+1], points_upper[j+1]);
-      ObjectSetInteger(0, upper_name, OBJPROP_COLOR, clrCrimson);
+      ObjectSetInteger(0, upper_name, OBJPROP_COLOR, m_upper_color);
       ObjectSetInteger(0, upper_name, OBJPROP_STYLE, STYLE_DOT);
       ObjectSetInteger(0, upper_name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, upper_name, OBJPROP_BACK, true);
 
       string lower_name = m_prefix + "_lower_" + (string)j;
       ObjectCreate(0, lower_name, OBJ_TREND, 0, points_time[j], points_lower[j], points_time[j+1], points_lower[j+1]);
-      ObjectSetInteger(0, lower_name, OBJPROP_COLOR, clrCrimson);
+      ObjectSetInteger(0, lower_name, OBJPROP_COLOR, m_lower_color);
       ObjectSetInteger(0, lower_name, OBJPROP_STYLE, STYLE_DOT);
       ObjectSetInteger(0, lower_name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, lower_name, OBJPROP_BACK, true);
      }
   }
 
