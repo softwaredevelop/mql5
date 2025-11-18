@@ -44,7 +44,7 @@ For each new bar, the following process is performed on the most recent `N` pric
 
 * **High Efficiency:** The entire calculation and object redrawing process is computationally intensive. To ensure optimal performance, the logic is executed **only once per bar**, not on every tick. On each new bar, the old objects are deleted and the new channel is drawn.
 
-* **Robust Object Management:** All objects created by the indicator share a unique, randomly generated prefix. This ensures that the indicator only manages its own objects and prevents conflicts with other tools on the chart. All objects are automatically cleaned up when the indicator is removed.
+* **Robust Object Management:** All objects created by the indicator share a **stable and unique prefix**. This prefix is generated in `OnInit()` using a combination of the chart's ID (`ChartID()`) and the indicator's sub-window index (`ChartWindowFind()`). This creates a reliable "digital fingerprint" for each indicator instance, ensuring that object cleanup (`ObjectsDeleteAll`) works perfectly even during timeframe changes or indicator re-initializations, preventing any "ghost" objects from being left on the chart. All objects are automatically cleaned up when the indicator is removed.
 
 * **Modular Calculation Engine (`Polynomial_Regression_Object_Calculator.mqh`):** All complex mathematical and drawing logic is encapsulated within the dedicated calculator engine, keeping the main indicator file clean and simple.
 
@@ -53,6 +53,7 @@ For each new bar, the following process is performed on the most recent `N` pric
 * **Period (`InpPeriod`):** The lookback period for the regression calculation. A larger period will result in a smoother, more stable curve, while a shorter period will be more responsive. Default is `50`.
 * **Deviation (`InpDeviation`):** The standard deviation multiplier for the channel bands. Default is `2.0`.
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation (Standard or Heikin Ashi).
+* **Color Settings (`InpMidlineColor`, `InpUpperBandColor`, `InpLowerBandColor`):** Allows full customization of the channel's midline and band colors.
 
 ## 5. Usage and Interpretation
 
