@@ -4,14 +4,14 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00" // Re-architected to avoid iCustom
-#property description "A 4-line MA Ribbon with fully customizable timeframes, periods, and types."
+#property version   "2.10" // Simplified to use a single, central timeframe
+#property description "A 4-line MA Ribbon calculated on a single, user-selected timeframe."
 
 #property indicator_chart_window
 #property indicator_buffers 4
 #property indicator_plots   4
 
-//--- Plot Properties
+//--- Plot Properties (Unchanged) ---
 #property indicator_label1  "MA 1"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrLightSkyBlue
@@ -35,29 +35,26 @@
 
 #include <MyIncludes\MovingAverage_Ribbon_MTF_Calculator.mqh>
 
-//--- Input Parameters ---
+//--- Input Parameters (SIMPLIFIED) ---
+input group "Timeframe & Price Source"
+input ENUM_TIMEFRAMES           InpUpperTimeframe = PERIOD_H1;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD;
+
 input group "MA 1 Settings"
-input ENUM_TIMEFRAMES InpTimeframe1 = PERIOD_CURRENT;
 input int             InpPeriod1    = 8;
 input ENUM_MA_TYPE    InpMAType1    = EMA;
 
 input group "MA 2 Settings"
-input ENUM_TIMEFRAMES InpTimeframe2 = PERIOD_CURRENT;
 input int             InpPeriod2    = 13;
 input ENUM_MA_TYPE    InpMAType2    = EMA;
 
 input group "MA 3 Settings"
-input ENUM_TIMEFRAMES InpTimeframe3 = PERIOD_H1;
 input int             InpPeriod3    = 21;
 input ENUM_MA_TYPE    InpMAType3    = EMA;
 
 input group "MA 4 Settings"
-input ENUM_TIMEFRAMES InpTimeframe4 = PERIOD_H4;
 input int             InpPeriod4    = 34;
 input ENUM_MA_TYPE    InpMAType4    = EMA;
-
-input group "Price Source"
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferMA1[], BufferMA2[], BufferMA3[], BufferMA4[];
@@ -81,27 +78,27 @@ int OnInit()
 
    bool is_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
 
+//--- UPDATED: Pass the single central timeframe to all four slots ---
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpTimeframe1, InpPeriod1, InpMAType1,
-                         InpTimeframe2, InpPeriod2, InpMAType2,
-                         InpTimeframe3, InpPeriod3, InpMAType3,
-                         InpTimeframe4, InpPeriod4, InpMAType4,
+      !g_calculator.Init(InpUpperTimeframe, InpPeriod1, InpMAType1,
+                         InpUpperTimeframe, InpPeriod2, InpMAType2,
+                         InpUpperTimeframe, InpPeriod3, InpMAType3,
+                         InpUpperTimeframe, InpPeriod4, InpMAType4,
                          is_ha))
      {
       Print("Failed to initialize Moving Average Ribbon MTF Calculator.");
       return(INIT_FAILED);
      }
 
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MA Ribbon MTF%s", (is_ha ? " HA" : "")));
+   ENUM_TIMEFRAMES calc_tf = (InpUpperTimeframe == PERIOD_CURRENT) ? (ENUM_TIMEFRAMES)Period() : InpUpperTimeframe;
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MA Ribbon MTF%s(%s)", (is_ha ? " HA" : ""), EnumToString(calc_tf)));
 
-   PlotIndexSetString(0, PLOT_LABEL, StringFormat("%s(%s,%d)", EnumToString(InpMAType1), EnumToString(InpTimeframe1), InpPeriod1));
-   PlotIndexSetString(1, PLOT_LABEL, StringFormat("%s(%s,%d)", EnumToString(InpMAType2), EnumToString(InpTimeframe2), InpPeriod2));
-   PlotIndexSetString(2, PLOT_LABEL, StringFormat("%s(%s,%d)", EnumToString(InpMAType3), EnumToString(InpTimeframe3), InpPeriod3));
-   PlotIndexSetString(3, PLOT_LABEL, StringFormat("%s(%s,%d)", EnumToString(InpMAType4), EnumToString(InpTimeframe4), InpPeriod4));
+   PlotIndexSetString(0, PLOT_LABEL, StringFormat("%s(%d)", EnumToString(InpMAType1), InpPeriod1));
+   PlotIndexSetString(1, PLOT_LABEL, StringFormat("%s(%d)", EnumToString(InpMAType2), InpPeriod2));
+   PlotIndexSetString(2, PLOT_LABEL, StringFormat("%s(%d)", EnumToString(InpMAType3), InpPeriod3));
+   PlotIndexSetString(3, PLOT_LABEL, StringFormat("%s(%d)", EnumToString(InpMAType4), InpPeriod4));
 
-// Find the largest period for a safe draw_begin value
    int max_period = MathMax(InpPeriod1, MathMax(InpPeriod2, MathMax(InpPeriod3, InpPeriod4)));
-
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, max_period);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, max_period);
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, max_period);
