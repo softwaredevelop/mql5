@@ -20,9 +20,9 @@ input double                    InpDeviation   = 2.0;   // Deviation for bands
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 
 input group "Color Settings"
-input color InpMidlineColor = clrCrimson;     // Midline Color
-input color InpUpperBandColor = clrCrimson;   // Upper Band Color
-input color InpLowerBandColor = clrCrimson;   // Lower Band Color
+input color InpMidlineColor = clrDeepSkyBlue;     // Midline Color
+input color InpUpperBandColor = clrDeepSkyBlue;   // Upper Band Color
+input color InpLowerBandColor = clrDeepSkyBlue;   // Lower Band Color
 
 //--- Global variables ---
 CPolynomialRegressionObjectCalculator *g_calculator;
