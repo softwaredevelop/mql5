@@ -11,18 +11,19 @@
 
 The Laguerre RSI, developed by John Ehlers, is a sophisticated and modern version of the classic Relative Strength Index (RSI). Its core innovation is the use of a **Laguerre filter** to smooth the price data before the RSI calculation is applied.
 
-The result is an oscillator that is exceptionally **smooth** and produces significantly less noise and fewer "whipsaws" than a traditional RSI. Despite its smoothness, it remains highly responsive to changes in market momentum, making it a powerful tool for identifying overbought/oversold conditions and potential trend reversals.
+The result is an oscillator that is exceptionally **smooth** and produces significantly less noise and fewer "whipsaws" than a traditional RSI. Despite its smoothness, it remains highly responsive to changes in market momentum.
 
-Our `Laguerre_RSI_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data.
+Our `Laguerre_RSI_Pro` implementation is a unified, professional version that includes an **optional, fully customizable signal line** and allows the calculation to be based on either **standard** or **Heikin Ashi** price data.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-The indicator's logic is a two-stage process: first, the price is filtered, and then an RSI-like formula is applied to the filter's components.
+The indicator's logic is a multi-stage process: first, the price is filtered, then an RSI-like formula is applied, and finally, an optional signal line is calculated.
 
 ### Required Components
 
-* **Gamma (γ):** A single coefficient between 0 and 1 that controls the smoothing and responsiveness of the Laguerre filter.
-* **Source Price (P):** The price series used for the calculation.
+* **Gamma (γ):** A coefficient that controls the Laguerre filter's speed.
+* **Signal Period (S):** The period for the signal line's moving average.
+* **Source Price (P):** The price series for the calculation.
 
 ### Calculation Steps (Algorithm)
 
@@ -45,21 +46,25 @@ The calculation is highly recursive, relying on the state of four internal filte
 
 ## 3. MQL5 Implementation Details
 
-* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. The `Laguerre_RSI_Calculator.mqh` is a thin adapter that includes this engine, retrieves the filter's components, and then applies the final RSI-like formula. This modular design ensures consistency across the entire Laguerre family.
+* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh`. The `Laguerre_RSI_Calculator.mqh` is an adapter that includes this engine, calculates the RSI value, and then **reuses our universal `CalculateMA` helper function** to apply the selected moving average for the signal line.
 * **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
 * **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
 * **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range.
 
 ## 4. Parameters
 
-* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This parameter controls the indicator's speed and smoothness.
-  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** oscillator that gives fewer, but potentially more reliable, signals.
-  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more volatile** oscillator that reacts quickly to price changes but may produce more false signals.
+* **Gamma (`InpGamma`):** The Laguerre filter coefficient (0.0 to 1.0).
+  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** oscillator.
+  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more volatile** oscillator.
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation.
+* **Signal Line Settings:**
+  * **`InpDisplayMode`:** Toggles the visibility of the signal line (`DISPLAY_LRSI_ONLY` or `DISPLAY_LRSI_AND_SIGNAL`).
+  * **`InpSignalPeriod`:** The lookback period for the signal line's moving average.
+  * **`InpSignalMAType`:** The type of moving average for the signal line (SMA, EMA, etc.).
 
 ## 5. Usage and Interpretation
 
-The Laguerre RSI's primary advantage is its clarity and smoothness, making classic oscillator strategies more effective.
+The Laguerre RSI's primary advantage is its clarity. The addition of a signal line provides an extra dimension for signal generation.
 
 ### **1. Overbought / Oversold Reversals**
 
@@ -88,3 +93,10 @@ Divergence is one of the most powerful signals, and it is often very clear on th
 * **Conservative (Quick Profit):** Exit when the indicator crosses into the overbought zone (e.g., above 80).
 * **Balanced (Trend Following):** Hold the position as long as the indicator stays above the 50 centerline. Exit when it crosses below 50.
 * **Advanced (Peak Exit):** Hold the position until a clear bearish divergence forms.
+
+### **5. Signal Line Crossover (Momentum Signal)**
+
+The interaction between the Laguerre RSI line and its signal line provides faster, MACD-style momentum signals.
+
+* **Bullish Crossover:** When the **Laguerre RSI line (blue) crosses above the Signal Line (red)**, it indicates a short-term shift to bullish momentum. This can be used as an entry trigger, especially if it occurs in the oversold zone or after a bullish divergence.
+* **Bearish Crossover:** When the **Laguerre RSI line crosses below the Signal Line**, it indicates a shift to bearish momentum and can be used as a sell or exit signal.
