@@ -37,14 +37,14 @@ The indicator's logic is centered around the recursive Laguerre filter and a fin
 
 ## 3. MQL5 Implementation Details
 
-* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. The `Laguerre_Filter_Calculator.mqh` is a thin adapter that includes this engine and performs the final weighted summation for both the Laguerre and the optional FIR filters.
+* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. This engine is a **stateful class**, meaning it correctly maintains the previous values of its internal components (`L0`...`L3`) between calculations. This is critical for the stability and accuracy of the recursive filter. The `Laguerre_Filter_Calculator.mqh` is a thin adapter that uses this stable engine.
 * **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
 * **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
 
 ## 4. Parameters
 
 * **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This parameter controls the trade-off between smoothing and lag.
-  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **smoother** line with **more lag**.
+  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** line with **more lag**.
   * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more responsive** line (less lag) that is less smooth. At `gamma = 0`, the Laguerre Filter becomes identical to the FIR filter.
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation.
 * **Show FIR (`InpShowFIR`):** A boolean switch to show or hide the comparative FIR filter line on the chart.
@@ -56,8 +56,8 @@ The Laguerre Filter is used as a superior, low-lag alternative to traditional mo
 * **Trend Identification:** It serves as a highly responsive trendline.
   * When the price is consistently above the Laguerre Filter and the line is rising, the trend is bullish.
   * When the price is consistently below the Laguerre Filter and the line is falling, the trend is bearish.
-* **Crossover Signals:**
-  * **Price Crossover:** A crossover of the price and the Laguerre Filter line can be used as a trade signal, similar to a standard moving average crossover. Due to its low lag, these signals are often more timely.
+* **Crossover Signals:** ...
+  * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.2` for the fast line and `0.7` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
   * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.5` for the fast line and `0.2` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
 * **Dynamic Support and Resistance:** In a trending market, the Laguerre Filter line often acts as a dynamic level of support (in an uptrend) or resistance (in a downtrend), providing potential entry points on pullbacks.
 
