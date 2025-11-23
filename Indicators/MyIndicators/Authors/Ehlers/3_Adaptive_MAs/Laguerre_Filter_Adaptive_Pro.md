@@ -33,9 +33,9 @@ The indicator uses a multi-stage digital signal processing (DSP) pipeline to ach
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained Calculator:** Due to the complexity of the cycle measurement algorithm, this indicator uses a dedicated, self-contained calculator (`Laguerre_Filter_Adaptive_Calculator.mqh`) and does not rely on the simpler `Laguerre_Engine.mqh`.
+* **Self-Contained, Stateful Calculator:** Due to the complexity of the cycle measurement algorithm, this indicator uses a dedicated, self-contained calculator (`..._Calculator.mqh`). This calculator is designed as a **stateful class**, where all internal recursive variables (for cycle measurement and filtering) are stored as member variables. This ensures that the indicator's state is correctly maintained between ticks.
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the entire adaptive calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation is a highly complex, multi-stage recursive process where every new value depends on multiple previous states. To ensure absolute stability and prevent desynchronization, the indicator employs a **full recalculation** on every `OnCalculate` call. This is the only robust method for this type of DSP filter.
+* **Stability via Full Recalculation:** The calculation is a highly complex, multi-stage recursive process. To ensure absolute stability and prevent desynchronization, the indicator employs a **full recalculation** on every `OnCalculate` call. This is the only robust method for this type of complex DSP filter.
 
 ## 4. Parameters
 
