@@ -46,16 +46,16 @@ The calculation is highly recursive, relying on the state of four internal filte
 
 ## 3. MQL5 Implementation Details
 
-* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh`. The `Laguerre_RSI_Calculator.mqh` is an adapter that includes this engine, calculates the RSI value, and then **reuses our universal `CalculateMA` helper function** to apply the selected moving average for the signal line.
+* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. This engine is a **stateful class** that correctly maintains the state of its internal recursive components, ensuring a stable and accurate foundation. The `Laguerre_RSI_Calculator.mqh` is a thin adapter that uses this stable engine to generate the RSI.
 * **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
 * **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
 * **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range.
 
 ## 4. Parameters
 
-* **Gamma (`InpGamma`):** The Laguerre filter coefficient (0.0 to 1.0).
-  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** oscillator.
-  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more volatile** oscillator.
+* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This parameter controls the indicator's speed and smoothness.
+  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** oscillator that gives fewer, but potentially more reliable, signals.
+  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more volatile** oscillator that reacts quickly to price changes but may produce more false signals.
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation.
 * **Signal Line Settings:**
   * **`InpDisplayMode`:** Toggles the visibility of the signal line (`DISPLAY_LRSI_ONLY` or `DISPLAY_LRSI_AND_SIGNAL`).
