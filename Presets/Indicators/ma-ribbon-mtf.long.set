@@ -1,0 +1,15 @@
+; Timeframe & Price Source
+InpUpperTimeframe=0
+InpSourcePrice=1
+; MA 1 Settings
+InpPeriod1=55
+InpMAType1=1
+; MA 2 Settings
+InpPeriod2=89
+InpMAType2=1
+; MA 3 Settings
+InpPeriod3=144
+InpMAType3=1
+; MA 4 Settings
+InpPeriod4=233
+InpMAType4=1
