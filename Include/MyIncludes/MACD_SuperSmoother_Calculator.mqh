@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include "Ehlers_Smoother_Calculator.mqh"
-#include "MovingAverage_Engine.mqh"
+#include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Universal enum for all smoothing types ---
 enum ENUM_SMOOTHING_METHOD
