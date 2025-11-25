@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
-#property description "Full MACD implementation using John Ehlers' Laguerre filters."
+#property version   "1.10" // Added selectable signal line type
+#property description "Full MACD with Laguerre base lines and a selectable signal line."
 
 #property indicator_separate_window
 #property indicator_buffers 3
@@ -32,9 +32,16 @@
 #include <MyIncludes\MACD_Laguerre_Calculator.mqh>
 
 //--- Input Parameters ---
-input double                    InpGamma1       = 0.2; // Fast Laguerre Gamma (smaller value)
-input double                    InpGamma2       = 0.8; // Slow Laguerre Gamma (larger value)
-input double                    InpSignalGamma  = 0.5; // Signal Line Laguerre Gamma
+input group "Laguerre MACD Settings"
+input double InpGamma1 = 0.2; // Fast Laguerre Gamma (smaller value)
+input double InpGamma2 = 0.8; // Slow Laguerre Gamma (larger value)
+
+input group "Signal Line Settings"
+input ENUM_SMOOTHING_METHOD_LAGUERRE InpSignalMAType = SMOOTH_Laguerre; // Default to Laguerre
+input int                            InpSignalPeriod = 9;             // Period for standard MAs
+input double                         InpSignalGamma  = 0.5;           // Gamma for Laguerre signal line
+
+input group "Price Source"
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
@@ -49,8 +56,8 @@ int OnInit()
    SetIndexBuffer(0, BufferHistogram,  INDICATOR_DATA);
    SetIndexBuffer(1, BufferMACDLine,   INDICATOR_DATA);
    SetIndexBuffer(2, BufferSignalLine, INDICATOR_DATA);
-   ArraySetAsSeries(BufferHistogram,  false);
-   ArraySetAsSeries(BufferMACDLine,   false);
+   ArraySetAsSeries(BufferHistogram, false);
+   ArraySetAsSeries(BufferMACDLine, false);
    ArraySetAsSeries(BufferSignalLine, false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -58,18 +65,19 @@ int OnInit()
    else
       g_calculator = new CMACDLaguerreCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma1, InpGamma2, InpSignalGamma))
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpGamma1, InpGamma2, InpSignalGamma, InpSignalPeriod, InpSignalMAType))
      {
       Print("Failed to create or initialize MACD Laguerre Calculator.");
       return(INIT_FAILED);
      }
 
-   string short_name = StringFormat("MACD Laguerre%s(%.2f,%.2f,%.2f)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpGamma1, InpGamma2, InpSignalGamma);
+   string short_name = StringFormat("MACD Laguerre%s", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""));
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2 + InpSignalPeriod);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 2);
-   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, 2);
+   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, 2 + InpSignalPeriod);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
