@@ -53,23 +53,46 @@ Both indicators are cumulative, starting from a base value (e.g., 1000 or 0). Fo
 
 ## 5. Usage and Interpretation
 
-The most common and powerful signals come from the index lines crossing their own long-term moving averages (signal lines).
+The most common and powerful signals come from the index lines crossing their own long-term moving averages (signal lines). The NVI is generally considered the more significant, leading indicator of the pair.
 
 ### NVI (Red Line) - The "Smart Money" Indicator
 
-The NVI is often considered the more significant of the two indicators.
-
-* **Primary Bullish Signal:** When the **NVI (red line) crosses ABOVE its signal line**, it suggests that the "smart money" is accumulating positions on quiet days. According to the original theory, there is a high probability (some analysts claim up to 95%) of a bull market as long as the NVI remains above its signal line.
-* **Bearish Warning:** When the NVI crosses below its signal line, it indicates that the "smart money" is no longer supporting the price on quiet days, which can be a warning of a weakening trend.
+* **Primary Bullish Signal:** When the **NVI (red line) crosses ABOVE its signal line**, it suggests that the "smart money" is accumulating positions on quiet days. According to the original theory, there is a high probability of a bull market as long as the NVI remains above its signal line.
+* **Bearish Warning:** When the NVI crosses below its signal line, it indicates that the "smart money" is no longer supporting the price on quiet days.
 
 ### PVI (Blue Line) - The "Crowd" Indicator
 
-The PVI tracks the more emotional, news-driven market participants.
+* **Trend Confirmation:** When the **PVI (blue line) is rising and above its signal line**, it confirms that the crowd is participating in the trend.
+* **Bearish Warning / Divergence:** A classic warning signal occurs when the price is making new highs, but the PVI is failing to make new highs or is trending down. This suggests that the crowd's enthusiasm is waning.
 
-* **Trend Confirmation:** When the **PVI (blue line) is rising and above its signal line**, it confirms that the crowd is participating in the trend, which is necessary for a healthy, sustained move.
-* **Bearish Warning / Divergence:** A classic warning signal occurs when the price is making new highs, but the PVI is failing to make new highs or is trending down. This suggests that the crowd's enthusiasm is waning and the trend is losing its broad support. A cross of the PVI below its signal line is often seen as a confirmation of bearish pressure.
+### **Practical Strategies for Intraday Trading**
 
-### Combined Strategy
+For intraday trading, the PVI/NVI is most effective when used in a **"top-down" approach**. This means using the indicator on a higher, "contextual" timeframe to determine the main trading bias, and then executing trades on a lower, "trading" timeframe.
 
-* **High-Probability Longs:** Look for situations where the **NVI is above its signal line** (smart money is bullish) and the **PVI is also above its signal line** (the crowd is confirming the trend).
-* **Potential Top / Major Reversal Warning:** A powerful bearish signal can occur when the **NVI crosses below its signal line** while the **PVI is still high or rising**. This divergence suggests that the smart money is exiting while the crowd is still buying, a classic topping pattern.
+#### Strategy 1: The NVI as a Master Trend Filter
+
+This is the simplest and most robust way to use the indicator. The goal is to trade only in the direction favored by the "smart money."
+
+1. **Setup:**
+    * Open two charts of the same instrument.
+    * On a **higher timeframe chart** (e.g., H1), apply the `PVI_NVI_Pro` indicator. Set the `Display Mode` to `DISPLAY_NVI_ONLY`. This is your "Compass Chart."
+    * On your **lower, trading timeframe chart** (e.g., M5), apply your preferred entry indicators (e.g., Stochastics, MACD, Price Action patterns).
+
+2. **Rules:**
+    * If, on the H1 chart, the **NVI (red line) is ABOVE its signal line**, the primary bias is **BULLISH**. On your M5 chart, you should **only look for and take LONG (buy) signals**. Ignore all short signals.
+    * If, on the H1 chart, the **NVI is BELOW its signal line**, the primary bias is **BEARISH**. On your M5 chart, you should **only look for and take SHORT (sell) signals**. Ignore all long signals.
+
+#### Suggested Timeframe Combinations
+
+| Trading Style | Trading Timeframe | PVI/NVI "Compass" Timeframe |
+| :--- | :--- | :--- |
+| Scalping | M1 | M15 or M30 |
+| Fast Day Trading | M5 | H1 |
+| Standard Day Trading | M15 | H4 |
+
+#### Strategy 2: Advanced Divergence (Topping/Bottoming Signal)
+
+This is a leading, but more advanced, signal for potential major reversals.
+
+* **Potential Top (Bearish Divergence):** Look for a situation where the price makes a new high, the **PVI (crowd) also makes a new high**, but the **NVI (smart money) fails to make a new high** and forms a lower high. This indicates that professionals are no longer participating in the rally, which is being driven solely by the less-informed crowd—a classic sign of a top.
+* **Potential Bottom (Bullish Divergence):** Look for a situation where the price makes a new low, but the **NVI forms a higher low**. This suggests that the "smart money" has stopped selling and is beginning to accumulate, even as the crowd continues to panic-sell.
