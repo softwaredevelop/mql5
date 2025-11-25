@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "1.00"
-#property description "Histogram for the SuperSmoother MACD. To be used with MACD_SuperSmoother_Line_Pro."
+#property version   "1.10" // Added selectable signal line type
+#property description "Histogram for the SuperSmoother MACD with a selectable signal line."
 
 #property indicator_separate_window
 #property indicator_buffers 1
@@ -23,15 +23,15 @@
 
 //--- Input Parameters ---
 input group "SuperSmoother MACD Settings"
-input int        InpFastPeriod   = 12;
-input int        InpSlowPeriod   = 26;
+input int                       InpFastPeriod   = 12;
+input int                       InpSlowPeriod   = 26;
 
 input group "Signal Line Settings"
-input int          InpSignalPeriod = 9;
-input ENUM_MA_TYPE InpSignalMAType = EMA;
+input int                       InpSignalPeriod = 9;
+input ENUM_SMOOTHING_METHOD     InpSignalMAType = SMOOTH_SuperSmoother;
 
 input group "Price Source"
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferHistogram[];
@@ -57,7 +57,7 @@ int OnInit()
      }
 
    string ma_name = EnumToString(InpSignalMAType);
-   StringToUpper(ma_name);
+   StringReplace(ma_name, "SMOOTH_", "");
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("SS Histo(%s,%d)", ma_name, InpSignalPeriod));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpSlowPeriod + InpSignalPeriod);
