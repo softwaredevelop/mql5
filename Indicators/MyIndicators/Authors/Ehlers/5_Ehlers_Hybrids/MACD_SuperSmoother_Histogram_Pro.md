@@ -6,36 +6,28 @@ The `MACD_SuperSmoother_Histogram_Pro` is the dedicated histogram component for 
 
 This indicator visually represents the convergence and divergence of momentum. The height and depth of the histogram bars provide an immediate sense of momentum acceleration and deceleration in a low-lag environment.
 
-It is designed as a **companion indicator** to be overlaid in the same window as the `MACD_SuperSmoother_Line_Pro`. When their parameters are synchronized, they form a complete, modern, and highly responsive MACD system. The signal line's smoothing method is user-selectable from the four standard moving average types (SMA, EMA, SMMA, LWMA).
+It is designed as a **companion indicator** to be overlaid in the same window as the `MACD_SuperSmoother_Line_Pro`. When their parameters are synchronized, they form a complete, modern, and highly responsive MACD system. The signal line's smoothing method is user-selectable, offering a choice between a **SuperSmoother** or one of the four standard moving average types (SMA, EMA, SMMA, LWMA).
 
 ## 2. Mathematical Foundations and Calculation Logic
 
 To ensure perfect synchronization and accuracy without external dependencies, this indicator performs the full MACD calculation internally before outputting only the histogram.
-
-### Required Components
-
-* **Fast Period (N)** and **Slow Period (M)** for the MACD Line.
-* **Signal Line Period (S)** and **MA Type** for the Signal Line.
-* **Source Price (P)**.
 
 ### Calculation Steps (Algorithm)
 
 1. **Calculate the MACD Line:** First, a fast and a slow SuperSmoother filter are calculated on the source price. The MACD Line is their difference.
     * $\text{MACD Line}_t = \text{SuperSmoother}(P, N)_t - \text{SuperSmoother}(P, M)_t$
 
-2. **Calculate the Signal Line:** A moving average (of the user-selected type) is applied to the MACD Line calculated in the previous step.
-    * $\text{Signal Line}_t = \text{MA}(\text{MACD Line}, S)_t$
+2. **Calculate the Signal Line:** A smoothing of the user-selected type (`MA Type`) is applied to the `MACD Line` calculated in the previous step.
+    * $\text{Signal Line}_t = \text{Smoothing}(\text{MACD Line}, S, \text{MA Type})_t$
 
 3. **Calculate the Histogram:** The final output is the difference between the MACD Line and the Signal Line.
     * $\text{Histogram}_t = \text{MACD Line}_t - \text{Signal Line}_t$
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained Calculation:** The indicator is fully self-contained. Its engine (`MACD_SuperSmoother_Histogram_Calculator.mqh`) internally recalculates the entire SuperSmoother MACD line using our robust `Ehlers_Smoother_Calculator`. This "shared engine" architecture avoids the instability of `iCustom` calls and ensures that the histogram is always perfectly synchronized with its corresponding line indicator, provided the inputs match.
+* **Self-Contained Calculation:** The indicator is fully self-contained. Its engine (`MACD_SuperSmoother_Histogram_Calculator.mqh`) internally recalculates the entire SuperSmoother MACD line using our robust `Ehlers_Smoother_Calculator`.
 
-* **Reusable Components:** The calculator efficiently reuses our modular components:
-  * It contains two instances of `CEhlersSmootherCalculator` to generate the base MACD line.
-  * It uses our universal `CalculateMA` helper function to apply the selected moving average for the signal line.
+* **Flexible Signal Line Calculation:** The calculator uses a universal `CalculateMA` helper function to apply the user's chosen smoothing method for the signal line. This includes a dedicated, state-managed calculation for the `SuperSmoother` option, ensuring its stability.
 
 * **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
 
@@ -43,8 +35,8 @@ To ensure perfect synchronization and accuracy without external dependencies, th
 
 * **Fast Period (`InpFastPeriod`):** The period for the fast SuperSmoother filter. Default is `12`.
 * **Slow Period (`InpSlowPeriod`):** The period for the slow SuperSmoother filter. Default is `26`.
-* **Signal Period (`InpSignalPeriod`):** The lookback period for the signal line's moving average. Default is `9`.
-* **Signal MA Type (`InpSignalMAType`):** The type of moving average to use for the signal line (SMA, EMA, SMMA, LWMA). Default is `EMA`.
+* **Signal Period (`InpSignalPeriod`):** The lookback period for the signal line's smoothing. Default is `9`.
+* **Signal MA Type (`InpSignalMAType`):** The type of smoothing to use for the signal line. Options include `SuperSmoother`, `SMA`, `EMA`, `SMMA`, `LWMA`. Default is `SuperSmoother`.
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
