@@ -2,57 +2,55 @@
 
 ## 1. Summary (Introduction)
 
-The `MACD_Laguerre_Pro` is a modern, high-performance variant of the classic MACD indicator. It replaces all three traditional Exponential Moving Averages (EMAs) with John Ehlers' extremely responsive, low-lag Laguerre filters.
+The `MACD_Laguerre_Pro` is a modern, high-performance variant of the classic MACD. It replaces the traditional Exponential Moving Averages (EMAs) of the MACD line with John Ehlers' extremely responsive, low-lag **Laguerre filters**.
 
-The result is a "pure" Laguerre-based system that provides a much smoother, more cyclical, and significantly faster representation of momentum compared to its conventional counterpart. By using Laguerre filters for the fast line, slow line, and the signal line, the indicator minimizes the cumulative lag that is a common drawback of the standard MACD.
+The result is a MACD line that is smoother, more cyclical, and significantly faster than its conventional counterpart. This indicator then enhances this low-lag MACD line with a **fully customizable signal line**, allowing the user to choose from standard moving averages or another Laguerre filter for maximum flexibility.
 
 This indicator calculates and displays all three core components of a MACD system:
 
 * **MACD Line:** The difference between a fast and a slow Laguerre filter.
-* **Signal Line:** A Laguerre filter applied to the MACD Line.
+* **Signal Line:** A user-selectable smoothing of the MACD Line.
 * **Histogram:** The difference between the MACD Line and the Signal Line.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-The entire system is built using Laguerre filters, with their speed controlled by the `gamma` ($\gamma$) coefficient. A smaller gamma results in a faster, more responsive filter.
-
-### Required Components
-
-* **Fast Gamma ($\gamma_{fast}$)** and **Slow Gamma ($\gamma_{slow}$)** for the MACD Line.
-* **Signal Gamma ($\gamma_{signal}$)** for the Signal Line.
-* **Source Price (P)**.
+The system is built by first creating a Laguerre-based MACD line, then applying a flexible signal line to it. The speed of the Laguerre filters is controlled by the `gamma` ($\gamma$) coefficient (a smaller gamma results in a faster filter).
 
 ### Calculation Steps (Algorithm)
 
-1. **Calculate the Fast and Slow Laguerre Filters:** Two separate Laguerre filters are calculated on the source price `P`, one with a fast gamma and one with a slow gamma.
+1. **Calculate the Fast and Slow Laguerre Filters:** Two separate Laguerre filters are calculated on the source price `P`.
     * $\text{Fast Filter}_t = \text{LaguerreFilter}(P, \gamma_{fast})_t$
     * $\text{Slow Filter}_t = \text{LaguerreFilter}(P, \gamma_{slow})_t$
 
 2. **Calculate the MACD Line:** The MACD Line is the difference between the two filters.
     * $\text{MACD Line}_t = \text{Fast Filter}_t - \text{Slow Filter}_t$
 
-3. **Calculate the Signal Line:** A third Laguerre filter is applied directly to the `MACD Line` calculated in the previous step, using the signal gamma.
-    * $\text{Signal Line}_t = \text{LaguerreFilter}(\text{MACD Line}, \gamma_{signal})_t$
+3. **Calculate the Signal Line:** A smoothing of the user-selected type (`MA Type`) is applied to the `MACD Line`.
+    * $\text{Signal Line}_t = \text{Smoothing}(\text{MACD Line}, \text{Period}, \text{MA Type})_t$
 
 4. **Calculate the Histogram:** The final output is the difference between the MACD Line and the Signal Line.
     * $\text{Histogram}_t = \text{MACD Line}_t - \text{Signal Line}_t$
 
 ## 3. MQL5 Implementation Details
 
-* **Modular and Composite Design:** The core logic is encapsulated in the `MACD_Laguerre_Calculator.mqh`. This calculator uses a composition-based design:
-  * It contains **two instances** of our robust `Laguerre_Engine` to generate the base MACD line from the source price.
-  * For maximum stability and to avoid complexities with applying an engine to an already calculated array, the **signal line's Laguerre filter is calculated manually** within the `Calculate` method, with its own dedicated state-management variables.
+* **Modular and Composite Design:** The `MACD_Laguerre_Calculator.mqh` uses a composition-based design: it **contains two instances** of our robust, state-managed `Laguerre_Engine` to generate the base MACD line.
 
-* **Robust Initialization:** The `Init` method is "foolproof." It automatically identifies which of the two user-provided gamma values for the MACD line is smaller (fast) and which is larger (slow), ensuring the indicator always works correctly regardless of input order.
+* **Flexible Signal Line Calculation:** The calculator uses a `switch` block to apply the user's chosen smoothing method for the signal line. This includes a dedicated, state-managed calculation for the `Laguerre` option and reuses our universal `CalculateMA` helper function for standard MA types.
 
-* **Heikin Ashi Integration:** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
+* **Robust Initialization:** The `Init` method automatically identifies which of the two user-provided gamma values for the MACD line is smaller (fast) and which is larger (slow).
+
+* **Heikin Ashi Integration:** A "Factory Method" (`CreateEngineInstance`) is used to instantiate the correct type of Laguerre engine (`standard` or `_HA`).
 
 ## 4. Parameters
 
-* **Gamma 1 (`InpGamma1`):** The gamma coefficient for one of the base Laguerre filters (e.g., `0.2` for fast).
-* **Gamma 2 (`InpGamma2`):** The gamma coefficient for the other base Laguerre filter (e.g., `0.8` for slow).
-* **Signal Gamma (`InpSignalGamma`):** The gamma coefficient for the signal line's Laguerre filter. A mid-range value like `0.5` is a good starting point.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation (Standard or Heikin Ashi).
+* **Laguerre MACD Settings:**
+  * **`InpGamma1` / `InpGamma2`:** The gamma coefficients for the two base Laguerre filters. The smaller value will be the fast filter, the larger will be the slow one.
+* **Signal Line Settings:**
+  * **`InpSignalMAType`:** A dropdown menu to select the smoothing type for the signal line. Options include `Laguerre`, `SMA`, `EMA`, `SMMA`, `LWMA`.
+  * **`InpSignalPeriod`:** The lookback period for standard MA signal lines.
+  * **`InpSignalGamma`:** The gamma coefficient used **only** if the signal line type is set to `Laguerre`.
+* **Price Source:**
+  * **`InpSourcePrice`:** The source price for the calculation (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
