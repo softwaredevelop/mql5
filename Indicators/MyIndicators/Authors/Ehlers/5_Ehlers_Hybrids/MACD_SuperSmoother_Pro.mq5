@@ -4,10 +4,8 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "1.00"
-#property description "MACD variant using John Ehlers' SuperSmoother for all moving averages."
-#property description "Supports Standard and Heikin Ashi price sources."
+#property version   "1.10" // Added selectable signal line type
+#property description "MACD with SuperSmoother base lines and a selectable signal line."
 
 #property indicator_separate_window
 #property indicator_buffers 3
@@ -31,10 +29,14 @@
 #include <MyIncludes\MACD_SuperSmoother_Calculator.mqh>
 
 //--- Input Parameters ---
+input group "MACD Settings"
 input int                       InpFastPeriod   = 12;
 input int                       InpSlowPeriod   = 26;
-input int                       InpSignalPeriod = 9;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+
+input group "Signal Line Settings"
+input int                       InpSignalPeriod = 9;
+input ENUM_SMOOTHING_METHOD     InpSignalMAType = SMOOTH_SuperSmoother; // Default to SuperSmoother
 
 //--- Indicator Buffers ---
 double    BufferMACD_Histogram[], BufferMACDLine[], BufferSignalLine[];
@@ -57,7 +59,8 @@ int OnInit()
    else
       g_calculator = new CMACDSuperSmootherCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastPeriod, InpSlowPeriod, InpSignalPeriod))
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpFastPeriod, InpSlowPeriod, InpSignalPeriod, InpSignalMAType))
      {
       Print("Failed to create or initialize MACD SuperSmoother Calculator.");
       return(INIT_FAILED);
