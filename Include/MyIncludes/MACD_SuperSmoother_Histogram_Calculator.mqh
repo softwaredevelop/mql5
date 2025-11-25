@@ -1,36 +1,47 @@
 //+------------------------------------------------------------------+
 //|                       MACD_SuperSmoother_Histogram_Calculator.mqh|
-//|      VERSION 1.01: Completed constructor/destructor logic.       |
+//|      VERSION 1.10: Added selectable signal line.                 |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
-#include <MyIncludes\MovingAverage_Engine.mqh> // For ENUM_MA_TYPE
+#include "Ehlers_Smoother_Calculator.mqh"
+#include "MovingAverage_Engine.mqh"
+
+enum ENUM_SMOOTHING_METHOD
+  {
+   SMOOTH_SMA,
+   SMOOTH_EMA,
+   SMOOTH_SMMA,
+   SMOOTH_LWMA,
+   SMOOTH_SuperSmoother
+  };
 
 //+==================================================================+
 class CMACDSuperSmootherHistogramCalculator
   {
 protected:
    int               m_fast_period, m_slow_period, m_signal_period;
-   ENUM_MA_TYPE      m_signal_ma_type;
+   ENUM_SMOOTHING_METHOD m_signal_ma_type;
 
-   CEhlersSmootherCalculator *m_fast_smoother;
-   CEhlersSmootherCalculator *m_slow_smoother;
+   CEhlersSmootherCalculator *m_fast_smoother, *m_slow_smoother;
+   double            m_sig_f1, m_sig_f2;
 
    virtual CEhlersSmootherCalculator *CreateSmootherInstance(void);
-   void              CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_MA_TYPE method, int start_pos);
+   void              CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_SMOOTHING_METHOD method, int start_pos);
 
 public:
                      CMACDSuperSmootherHistogramCalculator(void);
    virtual          ~CMACDSuperSmootherHistogramCalculator(void);
 
-   bool              Init(int fast_p, int slow_p, int signal_p, ENUM_MA_TYPE signal_type);
+   bool              Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type);
    void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &histogram[]);
   };
 
-//--- Derived class for Heikin Ashi version ---
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 class CMACDSuperSmootherHistogramCalculator_HA : public CMACDSuperSmootherHistogramCalculator
   {
 protected:
@@ -39,16 +50,22 @@ protected:
 
 //+==================================================================+
 //|                 METHOD IMPLEMENTATIONS                           |
-//+==================================================================+
+//+================================----------------==================+
 
-//--- CORRECTED: Constructor with pointer initialization ---
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 CMACDSuperSmootherHistogramCalculator::CMACDSuperSmootherHistogramCalculator(void)
   {
    m_fast_smoother = NULL;
    m_slow_smoother = NULL;
+   m_sig_f1 = 0;
+   m_sig_f2 = 0;
   }
 
-//--- CORRECTED: Destructor with memory cleanup ---
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 CMACDSuperSmootherHistogramCalculator::~CMACDSuperSmootherHistogramCalculator(void)
   {
    if(CheckPointer(m_fast_smoother) != POINTER_INVALID)
@@ -66,7 +83,7 @@ CEhlersSmootherCalculator *CMACDSuperSmootherHistogramCalculator_HA::CreateSmoot
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool CMACDSuperSmootherHistogramCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_MA_TYPE signal_type)
+bool CMACDSuperSmootherHistogramCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type)
   {
    if(fast_p > slow_p)
      {
@@ -78,6 +95,8 @@ bool CMACDSuperSmootherHistogramCalculator::Init(int fast_p, int slow_p, int sig
    m_slow_period = slow_p;
    m_signal_period = (signal_p < 1) ? 1 : signal_p;
    m_signal_ma_type = signal_type;
+   m_sig_f1 = 0;
+   m_sig_f2 = 0;
 
    m_fast_smoother = CreateSmootherInstance();
    m_slow_smoother = CreateSmootherInstance();
@@ -119,14 +138,44 @@ void CMACDSuperSmootherHistogramCalculator::Calculate(int rates_total, const dou
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CMACDSuperSmootherHistogramCalculator::CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_MA_TYPE method, int start_pos)
+void CMACDSuperSmootherHistogramCalculator::CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_SMOOTHING_METHOD method, int start_pos)
   {
    for(int i = start_pos; i < ArraySize(source_array); i++)
      {
       switch(method)
         {
-         case EMA:
-         case SMMA:
+         case SMOOTH_SuperSmoother:
+           {
+            double a1 = exp(-M_SQRT2 * M_PI / period);
+            double b1 = 2.0 * a1 * cos(M_SQRT2 * M_PI / period);
+            double c2 = b1, c3 = -a1 * a1, c1 = 1.0 - c2 - c3;
+            if(i==start_pos)
+              {
+               double sum=0;
+               int count=0;
+               for(int j=0; j<period; j++)
+                 {
+                  if(source_array[i-j] != EMPTY_VALUE)
+                    {
+                     sum+=source_array[i-j];
+                     count++;
+                    }
+                 }
+               if(count > 0)
+                  dest_array[i] = sum/count;
+               m_sig_f1 = dest_array[i];
+               m_sig_f2 = (i > 0 && dest_array[i-1] != EMPTY_VALUE) ? dest_array[i-1] : dest_array[i];
+              }
+            else
+              {
+               dest_array[i] = c1 * (source_array[i] + source_array[i-1]) / 2.0 + c2 * m_sig_f1 + c3 * m_sig_f2;
+               m_sig_f2 = m_sig_f1;
+               m_sig_f1 = dest_array[i];
+              }
+            break;
+           }
+         case SMOOTH_EMA:
+         case SMOOTH_SMMA:
             if(i == start_pos)
               {
                double sum=0;
@@ -144,7 +193,7 @@ void CMACDSuperSmootherHistogramCalculator::CalculateMA(const double &source_arr
               }
             else
               {
-               if(method==EMA)
+               if(method==SMOOTH_EMA)
                  {
                   double pr=2.0/(period+1.0);
                   dest_array[i]=source_array[i]*pr+dest_array[i-1]*(1.0-pr);
@@ -153,7 +202,7 @@ void CMACDSuperSmootherHistogramCalculator::CalculateMA(const double &source_arr
                   dest_array[i]=(dest_array[i-1]*(period-1)+source_array[i])/period;
               }
             break;
-         case LWMA:
+         case SMOOTH_LWMA:
            {
             double sum=0, w_sum=0;
             for(int j=0; j<period; j++)
@@ -168,7 +217,7 @@ void CMACDSuperSmootherHistogramCalculator::CalculateMA(const double &source_arr
                dest_array[i]=sum/w_sum;
            }
          break;
-         default: // SMA
+         default: // SMOOTH_SMA
            {
             double sum=0;
             int count=0;
@@ -187,4 +236,5 @@ void CMACDSuperSmootherHistogramCalculator::CalculateMA(const double &source_arr
         }
      }
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
