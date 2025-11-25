@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include "Laguerre_Engine.mqh"
-#include "MovingAverage_Engine.mqh"
+#include <MyIncludes\Laguerre_Engine.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Universal enum for smoothing types, now including Laguerre ---
 enum ENUM_SMOOTHING_METHOD_LAGUERRE
