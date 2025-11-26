@@ -23,7 +23,7 @@
 //--- Plot 2: Signal Line
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrOrangeRed
+#property indicator_color2  clrLightCoral
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
