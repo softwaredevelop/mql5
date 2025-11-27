@@ -4,9 +4,8 @@
 //|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "5.01" // Corrected include paths and enum definitions
-#property description "Measures the trend activity of a VIDYA line with selectable"
-#property description "price and ATR sources (Standard or Heikin Ashi)."
+#property version   "5.02" // Adapted to new ATR Calculator
+#property description "Measures the trend activity of a VIDYA line with selectable sources."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
@@ -19,7 +18,6 @@
 #property indicator_minimum 0.0
 #property indicator_maximum 0.5
 
-//--- Include the calculator engine ---
 #include <MyIncludes\VIDYA_TrendActivity_Calculator.mqh>
 
 //--- Input Parameters ---
@@ -29,17 +27,16 @@ input int                       InpPeriodEMA    = 12;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 input group                     "Activity Calculation Settings"
 input int                       InpAtrPeriod    = 14;
-input ENUM_ATR_SOURCE           InpAtrSource    = ATR_SOURCE_STANDARD;
+//--- UPDATED: Use the standard candle source enum ---
+input ENUM_CANDLE_SOURCE        InpAtrSource    = CANDLE_STANDARD;
 input int                       InpSmoothingPeriod = 5;
 
 //--- Indicator Buffers ---
 double    BufferActivity[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CVIDYATrendActivityCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -47,16 +44,11 @@ int OnInit()
    ArraySetAsSeries(BufferActivity, false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
       g_calculator = new CVIDYATrendActivityCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("VIDYA Activity HA(%d)", InpPeriodCMO));
-     }
    else
-     {
       g_calculator = new CVIDYATrendActivityCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("VIDYA Activity(%d)", InpPeriodCMO));
-     }
 
+//--- UPDATED: Pass the correct enum type ---
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriodCMO, InpPeriodEMA, InpAtrPeriod, InpAtrSource, InpSmoothingPeriod))
      {
       Print("Failed to create or initialize VIDYA Trend Activity Calculator object.");
