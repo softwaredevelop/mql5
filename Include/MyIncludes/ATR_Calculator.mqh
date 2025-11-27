@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               ATR_Calculator.mqh |
-//|         Calculation engine for Standard and Heikin Ashi ATR.     |
+//|         VERSION 2.10: Added Percent mode.                        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,11 +8,10 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //--- CORRECTED: Moved enum here to be accessible by other calculators ---
-enum ENUM_ATR_SOURCE
-  {
-   ATR_SOURCE_STANDARD,    // Calculate ATR from standard candles
-   ATR_SOURCE_HEIKIN_ASHI  // Calculate ATR from Heikin Ashi candles
-  };
+enum ENUM_CANDLE_SOURCE { CANDLE_STANDARD, CANDLE_HEIKIN_ASHI };
+
+//--- NEW: Enum for display mode ---
+enum ENUM_ATR_DISPLAY_MODE { ATR_POINTS, ATR_PERCENT };
 
 //+==================================================================+
 //|                                                                  |
@@ -23,6 +22,7 @@ class CATRCalculator
   {
 protected:
    int               m_atr_period;
+   ENUM_ATR_DISPLAY_MODE m_display_mode;
 
    //--- Virtual method for preparing the raw True Range values.
    virtual void      PrepareTrueRange(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], double &tr_buffer[]);
@@ -32,7 +32,7 @@ public:
    virtual          ~CATRCalculator(void) {};
 
    //--- Public methods
-   bool              Init(int period);
+   bool              Init(int period, ENUM_ATR_DISPLAY_MODE mode);
    int               GetPeriod(void) const { return m_atr_period; }
    void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], double &atr_buffer[]);
   };
@@ -40,9 +40,10 @@ public:
 //+------------------------------------------------------------------+
 //| CATRCalculator: Initialization                                   |
 //+------------------------------------------------------------------+
-bool CATRCalculator::Init(int period)
+bool CATRCalculator::Init(int period, ENUM_ATR_DISPLAY_MODE mode)
   {
    m_atr_period = (period < 1) ? 1 : period;
+   m_display_mode = mode;
    return true;
   }
 
@@ -73,6 +74,18 @@ void CATRCalculator::Calculate(int rates_total, const double &open[], const doub
            {
             atr_buffer[i] = (atr_buffer[i-1] * (m_atr_period - 1) + tr[i]) / m_atr_period;
            }
+     }
+
+//--- Step 3: Convert to percentage if requested ---
+   if(m_display_mode == ATR_PERCENT)
+     {
+      for(int i = m_atr_period; i < rates_total; i++)
+        {
+         if(close[i] > 0)
+            atr_buffer[i] = (atr_buffer[i] / close[i]) * 100.0;
+         else
+            atr_buffer[i] = 0;
+        }
      }
   }
 
