@@ -1,16 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                          Supertrend_Calculator.mqh|
-//|    Calculation engine for Standard and Heikin Ashi Supertrend.   |
+//|      VERSION 3.20: Adapted to new ATR Calculator.                |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\ATR_Calculator.mqh> // Re-use our robust ATR calculator
+#include <MyIncludes\ATR_Calculator.mqh>
 
-//+==================================================================+
-//|                                                                  |
-//|           CLASS 1: CSupertrendCalculator (Base Class)            |
-//|                                                                  |
 //+==================================================================+
 class CSupertrendCalculator
   {
@@ -26,50 +22,56 @@ public:
                      CSupertrendCalculator(void);
    virtual          ~CSupertrendCalculator(void);
 
-   bool              Init(int atr_p, double factor, ENUM_ATR_SOURCE atr_src);
+   bool              Init(int atr_p, double factor, ENUM_CANDLE_SOURCE atr_src);
    void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &st_odd[], double &color_odd[], double &st_even[], double &color_even[]);
   };
 
 //+------------------------------------------------------------------+
-//| CSupertrendCalculator: Constructor                               |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CSupertrendCalculator::CSupertrendCalculator(void)
+class CSupertrendCalculator_HA : public CSupertrendCalculator
   {
-   m_atr_calculator = NULL;
-  }
+private:
+   CHeikinAshi_Calculator m_ha_calculator;
+protected:
+   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+  };
+
+//+==================================================================+
+//|                 METHOD IMPLEMENTATIONS                           |
+//+==================================================================+
 
 //+------------------------------------------------------------------+
-//| CSupertrendCalculator: Destructor                                |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CSupertrendCalculator::~CSupertrendCalculator(void)
-  {
-   if(CheckPointer(m_atr_calculator) != POINTER_INVALID)
-      delete m_atr_calculator;
-  }
+CSupertrendCalculator::CSupertrendCalculator(void) { m_atr_calculator = NULL; }
+CSupertrendCalculator::~CSupertrendCalculator(void) { if(CheckPointer(m_atr_calculator) != POINTER_INVALID) delete m_atr_calculator; }
 
 //+------------------------------------------------------------------+
-//| CSupertrendCalculator: Initialization                            |
+//|                                                                  |
 //+------------------------------------------------------------------+
-bool CSupertrendCalculator::Init(int atr_p, double factor, ENUM_ATR_SOURCE atr_src)
+bool CSupertrendCalculator::Init(int atr_p, double factor, ENUM_CANDLE_SOURCE atr_src)
   {
    m_atr_period = (atr_p < 1) ? 1 : atr_p;
    m_factor     = (factor <= 0) ? 3.0 : factor;
 
    if(CheckPointer(m_atr_calculator) != POINTER_INVALID)
       delete m_atr_calculator;
-   if(atr_src == ATR_SOURCE_HEIKIN_ASHI)
+
+   if(atr_src == CANDLE_HEIKIN_ASHI)
       m_atr_calculator = new CATRCalculator_HA();
    else
       m_atr_calculator = new CATRCalculator();
 
    if(CheckPointer(m_atr_calculator) == POINTER_INVALID)
       return false;
-   return m_atr_calculator.Init(m_atr_period);
+
+   return m_atr_calculator.Init(m_atr_period, ATR_POINTS);
   }
 
 //+------------------------------------------------------------------+
-//| CSupertrendCalculator: Main Calculation Method (Shared Logic)    |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CSupertrendCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
                                       double &st_odd[], double &color_odd[], double &st_even[], double &color_even[])
@@ -88,7 +90,6 @@ void CSupertrendCalculator::Calculate(int rates_total, const double &open[], con
    m_atr_calculator.Calculate(rates_total, open, high, low, close, atr);
 
    int trend_segment_index = 1;
-
    for(int i = 1; i < rates_total; i++)
      {
       double hl2 = (m_src_high[i] + m_src_low[i]) / 2.0;
@@ -126,14 +127,14 @@ void CSupertrendCalculator::Calculate(int rates_total, const double &open[], con
 
       if(trend[i] == 1) // Uptrend
         {
-         if(trend_segment_index % 2 != 0) // Odd segment
+         if(trend_segment_index % 2 != 0) // Odd
            {
             st_odd[i] = lower[i];
             color_odd[i] = 0;
             st_even[i] = EMPTY_VALUE;
             color_even[i] = 0;
            }
-         else // Even segment
+         else // Even
            {
             st_even[i] = lower[i];
             color_even[i] = 0;
@@ -143,14 +144,14 @@ void CSupertrendCalculator::Calculate(int rates_total, const double &open[], con
         }
       else // Downtrend
         {
-         if(trend_segment_index % 2 != 0) // Odd segment
+         if(trend_segment_index % 2 != 0) // Odd
            {
             st_odd[i] = upper[i];
             color_odd[i] = 1;
             st_even[i] = EMPTY_VALUE;
             color_even[i] = 1;
            }
-         else // Even segment
+         else // Even
            {
             st_even[i] = upper[i];
             color_even[i] = 1;
@@ -162,7 +163,7 @@ void CSupertrendCalculator::Calculate(int rates_total, const double &open[], con
   }
 
 //+------------------------------------------------------------------+
-//| CSupertrendCalculator: Prepares the standard source data.        |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CSupertrendCalculator::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -175,21 +176,8 @@ bool CSupertrendCalculator::PrepareSourceData(int rates_total, const double &ope
    return true;
   }
 
-//+==================================================================+
-//|                                                                  |
-//|         CLASS 2: CSupertrendCalculator_HA (Heikin Ashi)          |
-//|                                                                  |
-//+==================================================================+
-class CSupertrendCalculator_HA : public CSupertrendCalculator
-  {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-protected:
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
-
 //+------------------------------------------------------------------+
-//| CSupertrendCalculator_HA: Prepares the HA source data.           |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CSupertrendCalculator_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
   {
