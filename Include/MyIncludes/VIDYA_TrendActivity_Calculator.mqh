@@ -1,18 +1,14 @@
 //+------------------------------------------------------------------+
 //|                                 VIDYA_TrendActivity_Calculator.mqh|
-//| Calculation engine for Standard and Heikin Ashi VIDYA Activity.  |
+//|      VERSION 5.02: Adapted to new ATR Calculator.                |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\VIDYA_Calculator.mqh>
-#include <MyIncludes\ATR_Calculator.mqh> // CORRECTED: Include the ATR calculator to get the enum and class
+#include <MyIncludes\ATR_Calculator.mqh>
 
-//+==================================================================+
-//|                                                                  |
-//|         CLASS 1: CVIDYATrendActivityCalculator (Base Class)      |
-//|                                                                  |
-//+==================================================================+
+//+================================--------------------------------==+
 class CVIDYATrendActivityCalculator
   {
 protected:
@@ -25,7 +21,8 @@ public:
                      CVIDYATrendActivityCalculator(void);
    virtual          ~CVIDYATrendActivityCalculator(void);
 
-   bool              Init(int cmo_p, int ema_p, int atr_p, ENUM_ATR_SOURCE atr_src, int smooth_p);
+   //--- UPDATED: Use the standard candle source enum ---
+   bool              Init(int cmo_p, int ema_p, int atr_p, ENUM_CANDLE_SOURCE atr_src, int smooth_p);
    void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &activity_buffer[]);
   };
 
@@ -52,7 +49,8 @@ CVIDYATrendActivityCalculator::~CVIDYATrendActivityCalculator(void)
 //+------------------------------------------------------------------+
 //| CVIDYATrendActivityCalculator: Initialization                    |
 //+------------------------------------------------------------------+
-bool CVIDYATrendActivityCalculator::Init(int cmo_p, int ema_p, int atr_p, ENUM_ATR_SOURCE atr_src, int smooth_p)
+//--- UPDATED: Init method to match new dependencies ---
+bool CVIDYATrendActivityCalculator::Init(int cmo_p, int ema_p, int atr_p, ENUM_CANDLE_SOURCE atr_src, int smooth_p)
   {
    m_smoothing_period = (smooth_p < 1) ? 1 : smooth_p;
    m_pi_div_2 = M_PI / 2.0;
@@ -60,7 +58,7 @@ bool CVIDYATrendActivityCalculator::Init(int cmo_p, int ema_p, int atr_p, ENUM_A
    if(CheckPointer(m_atr_calculator) != POINTER_INVALID)
       delete m_atr_calculator;
 
-   if(atr_src == ATR_SOURCE_HEIKIN_ASHI)
+   if(atr_src == CANDLE_HEIKIN_ASHI)
       m_atr_calculator = new CATRCalculator_HA();
    else
       m_atr_calculator = new CATRCalculator();
@@ -68,7 +66,8 @@ bool CVIDYATrendActivityCalculator::Init(int cmo_p, int ema_p, int atr_p, ENUM_A
    if(CheckPointer(m_vidya_calculator) == POINTER_INVALID || CheckPointer(m_atr_calculator) == POINTER_INVALID)
       return false;
 
-   return(m_vidya_calculator.Init(cmo_p, ema_p) && m_atr_calculator.Init(atr_p));
+//--- CORRECTED: Call the new 2-parameter Init for ATR, fixing to Points mode ---
+   return(m_vidya_calculator.Init(cmo_p, ema_p) && m_atr_calculator.Init(atr_p, ATR_POINTS));
   }
 
 //+------------------------------------------------------------------+
