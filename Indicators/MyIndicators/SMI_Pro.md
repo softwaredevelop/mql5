@@ -1,4 +1,4 @@
-# Stochastic Momentum Index (SMI) Professional
+# Stochastic Momentum Index (SMI) Pro
 
 ## 1. Summary (Introduction)
 
@@ -38,7 +38,11 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
   * **`CSMICalculator`**: The base class that performs the full, multi-stage SMI calculation on a given set of High, Low, and Close prices.
   * **`CSMICalculator_HA`**: A child class that inherits all the complex logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices as its input. This object-oriented approach eliminates code duplication.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate`. For a complex, multi-stage indicator like the SMI, this is the most reliable method to prevent calculation errors.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * The internal buffers (`m_ema_rel`, `m_ema_range`, etc.) persist their state between ticks, allowing the recursive EMA algorithms to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 * **Robust EMA Initialization:** Each recursive EMA calculation step is carefully initialized with a simple average to provide a stable starting point for the calculation chain and prevent floating-point overflows.
 
