@@ -1,4 +1,4 @@
-# MACD Laguerre Line Professional
+# MACD Laguerre Line Pro
 
 ## 1. Summary (Introduction)
 
@@ -34,6 +34,12 @@ The concept is to create a momentum oscillator from the difference between a fas
 * **Modular Engine (`Laguerre_Engine.mqh`):** The indicator leverages our existing, robust `Laguerre_Engine.mqh` for all core filter calculations.
 
 * **Object-Oriented Design (Composition):** The `CMACDLaguerreLineCalculator` class does not re-implement the filter logic. Instead, it **contains two instances** of the `CLaguerreEngine` class—one for the fast filter and one for the slow one. This is a clean and highly reusable application of the composition design pattern.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal Laguerre engines persist their state (`L0`...`L3`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 * **Robust Initialization:** The `Init` method is "foolproof." It automatically identifies which of the two user-provided gamma values is smaller (fast) and which is larger (slow) using `MathMin` and `MathMax`, ensuring the indicator always works correctly regardless of the input order.
 
