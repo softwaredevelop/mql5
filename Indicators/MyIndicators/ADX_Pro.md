@@ -1,4 +1,4 @@
-# Average Directional Index (ADX) Professional
+# Average Directional Index (ADX) Pro
 
 ## 1. Summary (Introduction)
 
@@ -63,13 +63,17 @@ Our MQL5 implementation follows a modern, object-oriented design pattern to ensu
   * A base class, `CADXCalculator`, handles the **entire shared calculation chain** from Step 2 to Step 5 (smoothing, DI, DX, and ADX calculation).
   * A derived class, `CADXCalculator_HA`, inherits from the base class and **overrides** only one specific function: the initial calculation of raw +DM, -DM, and TR (Step 1). Its sole responsibility is to use Heikin Ashi candles for this first step and pass the results to the base class's shared calculation pipeline. This is a clean and efficient use of polymorphism.
 
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * The internal buffers (`m_smoothed_pdm`, etc.) persist their state between ticks, allowing the recursive Wilder's Smoothing algorithm to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Simplified Main Indicator (`ADX_Pro.mq5`):**
     The main indicator file is now extremely clean. Its primary roles are:
     1. Handling user inputs (`input` variables).
     2. Instantiating the correct calculator object (`CADXCalculator` or `CADXCalculator_HA`) in `OnInit()` based on the user's choice.
-    3. Delegating the entire calculation process to the calculator object with a single call in `OnCalculate()`.
-
-* **Stability via Full Recalculation:** We use a full recalculation on every tick. For a complex, multi-stage, and recursive indicator like ADX, this "brute-force" approach is the most robust method, eliminating potential errors from `prev_calculated` logic.
+    3. Delegating the calculation process to the calculator object, passing the `prev_calculated` parameter for optimization.
 
 ## 4. Parameters (`ADX_Pro.mq5`)
 
