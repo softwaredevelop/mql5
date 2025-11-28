@@ -34,6 +34,9 @@ public:
                                      double &filt_buffer[]);
 
    void              GetPriceBuffer(double &dest_array[]);
+
+   //--- NEW: Accessors for internal state buffers (Needed for Laguerre RSI)
+   void              GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[]);
   };
 
 //+==================================================================+
@@ -64,6 +67,25 @@ void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
   }
 
 //+------------------------------------------------------------------+
+//| Get Internal L Buffers                                           |
+//+------------------------------------------------------------------+
+void CLaguerreEngine::GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[])
+  {
+   int size = ArraySize(m_L0);
+   if(size > 0)
+     {
+      ArrayResize(l0, size);
+      ArrayCopy(l0, m_L0, 0, 0, size);
+      ArrayResize(l1, size);
+      ArrayCopy(l1, m_L1, 0, 0, size);
+      ArrayResize(l2, size);
+      ArrayCopy(l2, m_L2, 0, 0, size);
+      ArrayResize(l3, size);
+      ArrayCopy(l3, m_L3, 0, 0, size);
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
 void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
@@ -89,12 +111,15 @@ void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM
       ArrayResize(m_L3, rates_total);
      }
 
+// Resize output buffer if provided (might be dummy in RSI calc)
+   if(ArraySize(filt_buffer) != rates_total)
+      ArrayResize(filt_buffer, rates_total);
+
 //--- 3. Prepare Price (Optimized)
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
 //--- 4. Calculate Laguerre Filter
-// We need to handle the very first bar separately for initialization
    int i = start_index;
 
    if(i == 0)
@@ -110,7 +135,6 @@ void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM
    for(; i < rates_total; i++)
      {
       // Recursive calculation uses [i-1] from persistent buffers
-      // This is safe even if we recalculate the last bar multiple times
       double L0_prev = m_L0[i-1];
       double L1_prev = m_L1[i-1];
       double L2_prev = m_L2[i-1];
