@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                             Laguerre_RSI_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "1.21" // Changed to Display Mode enum
+#property version   "1.30" // Optimized for incremental calculation
 #property description "John Ehlers' Laguerre RSI with an optional signal line."
 
 //--- Indicator Window and Plot Properties ---
@@ -95,18 +93,32 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferLRSI, BufferSignal);
 
-//--- UPDATED: Use the new display mode logic ---
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferLRSI, BufferSignal);
+
+//--- Hide Signal if needed (Optimized loop)
    if(InpDisplayMode == DISPLAY_LRSI_ONLY)
      {
-      for(int i=0; i<rates_total; i++)
+      int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start_index; i < rates_total; i++)
          BufferSignal[i] = EMPTY_VALUE;
      }
 
