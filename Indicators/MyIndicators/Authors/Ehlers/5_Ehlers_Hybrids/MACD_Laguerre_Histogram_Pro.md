@@ -1,4 +1,4 @@
-# MACD Laguerre Histogram Professional
+# MACD Laguerre Histogram Pro
 
 ## 1. Summary (Introduction)
 
@@ -27,7 +27,13 @@ To ensure perfect synchronization and accuracy without external dependencies, th
 
 * **Self-Contained Calculation:** The indicator is fully self-contained. Its engine (`MACD_Laguerre_Histogram_Calculator.mqh`) internally recalculates the entire Laguerre MACD line using the `Laguerre_Engine`. This "shared engine" architecture avoids the instability of `iCustom` calls.
 
-* **Flexible Signal Line Calculation:** The calculator uses a `switch` block to apply the user's chosen smoothing method for the signal line. This includes a dedicated, state-managed calculation for the `Laguerre` option and reuses our universal `CalculateMA` helper function for standard MA types.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal Laguerre engines persist their state (`L0`...`L3`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
+* **Flexible Signal Line Calculation:** The calculator dynamically instantiates either a third `Laguerre_Engine` or a `MovingAverage_Engine` for the signal line, depending on the user's choice. This ensures that the signal line calculation is also fully optimized and incremental.
 
 * **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
 
