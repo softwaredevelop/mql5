@@ -1,4 +1,4 @@
-# Moving Average MTF Professional
+# Moving Average MTF Pro
 
 ## 1. Summary (Introduction)
 
@@ -35,11 +35,16 @@ The underlying calculations for each moving average type are standard. The key c
 
 * **Universal Calculation Engine (`MovingAverage_Engine.mqh`):** The indicator reuses the exact same, proven calculation engine as the standard `MovingAverage_Pro`. This engine can calculate all four MA types, ensuring mathematical consistency and leveraging our modular design principles.
 
-* **Dual-Mode Logic:** The `OnCalculate` function contains a smart branching logic.
-  * If a higher timeframe is selected, it performs the full MTF data fetching and projection process.
-  * If the current timeframe is selected, it bypasses the MTF logic and functions identically to the standard `MovingAverage_Pro`, calculating directly on the current chart's data for maximum efficiency.
+* **Optimized Incremental Calculation:**
+    Unlike basic MTF indicators that download and recalculate the entire higher-timeframe history on every tick, this indicator employs a sophisticated incremental algorithm.
+  * **HTF State Tracking:** It tracks the calculation state of the higher timeframe separately (`htf_prev_calculated`).
+  * **Persistent Buffers:** The internal buffer for the higher timeframe (`BufferMA_HTF_Internal`) is maintained globally, preserving the recursive state of EMAs and SMMAs between ticks.
+  * **Efficient Mapping:** The projection loop only updates the bars corresponding to the new data, drastically reducing CPU usage.
+  * This results in **O(1) complexity** per tick, ensuring the indicator remains lightweight even when running on multiple charts simultaneously.
 
-* **Stability via Full Recalculation:** We employ a full recalculation for both modes, which is the most reliable method for ensuring data integrity, especially when dealing with historical data from different timeframes.
+* **Dual-Mode Logic:** The `OnCalculate` function contains a smart branching logic.
+  * If a higher timeframe is selected, it performs the optimized MTF data fetching and projection process.
+  * If the current timeframe is selected, it bypasses the MTF logic and functions identically to the standard `MovingAverage_Pro`, calculating directly on the current chart's data for maximum efficiency.
 
 ## 4. Parameters
 
