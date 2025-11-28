@@ -1,4 +1,4 @@
-# Heikin Ashi
+# Heikin Ashi Pro
 
 ## 1. Summary (Introduction)
 
@@ -35,18 +35,15 @@ _Note: For the very first bar on the chart where no previous HA bar exists, the 
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation is a showcase of our core development principles, designed for maximum stability and modularity.
+Our MQL5 implementation represents a state-of-the-art, high-performance architecture designed for professional trading environments.
 
-- **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within the `OnCalculate` function. For a recursive indicator like Heikin Ashi (where each bar depends on the previous one), this is the most robust method to ensure the chart displays correctly without glitches, especially during timeframe changes or history loading.
+- **Optimized Incremental Calculation:** Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm. It tracks the `prev_calculated` state and only processes new bars or updates the currently forming bar. This results in **O(1) complexity** per tick, meaning the indicator runs instantly regardless of whether the chart has 1,000 or 1,000,000 bars, eliminating chart freeze and lag.
 
-- **Modularity and Reusability:** The core calculation logic is not located in the main `.mq5` file. Instead, it is encapsulated within the `CHeikinAshi_Calculator` class, which resides in our central `HeikinAshi_Tools.mqh` library. This approach offers several advantages:
+- **Modularity and Reusability:** The core calculation logic is encapsulated within the `CHeikinAshi_Calculator` class, residing in our central `HeikinAshi_Tools.mqh` library. This library enforces a strict interface requiring a `start_index`, ensuring that any indicator using it (like RSI Pro or MACD Pro) automatically benefits from the performance optimizations.
 
-  - The main indicator file (`Chart_HeikinAshi.mq5`) remains extremely clean and simple. Its only jobs are to manage the indicator buffers and call the calculator.
-  - The `CHeikinAshi_Calculator` class can be easily reused by any other indicator in our toolkit that needs Heikin Ashi data, promoting a Don't-Repeat-Yourself (DRY) coding practice.
+- **Clean Object-Oriented Structure:** The indicator uses a pointer (`g_ha_calculator`) to an instance of the `CHeikinAshi_Calculator` class. This object is properly created in `OnInit` and destroyed in `OnDeinit`, preventing memory leaks.
 
-- **Clean Object-Oriented Structure:** The indicator uses a pointer (`g_ha_calculator`) to an instance of the `CHeikinAshi_Calculator` class. This object is properly created in `OnInit` and destroyed in `OnDeinit`, preventing any memory leaks and adhering to sound object-oriented programming principles.
-
-- **Direct Buffer Calculation:** The `CHeikinAshi_Calculator` is designed to be "stateless." It does not manage its own data but calculates the Heikin Ashi values directly into the buffers provided by the calling indicator. This makes the `OnCalculate` function highly efficient, as it avoids any intermediate data copying.
+- **Direct Buffer Calculation:** The calculator is "stateless" regarding data storage but "state-aware" regarding execution. It calculates values directly into the indicator buffers provided by the caller, avoiding unnecessary memory allocations and copying.
 
 ## 4. Parameters
 
