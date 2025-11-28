@@ -1,4 +1,4 @@
-# Laguerre RSI Professional
+# Laguerre RSI Pro
 
 ## 1. Summary (Introduction)
 
@@ -47,8 +47,15 @@ The calculation is highly recursive, relying on the state of four internal filte
 ## 3. MQL5 Implementation Details
 
 * **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. This engine is a **stateful class** that correctly maintains the state of its internal recursive components, ensuring a stable and accurate foundation. The `Laguerre_RSI_Calculator.mqh` is a thin adapter that uses this stable engine to generate the RSI.
-* **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`m_L0`...`m_L3`) persist their state between ticks, allowing the recursive Laguerre algorithm to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
+* **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
+
 * **Value Clamping:** The final calculated value is mathematically clamped to the 0-100 range.
 
 ## 4. Parameters
