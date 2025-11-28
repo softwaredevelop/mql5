@@ -1,4 +1,4 @@
-# Moving Average Professional
+# Moving Average Pro
 
 ## 1. Summary (Introduction)
 
@@ -90,7 +90,13 @@ Also developed by Patrick Mulloy, the TEMA is an even more advanced lag-reductio
 * **Universal Calculation Engine (`MovingAverage_Engine.mqh`):**
     The entire calculation logic for all **seven** MA types is encapsulated within a single, reusable engine file. This centralized approach eliminates code duplication and simplifies maintenance.
 
-* **Efficient EMA Calculation:** The engine uses a dedicated `CalculateEMA` helper function. This function is called recursively to efficiently build the DEMA and TEMA without rewriting the core EMA logic.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** For recursive types (EMA, SMMA) and complex types (DEMA, TEMA), the internal intermediate buffers (e.g., `ema1`, `ema2`) persist their state between ticks. This allows the calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
+* **Efficient EMA Calculation:** The engine uses a dedicated `CalculateEMA` helper function that supports incremental updates. This function is called recursively to efficiently build the DEMA and TEMA.
 
 * **User-Selectable Type via Enum:** The indicator uses an `input ENUM_MA_TYPE` parameter, which creates a user-friendly dropdown menu in the settings window. The user's selection is passed directly to the universal engine.
 
