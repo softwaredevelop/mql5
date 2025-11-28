@@ -1,4 +1,4 @@
-# Moving Average Ribbon MTF Professional
+# Moving Average Ribbon MTF Pro
 
 ## 1. Summary (Introduction)
 
@@ -10,7 +10,7 @@ The indicator provides complete control over:
 
 * **Timeframe** for each of the 4 lines.
 * **Period** for each of the 4 lines.
-* **MA Type** (SMA, EMA, SMMA, LWMA) for each of the 4 lines.
+* **MA Type** (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA) for each of the 4 lines.
 * **Price Source** (Standard or Heikin Ashi).
 
 ## 2. Mathematical Foundations and Calculation Logic
@@ -27,11 +27,15 @@ The power of the indicator comes from the visual relationship between these line
 
 This indicator is built on a robust, `iCustom()`-free, and highly modular "multi-engine" architecture to handle its complexity.
 
-* **Specialized MTF Engine (`Single_MA_MTF_Calculator.mqh`):** We first created a dedicated, reusable engine whose sole responsibility is to calculate one single moving average on one specific timeframe.
-
-* **"Manager" Calculator (`MovingAverage_Ribbon_MTF_Calculator.mqh`):** The main engine for this ribbon indicator uses the composition design pattern. It **contains four independent instances** of the `CSingleMAMTFCalculator`.
+* **Modular "Manager" Calculator (`MovingAverage_Ribbon_Calculator.mqh`):** The main engine for this ribbon indicator uses the composition design pattern. It **contains four independent instances** of the `CMovingAverageCalculator`.
   * The main engine acts as a "manager," delegating the complete calculation of each line to one of the specialized single-line calculators.
-  * This architecture perfectly separates concerns, ensuring the code is clean, stable, and easy to maintain, despite the indicator's complexity.
+  * This architecture perfectly separates concerns, ensuring the code is clean, stable, and easy to maintain.
+
+* **Optimized Incremental Calculation:**
+    Despite managing four separate MTF calculations simultaneously, the indicator remains extremely efficient.
+  * Each of the four internal calculators tracks its own state and utilizes the `prev_calculated` optimization.
+  * **Persistent State:** The internal buffers for recursive calculations (EMA, SMMA, DEMA, TEMA) persist between ticks for each line independently.
+  * This ensures that the indicator runs with **O(1) complexity** per tick, updating all four lines instantly without re-processing history.
 
 * **No External Dependencies:** The entire calculation is self-contained. It directly fetches the required higher-timeframe price data using built-in `Copy...` functions, making the indicator fully portable and robust.
 
@@ -42,7 +46,7 @@ The indicator's inputs are organized into four groups, one for each moving avera
 * **MA 1-4 Settings:**
   * **`InpTimeframe1` - `InpTimeframe4`:** The source timeframe for each line. `PERIOD_CURRENT` will use the chart's active timeframe.
   * **`InpPeriod1` - `InpPeriod4`:** The lookback period for each line.
-  * **`InpMAType1` - `InpMAType4`:** The MA type (SMA, EMA, SMMA, LWMA) for each line.
+  * **`InpMAType1` - `InpMAType4`:** The MA type (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA) for each line.
 * **Price Source:**
   * **`InpSourcePrice`:** The source price for all calculations (Standard or Heikin Ashi).
 
