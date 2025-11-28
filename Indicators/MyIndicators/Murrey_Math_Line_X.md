@@ -1,10 +1,10 @@
-# Murrey Math Line X Indicator
+# Murrey Math Line X Pro Indicator
 
 ## 1. Summary (Introduction)
 
-The Murrey Math Line X is a comprehensive support and resistance indicator based on the geometric trading principles of W.D. Gann. Developed and simplified by T. Henning Murrey, the system posits that market movements are not random but follow a natural, harmonic order that can be divided into octaves of 1/8th.
+The Murrey Math Line X Pro is a comprehensive support and resistance indicator based on the geometric trading principles of W.D. Gann. Developed and simplified by T. Henning Murrey, the system posits that market movements are not random but follow a natural, harmonic order that can be divided into octaves of 1/8th.
 
-This MQL5 indicator automatically identifies the relevant price range (or "octave") for a given period and plots a grid of 13 key price levels. These lines are not simple pivot points; each has a distinct "personality" and serves as a probabilistic guide for potential price reversals, continuations, and trading range boundaries. The indicator is fully Multi-Timeframe (MTF) capable, allowing it to display levels from a higher timeframe on any lower timeframe chart.
+This professional MQL5 implementation automatically identifies the relevant price range (or "octave") for a given period and plots a grid of 13 key price levels. These lines are not simple pivot points; each has a distinct "personality" and serves as a probabilistic guide for potential price reversals, continuations, and trading range boundaries. The indicator is fully Multi-Timeframe (MTF) capable, allowing it to display levels from a higher timeframe on any lower timeframe chart.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
@@ -26,22 +26,16 @@ The calculation of Murrey Math Lines is a multi-step process designed to normali
 
 ## 3. MQL5 Implementation Details
 
-This indicator was refactored from its original procedural form into a robust, object-oriented, and self-contained structure, adhering to our core development principles.
+This indicator has been refactored into a professional, modular architecture, adhering to strict "Separation of Concerns" principles. This design ensures stability, maintainability, and reusability.
 
-- **Self-Contained Object-Oriented Design:** The entire logic is encapsulated within a single `.mq5` file but is internally structured into distinct classes for clarity and maintainability:
+- **Modular Architecture:** The logic is split into distinct components:
+  - **`MurreyMath_Calculator.mqh`**: A pure calculation engine. It handles Multi-Timeframe (MTF) data retrieval and the core mathematical algorithm. It is completely decoupled from any drawing logic, making it directly reusable in Expert Advisors (EAs) or scripts without modification.
+  - **`MurreyMath_Drawer.mqh`**: A dedicated visualization class. It manages all chart interactions, including the creation, movement, and styling of `OBJ_HLINE` and `OBJ_TEXT` objects. It implements automatic cleanup in its destructor to prevent "ghost" objects on the chart.
+  - **`Murrey_Math_Line_X_Pro.mq5`**: The main indicator file acts as a lightweight controller, orchestrating the data flow between the calculator and the drawer.
 
-  - `CMurreyMathCalculator`: A dedicated class that handles the complex, multi-timeframe (MTF) data retrieval and the core mathematical algorithm. It is completely decoupled from any drawing logic.
-  - `CMurreyMathDrawer`: This class is solely responsible for all chart interactions, including the creation, movement, and styling of the `OBJ_HLINE` and `OBJ_TEXT` objects. Its destructor (`~CMurreyMathDrawer`) ensures all objects are automatically removed from the chart (RAII principle).
-  - `CMurreyMathController`: A high-level controller class that manages the lifecycle of the calculator and drawer objects, orchestrating the flow of data between them.
+- **Stable MTF Implementation:** The `CMurreyMathCalculator` class robustly handles Multi-Timeframe data. It verifies data availability (`SERIES_BARS_COUNT`) before attempting to copy history, preventing runtime errors during initialization. Recalculation is triggered efficiently, ensuring levels are always up-to-date with the higher timeframe context.
 
-- **Stable MTF Implementation:** The indicator correctly implements Multi-Timeframe functionality. The `CMurreyMathCalculator` uses `CopyHigh()` and `CopyLow()` to fetch data from the user-specified `InpUpperTimeframe`. The recalculation of levels is triggered only when a **new bar forms on that higher timeframe**, ensuring the levels remain stable and accurate, as intended.
-
-- **Efficient Update and Drawing Logic:**
-
-  - The main `OnCalculate()` function is streamlined. It detects new bars on the higher timeframe to trigger a full recalculation.
-  - For other events, such as the user scrolling or zooming the chart, it triggers a lightweight redraw to reposition the text labels without performing the heavy mathematical calculations. This is achieved by tracking the `CHART_FIRST_VISIBLE_BAR` property and only redrawing when it changes.
-
-- **Robust Label Positioning:** The logic for placing the text labels was carefully implemented to exactly replicate the behavior of the original, proven indicator. It uses a timeseries-based `time` array and adjusts the time coordinate of the text objects based on the user's `InpLabelSide` choice, ensuring the labels are always correctly positioned on the left or right side of the chart.
+- **Robust Drawing Logic:** The drawing logic strictly follows the calculation state. Visual elements are only updated or drawn if the calculation engine returns a success status (`true`). This prevents the display of invalid or partial levels during data loading phases. The label positioning logic replicates the original behavior, supporting both left-aligned and right-aligned text placement.
 
 ## 4. Parameters
 
@@ -49,11 +43,11 @@ This indicator was refactored from its original procedural form into a robust, o
 - **`InpUpperTimeframe`**: The timeframe on which the Murrey Math calculation is performed. Setting this to a higher timeframe (e.g., `PERIOD_H4`) will display the H4 levels on any lower timeframe chart (e.g., M15). `PERIOD_CURRENT` uses the chart's own timeframe. Default: `PERIOD_H4`.
 - **`InpStepBack`**: The number of bars to shift the calculation start point into the past. `0` means the calculation is based on the most recent bars. Default: `0`.
 - **`InpLabelSide`**: Determines where the descriptive text labels are displayed.
-  - `Left`: Labels are aligned to the left edge of the chart window.
-  - `Right`: Labels are aligned to the most recent price action on the right.
+  - `Left`: Labels are aligned to the left edge of the chart window (first visible bar).
+  - `Right`: Labels are aligned to the right side (future/current price).
   - Default: `Left`.
 - **Line Colors & Widths**: A full set of inputs to customize the color and width of each of the 13 Murrey Math lines individually.
-- **Labels**: Inputs to control the font, font size, and object prefix for all created chart objects.
+- **Visual Settings**: Inputs to control the font face, font size, and a unique object prefix to prevent conflicts with other indicators.
 
 ## 5. Usage and Interpretation
 
