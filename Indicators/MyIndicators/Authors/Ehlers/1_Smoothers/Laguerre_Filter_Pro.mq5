@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                           Laguerre_Filter_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "1.10" // Adapted to new universal engine
+#property version   "1.20" // Optimized for incremental calculation
 #property description "John Ehlers' Laguerre Filter as a low-lag moving average."
 #property description "Includes an optional FIR filter for comparison."
 
@@ -80,7 +78,18 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -91,11 +100,14 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferFilter, BufferFIR);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter, BufferFIR);
 
+//--- Hide FIR if not requested (Optimized loop)
    if(!InpShowFIR)
      {
-      for(int i = 0; i < rates_total; i++)
+      int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start_index; i < rates_total; i++)
          BufferFIR[i] = EMPTY_VALUE;
      }
 
