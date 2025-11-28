@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                             Laguerre_Engine.mqh  |
-//|      VERSION 1.10: Corrected state management for stability.     |
+//|      VERSION 1.20: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -15,20 +15,24 @@ class CLaguerreEngine
 protected:
    double            m_gamma;
    ENUM_INPUT_SOURCE m_source_type;
+
+   //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
+   double            m_L0[], m_L1[], m_L2[], m_L3[]; // Internal state buffers
 
-   //--- State variables for the recursive filter (CRITICAL FIX) ---
-   double            m_L0_prev, m_L1_prev, m_L2_prev, m_L3_prev;
-
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CLaguerreEngine(void) {};
    virtual          ~CLaguerreEngine(void) {};
 
    bool              Init(double gamma, ENUM_INPUT_SOURCE source_type);
-   void              CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                                     double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[], double &filt_buffer[]);
+
+   //--- Updated: Accepts prev_calculated
+   void              CalculateFilter(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                                     double &filt_buffer[]);
+
    void              GetPriceBuffer(double &dest_array[]);
   };
 
@@ -37,24 +41,17 @@ public:
 //+==================================================================+
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CLaguerreEngine::Init(double gamma, ENUM_INPUT_SOURCE source_type)
   {
    m_gamma = fmax(0.0, fmin(1.0, gamma));
    m_source_type = source_type;
-
-//--- Reset state variables on initialization ---
-   m_L0_prev = 0;
-   m_L1_prev = 0;
-   m_L2_prev = 0;
-   m_L3_prev = 0;
-
    return true;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Get Price Buffer (Helper for FIR filter)                         |
 //+------------------------------------------------------------------+
 void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
   {
@@ -67,157 +64,177 @@ void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CLaguerreEngine::CalculateFilter(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
-                                      double &L0_buffer[], double &L1_buffer[], double &L2_buffer[], double &L3_buffer[], double &filt_buffer[])
+void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                                      double &filt_buffer[])
   {
    if(rates_total < 2)
       return;
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
-      return;
 
-   ArrayResize(L0_buffer, rates_total);
-   ArrayResize(L1_buffer, rates_total);
-   ArrayResize(L2_buffer, rates_total);
-   ArrayResize(L3_buffer, rates_total);
-   ArrayResize(filt_buffer, rates_total);
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
 
-//--- Robust initialization on first run ---
-   if(m_L0_prev == 0 && m_L1_prev == 0) // A simple check for first run
+//--- 2. Resize Internal Buffers
+   if(ArraySize(m_price) != rates_total)
      {
-      m_L0_prev = m_price[0];
-      m_L1_prev = m_price[0];
-      m_L2_prev = m_price[0];
-      m_L3_prev = m_price[0];
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_L0, rates_total);
+      ArrayResize(m_L1, rates_total);
+      ArrayResize(m_L2, rates_total);
+      ArrayResize(m_L3, rates_total);
      }
 
-   for(int i = 0; i < rates_total; i++)
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
+
+//--- 4. Calculate Laguerre Filter
+// We need to handle the very first bar separately for initialization
+   int i = start_index;
+
+   if(i == 0)
      {
-      // For the very first bar, output is just the price
-      if(i == 0)
-        {
-         L0_buffer[i] = m_price[i];
-         L1_buffer[i] = m_price[i];
-         L2_buffer[i] = m_price[i];
-         L3_buffer[i] = m_price[i];
-        }
-      else
-        {
-         L0_buffer[i] = (1.0 - m_gamma) * m_price[i] + m_gamma * m_L0_prev;
-         L1_buffer[i] = -m_gamma * L0_buffer[i] + m_L0_prev + m_gamma * m_L1_prev;
-         L2_buffer[i] = -m_gamma * L1_buffer[i] + m_L1_prev + m_gamma * m_L2_prev;
-         L3_buffer[i] = -m_gamma * L2_buffer[i] + m_L2_prev + m_gamma * m_L3_prev;
-        }
+      m_L0[0] = m_price[0];
+      m_L1[0] = m_price[0];
+      m_L2[0] = m_price[0];
+      m_L3[0] = m_price[0];
+      filt_buffer[0] = (m_L0[0] + 2.0 * m_L1[0] + 2.0 * m_L2[0] + m_L3[0]) / 6.0;
+      i = 1;
+     }
 
-      filt_buffer[i] = (L0_buffer[i] + 2.0 * L1_buffer[i] + 2.0 * L2_buffer[i] + L3_buffer[i]) / 6.0;
+   for(; i < rates_total; i++)
+     {
+      // Recursive calculation uses [i-1] from persistent buffers
+      // This is safe even if we recalculate the last bar multiple times
+      double L0_prev = m_L0[i-1];
+      double L1_prev = m_L1[i-1];
+      double L2_prev = m_L2[i-1];
+      double L3_prev = m_L3[i-1];
 
-      //--- Update state variables for the next iteration ---
-      m_L0_prev = L0_buffer[i];
-      m_L1_prev = L1_buffer[i];
-      m_L2_prev = L2_buffer[i];
-      m_L3_prev = L3_buffer[i];
+      m_L0[i] = (1.0 - m_gamma) * m_price[i] + m_gamma * L0_prev;
+      m_L1[i] = -m_gamma * m_L0[i] + L0_prev + m_gamma * L1_prev;
+      m_L2[i] = -m_gamma * m_L1[i] + L1_prev + m_gamma * L2_prev;
+      m_L3[i] = -m_gamma * m_L2[i] + L2_prev + m_gamma * L3_prev;
+
+      filt_buffer[i] = (m_L0[i] + 2.0 * m_L1[i] + 2.0 * m_L2[i] + m_L3[i]) / 6.0;
      }
   }
 
 //+------------------------------------------------------------------+
-bool CLaguerreEngine::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Standard - Optimized)                             |
+//+------------------------------------------------------------------+
+bool CLaguerreEngine::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_price, rates_total);
-   if(m_source_type == SOURCE_PRICE)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
-      switch(price_type)
+      if(m_source_type == SOURCE_PRICE)
         {
-         case PRICE_OPEN:
-            ArrayCopy(m_price, open, 0, 0, rates_total);
-            break;
-         case PRICE_HIGH:
-            ArrayCopy(m_price, high, 0, 0, rates_total);
-            break;
-         case PRICE_LOW:
-            ArrayCopy(m_price, low, 0, 0, rates_total);
-            break;
-         case PRICE_MEDIAN:
-            for(int i=0; i<rates_total; i++)
+         switch(price_type)
+           {
+            case PRICE_OPEN:
+               m_price[i] = open[i];
+               break;
+            case PRICE_HIGH:
+               m_price[i] = high[i];
+               break;
+            case PRICE_LOW:
+               m_price[i] = low[i];
+               break;
+            case PRICE_MEDIAN:
                m_price[i] = (high[i]+low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            for(int i=0; i<rates_total; i++)
+               break;
+            case PRICE_TYPICAL:
                m_price[i] = (high[i]+low[i]+close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            for(int i=0; i<rates_total; i++)
+               break;
+            case PRICE_WEIGHTED:
                m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-            break;
-         default:
-            ArrayCopy(m_price, close, 0, 0, rates_total);
-            break;
+               break;
+            default:
+               m_price[i] = close[i];
+               break;
+           }
         }
-     }
-   else // SOURCE_MOMENTUM
-     {
-      for(int i=0; i<rates_total; i++)
+      else // SOURCE_MOMENTUM
+        {
          m_price[i] = close[i] - open[i];
+        }
      }
    return true;
   }
 
 //+==================================================================+
+//|             CLASS 2: CLaguerreEngine_HA (Heikin Ashi)            |
+//+==================================================================+
 class CLaguerreEngine_HA : public CLaguerreEngine
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-bool CLaguerreEngine_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Heikin Ashi - Optimized)                          |
+//+------------------------------------------------------------------+
+bool CLaguerreEngine_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_price, rates_total);
-   if(m_source_type == SOURCE_PRICE)
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      switch(price_type)
-        {
-         case PRICE_OPEN:
-            ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-            break;
-         case PRICE_HIGH:
-            ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-            break;
-         case PRICE_LOW:
-            ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-            break;
-         case PRICE_MEDIAN:
-            for(int i=0; i<rates_total; i++)
-               m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            for(int i=0; i<rates_total; i++)
-               m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            for(int i=0; i<rates_total; i++)
-               m_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
-            break;
-         default:
-            ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-            break;
-        }
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
      }
-   else // SOURCE_MOMENTUM
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
      {
-      for(int i=0; i<rates_total; i++)
-         m_price[i] = ha_close[i] - ha_open[i];
+      if(m_source_type == SOURCE_PRICE)
+        {
+         switch(price_type)
+           {
+            case PRICE_OPEN:
+               m_price[i] = m_ha_open[i];
+               break;
+            case PRICE_HIGH:
+               m_price[i] = m_ha_high[i];
+               break;
+            case PRICE_LOW:
+               m_price[i] = m_ha_low[i];
+               break;
+            case PRICE_MEDIAN:
+               m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+               break;
+            case PRICE_TYPICAL:
+               m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+               break;
+            case PRICE_WEIGHTED:
+               m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+               break;
+            default:
+               m_price[i] = m_ha_close[i];
+               break;
+           }
+        }
+      else // SOURCE_MOMENTUM
+        {
+         m_price[i] = m_ha_close[i] - m_ha_open[i];
+        }
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
