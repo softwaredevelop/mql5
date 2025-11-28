@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                           MACD_Laguerre_Line_Calculator.mqh      |
-//|         VERSION 1.10: Corrected Gamma logic (smaller = faster).  |
+//|      VERSION 1.20: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -21,8 +21,10 @@ public:
                      CMACDLaguerreLineCalculator(void);
    virtual          ~CMACDLaguerreLineCalculator(void);
 
-   bool              Init(double gamma1, double gamma2); // Changed signature
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+   bool              Init(double gamma1, double gamma2);
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &macd_line[]);
   };
 
@@ -38,7 +40,7 @@ protected:
 //+==================================================================+
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
 CMACDLaguerreLineCalculator::CMACDLaguerreLineCalculator(void)
   {
@@ -47,7 +49,7 @@ CMACDLaguerreLineCalculator::CMACDLaguerreLineCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Destructor                                                       |
 //+------------------------------------------------------------------+
 CMACDLaguerreLineCalculator::~CMACDLaguerreLineCalculator(void)
   {
@@ -58,15 +60,17 @@ CMACDLaguerreLineCalculator::~CMACDLaguerreLineCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Factory Method                                                   |
 //+------------------------------------------------------------------+
 CLaguerreEngine *CMACDLaguerreLineCalculator::CreateEngineInstance(void) { return new CLaguerreEngine(); }
 CLaguerreEngine *CMACDLaguerreLineCalculator_HA::CreateEngineInstance(void) { return new CLaguerreEngine_HA(); }
 
-//--- CORRECTED and more ROBUST Init method ---
+//+------------------------------------------------------------------+
+//| Init                                                             |
+//+------------------------------------------------------------------+
 bool CMACDLaguerreLineCalculator::Init(double gamma1, double gamma2)
   {
-//--- Automatically determine which gamma is fast (smaller) and slow (larger) ---
+//--- Automatically determine which gamma is fast (smaller) and slow (larger)
    m_fast_gamma = MathMin(gamma1, gamma2);
    m_slow_gamma = MathMax(gamma1, gamma2);
 
@@ -81,21 +85,25 @@ bool CMACDLaguerreLineCalculator::Init(double gamma1, double gamma2)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CMACDLaguerreLineCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CMACDLaguerreLineCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &macd_line[])
   {
    if(rates_total < 2)
       return;
 
+//--- 1. Calculate Fast and Slow Laguerre Filters (Incremental)
    double fast_filter[], slow_filter[];
-   double L0_dummy[], L1_dummy[], L2_dummy[], L3_dummy[];
+// Note: The engine resizes them.
 
-   m_fast_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0_dummy, L1_dummy, L2_dummy, L3_dummy, fast_filter);
-   m_slow_engine.CalculateFilter(rates_total, price_type, open, high, low, close, L0_dummy, L1_dummy, L2_dummy, L3_dummy, slow_filter);
+   m_fast_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, fast_filter);
+   m_slow_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, slow_filter);
 
-   for(int i = 0; i < rates_total; i++)
+//--- 2. Calculate MACD Line (Incremental Loop)
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = start_index; i < rates_total; i++)
       macd_line[i] = fast_filter[i] - slow_filter[i];
   }
 //+------------------------------------------------------------------+
