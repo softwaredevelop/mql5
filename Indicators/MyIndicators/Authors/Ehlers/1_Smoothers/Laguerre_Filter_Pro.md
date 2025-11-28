@@ -1,4 +1,4 @@
-# Laguerre Filter Professional
+# Laguerre Filter Pro
 
 ## 1. Summary (Introduction)
 
@@ -38,8 +38,14 @@ The indicator's logic is centered around the recursive Laguerre filter and a fin
 ## 3. MQL5 Implementation Details
 
 * **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. This engine is a **stateful class**, meaning it correctly maintains the previous values of its internal components (`L0`...`L3`) between calculations. This is critical for the stability and accuracy of the recursive filter. The `Laguerre_Filter_Calculator.mqh` is a thin adapter that uses this stable engine.
-* **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`m_L0`...`m_L3`) persist their state between ticks, allowing the recursive Laguerre algorithm to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
+* **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
 
 ## 4. Parameters
 
@@ -56,9 +62,8 @@ The Laguerre Filter is used as a superior, low-lag alternative to traditional mo
 * **Trend Identification:** It serves as a highly responsive trendline.
   * When the price is consistently above the Laguerre Filter and the line is rising, the trend is bullish.
   * When the price is consistently below the Laguerre Filter and the line is falling, the trend is bearish.
-* **Crossover Signals:** ...
-  * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.2` for the fast line and `0.7` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
-  * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.5` for the fast line and `0.2` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
+* **Crossover Signals:**
+  * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.5` for the fast line and `0.8` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
 * **Dynamic Support and Resistance:** In a trending market, the Laguerre Filter line often acts as a dynamic level of support (in an uptrend) or resistance (in a downtrend), providing potential entry points on pullbacks.
 
 ### **Combined Strategy with Laguerre Momentum (Advanced)**
