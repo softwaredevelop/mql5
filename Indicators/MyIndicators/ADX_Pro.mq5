@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       ADX_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2025, xxxxxxxx"
-#property link        ""
-#property version     "2.01" // Corrected calculator logic
+#property version     "2.02" // Optimized for incremental calculation
 #property description "Professional ADX by Welles Wilder with selectable"
 #property description "candle source (Standard or Heikin Ashi)."
 
@@ -119,7 +117,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated,
+                const int prev_calculated, // <--- Now used!
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -129,15 +127,13 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate the entire calculation to our calculator object
-//--- CORRECTED: Added 'open' to the call
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferADX, BufferPDI, BufferNDI);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close,
+                          BufferADX, BufferPDI, BufferNDI);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
