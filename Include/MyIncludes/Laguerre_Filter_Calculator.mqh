@@ -34,16 +34,6 @@ bool CLaguerreFilterCalculator::Init(double gamma, ENUM_INPUT_SOURCE source_type
 void CLaguerreFilterCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &filter_buffer[], double &fir_buffer[])
   {
-// Note: The engine calculates L0..L3 internally, we just need the final output.
-// But the engine's CalculateFilter method signature was designed to return all L buffers for debugging/other indicators.
-// We can simplify the engine or just pass dummy buffers if we don't need them,
-// OR update the engine to store them internally (which we did in the previous step!).
-
-// Wait, in the previous step (Laguerre_Engine.mqh), I changed CalculateFilter to:
-// void CalculateFilter(..., double &filt_buffer[])
-// It no longer returns L0..L3 as arguments because they are internal members now.
-// So we update the call here.
-
    m_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, filter_buffer);
 
 // FIR Filter Calculation (Simple Moving Average of Price)
