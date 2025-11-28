@@ -1,4 +1,4 @@
-# MACD Laguerre Professional
+# MACD Laguerre Pro
 
 ## 1. Summary (Introduction)
 
@@ -35,11 +35,15 @@ The system is built by first creating a Laguerre-based MACD line, then applying 
 
 * **Modular and Composite Design:** The `MACD_Laguerre_Calculator.mqh` uses a composition-based design: it **contains two instances** of our robust, state-managed `Laguerre_Engine` to generate the base MACD line.
 
-* **Flexible Signal Line Calculation:** The calculator uses a `switch` block to apply the user's chosen smoothing method for the signal line. This includes a dedicated, state-managed calculation for the `Laguerre` option and reuses our universal `CalculateMA` helper function for standard MA types.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal Laguerre engines persist their state (`L0`...`L3`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Robust Initialization:** The `Init` method automatically identifies which of the two user-provided gamma values for the MACD line is smaller (fast) and which is larger (slow).
+* **Flexible Signal Line Calculation:** The calculator dynamically instantiates either a third `Laguerre_Engine` or a `MovingAverage_Engine` for the signal line, depending on the user's choice. This ensures that the signal line calculation is also fully optimized and incremental.
 
-* **Heikin Ashi Integration:** A "Factory Method" (`CreateEngineInstance`) is used to instantiate the correct type of Laguerre engine (`standard` or `_HA`).
+* **Heikin Ashi Integration:** A "Factory Method" (`CreateEngineInstance`) is used to instantiate the correct type of Laguerre engine (`standard` or `_HA`), ensuring seamless Heikin Ashi integration.
 
 ## 4. Parameters
 
