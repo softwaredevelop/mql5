@@ -1,4 +1,4 @@
-# Ehlers Smoother Momentum Professional
+# Ehlers Smoother Momentum Pro
 
 ## 1. Summary (Introduction)
 
@@ -21,8 +21,12 @@ The indicator is a smoothed average of the `Close - Open` value of each bar, usi
 ## 3. MQL5 Implementation Details
 
 * **Unified Calculator (`Ehlers_Smoother_Calculator.mqh`):** This indicator uses the exact same, powerful calculator engine as the `Ehlers_Smoother_Pro`. The only difference is that it is initialized in `SOURCE_MOMENTUM` mode.
-* **Heikin Ashi Integration:** The indicator fully supports calculation on smoothed Heikin Ashi data (`HA Close - HA Open`).
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call to ensure the stateful, recursive calculation is always stable.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal momentum buffer (`m_price`) and the output buffer (`filter_buffer`) persist their state between ticks. This allows the recursive IIR filter to continue seamlessly from the last known values without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+* **Heikin Ashi Integration:** The indicator fully supports calculation on smoothed Heikin Ashi data (`HA Close - HA Open`), leveraging the same optimized engine.
 
 ## 4. Parameters
 
