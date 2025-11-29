@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                   Ehlers_Smoother_Calculator.mqh |
-//|      VERSION 2.40: Optimized for incremental calculation.        |
+//|      VERSION 2.50: Added safety resize for output buffer.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -21,7 +21,6 @@ protected:
    //--- Persistent Buffer for Price
    double              m_price[];
 
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -29,15 +28,11 @@ public:
    virtual          ~CEhlersSmootherCalculator(void) {};
 
    bool              Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type);
-
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
 
    int               GetPeriod(void) const { return m_period; }
   };
 
-//+------------------------------------------------------------------+
-//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator::Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type)
   {
@@ -48,12 +43,15 @@ bool CEhlersSmootherCalculator::Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_I
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
-//+------------------------------------------------------------------+
 void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
   {
    if(rates_total < 4)
       return;
+
+//--- SAFETY FIX: Ensure output buffer is large enough
+//--- If filter_buffer is a dynamic array passed from another calculator, it might be size 0.
+   if(ArraySize(filter_buffer) != rates_total)
+      ArrayResize(filter_buffer, rates_total);
 
 //--- 1. Determine Start Index
    int start_index;
@@ -66,7 +64,7 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
    if(ArraySize(m_price) != rates_total)
       ArrayResize(m_price, rates_total);
 
-//--- 3. Prepare Price (Optimized)
+//--- 3. Prepare Price
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
@@ -77,10 +75,10 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
    double c3 = -a1 * a1;
    double c1 = (m_type == SUPERSMOOTHER) ? (1.0 - c2 - c3) : ((1.0 + c2 - c3) / 4.0);
 
-//--- 5. Calculate Filter (Incremental Loop)
+//--- 5. Calculate Filter
    int i = start_index;
 
-// Initialization for the first few bars
+// Initialization
    if(i < 3)
      {
       if(rates_total > 0)
@@ -94,15 +92,13 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
 
    for(; i < rates_total; i++)
      {
-      double current_f = 0;
-
-      // We use filter_buffer[i-1] and [i-2] which are persistent
       double f1 = filter_buffer[i-1];
       double f2 = filter_buffer[i-2];
 
+      double current_f;
       if(m_type == SUPERSMOOTHER)
          current_f = c1 * (m_price[i] + m_price[i-1]) / 2.0 + c2 * f1 + c3 * f2;
-      else // ULTIMATESMOOTHER
+      else
          current_f = (1.0 - c1) * m_price[i] + (2.0 * c1 - c2) * m_price[i-1] - (c1 + c3) * m_price[i-2] + c2 * f1 + c3 * f2;
 
       filter_buffer[i] = current_f;
@@ -110,11 +106,8 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Standard - Optimized)                             |
-//+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       if(m_source_type == SOURCE_PRICE)
@@ -156,13 +149,10 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(int rates_total, int start_in
   }
 
 //+==================================================================+
-//|             CLASS 2: CEhlersSmootherCalculator_HA                |
-//+==================================================================+
 class CEhlersSmootherCalculator_HA : public CEhlersSmootherCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
@@ -170,11 +160,8 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
-//+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -183,11 +170,9 @@ bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start
       ArrayResize(m_ha_close, rates_total);
      }
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-//--- Copy to m_price (Optimized loop)
    for(int i = start_index; i < rates_total; i++)
      {
       if(m_source_type == SOURCE_PRICE)
