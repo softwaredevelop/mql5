@@ -1,4 +1,4 @@
-# MACD SuperSmoother Histogram Professional
+# MACD SuperSmoother Histogram Pro
 
 ## 1. Summary (Introduction)
 
@@ -27,7 +27,13 @@ To ensure perfect synchronization and accuracy without external dependencies, th
 
 * **Self-Contained Calculation:** The indicator is fully self-contained. Its engine (`MACD_SuperSmoother_Histogram_Calculator.mqh`) internally recalculates the entire SuperSmoother MACD line using our robust `Ehlers_Smoother_Calculator`.
 
-* **Flexible Signal Line Calculation:** The calculator uses a universal `CalculateMA` helper function to apply the user's chosen smoothing method for the signal line. This includes a dedicated, state-managed calculation for the `SuperSmoother` option, ensuring its stability.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal SuperSmoother engines persist their state (`f1`, `f2`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
+* **Flexible Signal Line Calculation:** The calculator dynamically instantiates either a third `Ehlers_Smoother_Calculator` or a `MovingAverage_Engine` for the signal line, depending on the user's choice. This ensures that the signal line calculation is also fully optimized and incremental.
 
 * **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
 
