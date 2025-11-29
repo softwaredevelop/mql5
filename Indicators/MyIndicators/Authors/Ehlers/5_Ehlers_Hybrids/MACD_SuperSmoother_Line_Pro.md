@@ -1,4 +1,4 @@
-# MACD SuperSmoother Line Professional
+# MACD SuperSmoother Line Pro
 
 ## 1. Summary (Introduction)
 
@@ -35,9 +35,13 @@ The concept is to create a momentum oscillator from the difference between a fas
 
 * **Object-Oriented Design (Composition):** The `CMACDSuperSmootherLineCalculator` class does not re-implement the filter logic. Instead, it **contains two instances** of the `CEhlersSmootherCalculator` class—one for the fast filter and one for the slow one. This is a clean and highly reusable application of the composition design pattern.
 
-* **Factory Method for HA:** A `CreateSmootherInstance` virtual method is used to instantiate the correct type of smoother (`standard` or `_HA`), allowing the Heikin Ashi logic to be cleanly integrated without duplicating the main calculation chain.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal SuperSmoother engines persist their state (`f1`, `f2`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Stability:** The underlying `Ehlers_Smoother_Calculator` uses proper state management for its internal recursive variables, ensuring a stable and accurate output.
+* **Factory Method for HA:** A `CreateSmootherInstance` virtual method is used to instantiate the correct type of smoother (`standard` or `_HA`), allowing the Heikin Ashi logic to be cleanly integrated without duplicating the main calculation chain.
 
 ## 4. Parameters
 
