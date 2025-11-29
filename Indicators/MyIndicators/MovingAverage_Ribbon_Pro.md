@@ -1,4 +1,4 @@
-# Moving Average Ribbon Professional
+# Moving Average Ribbon Pro
 
 ## 1. Summary (Introduction)
 
@@ -10,12 +10,15 @@ As part of our professional indicator suite, it fully supports calculations on b
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-The indicator is a "meta-indicator" built upon the four fundamental moving average types:
+The indicator is a "meta-indicator" built upon the seven fundamental and advanced moving average types supported by our engine:
 
 * **SMA** (Simple Moving Average)
 * **EMA** (Exponential Moving Average)
 * **SMMA** (Smoothed Moving Average)
 * **LWMA** (Linear Weighted Moving Average)
+* **TMA** (Triangular Moving Average)
+* **DEMA** (Double Exponential Moving Average)
+* **TEMA** (Triple Exponential Moving Average)
 
 The core concept of a moving average ribbon is to visualize the relationship between multiple moving averages of different lengths.
 
@@ -26,6 +29,12 @@ The core concept of a moving average ribbon is to visualize the relationship bet
 ## 3. MQL5 Implementation Details
 
 * **Modular and Composite Design:** The indicator's engine (`MovingAverage_Ribbon_Calculator.mqh`) is a prime example of the composition design pattern. It **contains four independent instances** of our universal `CMovingAverageCalculator` class. Each instance is responsible for calculating one line of the ribbon.
+
+* **Optimized Incremental Calculation:**
+    Despite managing four separate calculations simultaneously, the indicator remains extremely efficient.
+  * Each of the four internal calculators tracks its own state and utilizes the `prev_calculated` optimization.
+  * **Persistent State:** The internal buffers for recursive calculations (EMA, SMMA, DEMA, TEMA) persist between ticks for each line independently.
+  * This ensures that the indicator runs with **O(1) complexity** per tick, updating all four lines instantly without re-processing history.
 
 * **Maximum Reusability:** This architecture leverages our existing, robust `MovingAverage_Engine.mqh` without modification. The ribbon calculator acts as a "manager" that simply delegates the calculation for each line to a specialized, single-MA calculator.
 
@@ -39,7 +48,7 @@ The indicator's inputs are organized into four groups, one for each moving avera
 
 * **MA 1-4 Settings:**
   * **`InpPeriod1` - `InpPeriod4`:** The lookback period for each of the four moving average lines.
-  * **`InpMAType1` - `InpMAType4`:** A dropdown menu to select the MA type (SMA, EMA, SMMA, LWMA) for each line independently.
+  * **`InpMAType1` - `InpMAType4`:** A dropdown menu to select the MA type (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA) for each line independently.
 * **Price Source:**
   * **`InpSourcePrice`:** The source price for all calculations (Standard or Heikin Ashi).
 
