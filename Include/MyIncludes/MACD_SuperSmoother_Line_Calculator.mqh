@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                           MACD_SuperSmoother_Line_Calculator.mqh |
-//|         Engine for calculating only the MACD Line with SS.       |
+//|      VERSION 1.20: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -15,6 +15,10 @@ protected:
    CEhlersSmootherCalculator *m_fast_smoother;
    CEhlersSmootherCalculator *m_slow_smoother;
 
+   //--- Persistent buffers for recursive state
+   double            m_fast_buffer[];
+   double            m_slow_buffer[];
+
    virtual CEhlersSmootherCalculator *CreateSmootherInstance(void);
 
 public:
@@ -22,7 +26,9 @@ public:
    virtual          ~CMACDSuperSmootherLineCalculator(void);
 
    bool              Init(int fast_p, int slow_p);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &macd_line[]);
   };
 
@@ -38,7 +44,7 @@ protected:
 //+==================================================================+
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
 CMACDSuperSmootherLineCalculator::CMACDSuperSmootherLineCalculator(void)
   {
@@ -47,7 +53,7 @@ CMACDSuperSmootherLineCalculator::CMACDSuperSmootherLineCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Destructor                                                       |
 //+------------------------------------------------------------------+
 CMACDSuperSmootherLineCalculator::~CMACDSuperSmootherLineCalculator(void)
   {
@@ -58,13 +64,13 @@ CMACDSuperSmootherLineCalculator::~CMACDSuperSmootherLineCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Factory Method                                                   |
 //+------------------------------------------------------------------+
 CEhlersSmootherCalculator *CMACDSuperSmootherLineCalculator::CreateSmootherInstance(void) { return new CEhlersSmootherCalculator(); }
 CEhlersSmootherCalculator *CMACDSuperSmootherLineCalculator_HA::CreateSmootherInstance(void) { return new CEhlersSmootherCalculator_HA(); }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CMACDSuperSmootherLineCalculator::Init(int fast_p, int slow_p)
   {
@@ -89,23 +95,28 @@ bool CMACDSuperSmootherLineCalculator::Init(int fast_p, int slow_p)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CMACDSuperSmootherLineCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CMACDSuperSmootherLineCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &macd_line[])
   {
    if(rates_total <= m_slow_period)
       return;
 
-   double fast_buffer[], slow_buffer[];
-   ArrayResize(fast_buffer, rates_total, 0);
-   ArrayResize(slow_buffer, rates_total, 0);
+//--- Resize persistent buffers
+   if(ArraySize(m_fast_buffer) != rates_total)
+      ArrayResize(m_fast_buffer, rates_total);
+   if(ArraySize(m_slow_buffer) != rates_total)
+      ArrayResize(m_slow_buffer, rates_total);
 
-   m_fast_smoother.Calculate(rates_total, price_type, open, high, low, close, fast_buffer);
-   m_slow_smoother.Calculate(rates_total, price_type, open, high, low, close, slow_buffer);
+//--- Calculate Smoothers (Incremental)
+   m_fast_smoother.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_fast_buffer);
+   m_slow_smoother.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_slow_buffer);
 
-   for(int i = 0; i < rates_total; i++)
-      macd_line[i] = fast_buffer[i] - slow_buffer[i];
+//--- Calculate MACD Line
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = start_index; i < rates_total; i++)
+      macd_line[i] = m_fast_buffer[i] - m_slow_buffer[i];
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
