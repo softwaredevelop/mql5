@@ -1,4 +1,4 @@
-# Ehlers Smoother Professional
+# Ehlers Smoother Pro
 
 ## 1. Summary (Introduction)
 
@@ -38,10 +38,13 @@ The coefficients `c1, c2, c3` are calculated based on the `Period` input.
 ## 3. MQL5 Implementation Details
 
 * **Unified Calculator (`Ehlers_Smoother_Calculator.mqh`):** The complex, recursive calculations for both filter types are encapsulated within a single, dedicated calculator class. A user input determines which formula is executed.
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Robust State Management:** In accordance with our core principles for highly sensitive recursive filters, the calculation is handled within a **stateful internal helper class**. The `Calculate` method uses dedicated internal variables (`f1`, `f2`) to maintain the filter's state (the previous two values), ensuring maximum stability and preventing desynchronization.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal price buffer (`m_price`) and the output buffer (`filter_buffer`) persist their state between ticks. This allows the recursive IIR filter to continue seamlessly from the last known values (`Filt[i-1]`, `Filt[i-2]`) without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 * **Definition-True Initialization:** The filter is carefully "warmed up" by setting the initial output values to the raw price for the first few bars, exactly as described in Ehlers' original EasyLanguage code. This provides a stable starting point for the recursive calculation.
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call. This, combined with the robust internal state management, guarantees a stable and accurate output under all conditions.
+* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
 
 ## 4. Parameters
 
