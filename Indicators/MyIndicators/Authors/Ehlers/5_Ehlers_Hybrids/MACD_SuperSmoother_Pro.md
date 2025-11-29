@@ -1,4 +1,4 @@
-# MACD SuperSmoother Professional
+# MACD SuperSmoother Pro
 
 ## 1. Summary (Introduction)
 
@@ -41,9 +41,13 @@ The system is built by first creating a SuperSmoother-based MACD line, then appl
 
 * **Modular and Composite Design:** The `MACD_SuperSmoother_Calculator.mqh` uses a composition-based design: it **contains two instances** of our robust, state-managed `Ehlers_Smoother_Calculator` to generate the base MACD line.
 
-* **Flexible Signal Line Calculation:** The calculator uses a `switch` block and a reusable `CalculateMA` helper function to apply the user's chosen smoothing method for the signal line. This includes a dedicated, state-managed calculation for the `SuperSmoother` option.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal SuperSmoother engines persist their state (`f1`, `f2`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Robust State Management:** All recursive calculations use persistent member variables to maintain their state between ticks, which is critical for the stability and accuracy of Ehlers' filters.
+* **Flexible Signal Line Calculation:** The calculator dynamically instantiates either a third `Ehlers_Smoother_Calculator` or a `MovingAverage_Engine` for the signal line, depending on the user's choice. This ensures that the signal line calculation is also fully optimized and incremental.
 
 * **Heikin Ashi Integration:** A "Factory Method" (`CreateSmootherInstance`) is used to instantiate the correct type of smoother (`standard` or `_HA`), allowing for clean Heikin Ashi integration.
 
