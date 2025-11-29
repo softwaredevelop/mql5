@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Optimized for incremental calculation
 #property description "Ehlers' Smoother (Super/Ultimate) applied to Momentum (Close-Open)."
 
 #property indicator_separate_window
@@ -21,7 +21,12 @@
 
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 
-enum ENUM_CANDLE_SOURCE { SOURCE_STD, SOURCE_HA };
+//--- Restored Enum for clarity ---
+enum ENUM_CANDLE_SOURCE
+  {
+   SOURCE_STD, // Standard Candles
+   SOURCE_HA   // Heikin Ashi Candles
+  };
 
 //--- Input Parameters ---
 input ENUM_SMOOTHER_TYPE InpSmootherType = SUPERSMOOTHER;
@@ -53,6 +58,7 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("%s(%d)", name, InpPeriod));
      }
 
+// Initialize with SOURCE_MOMENTUM mode
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpSmootherType, SOURCE_MOMENTUM))
      {
       Print("Failed to initialize Ehlers Smoother Momentum Calculator.");
@@ -73,13 +79,25 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   g_calculator.Calculate(rates_total, PRICE_CLOSE, open, high, low, close, BufferMomentum);
+//--- Delegate calculation with prev_calculated optimization
+//--- We pass PRICE_CLOSE as a dummy value because in SOURCE_MOMENTUM mode,
+//--- the calculator ignores price_type and calculates (Close - Open) internally.
+   g_calculator.Calculate(rates_total, prev_calculated, PRICE_CLOSE, open, high, low, close, BufferMomentum);
+
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
