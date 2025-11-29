@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                               MACD_SuperSmoother_Calculator.mqh  |
-//|      VERSION 1.21: Corrected method definition placement.        |
+//|      VERSION 1.40: Fixed buffer persistence for recursive calc.  |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,7 +8,6 @@
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
-//--- Universal enum for all smoothing types ---
 enum ENUM_SMOOTHING_METHOD
   {
    SMOOTH_SMA,
@@ -25,25 +24,27 @@ protected:
    int               m_fast_period, m_slow_period, m_signal_period;
    ENUM_SMOOTHING_METHOD m_signal_ma_type;
 
+   //--- Engines
    CEhlersSmootherCalculator *m_fast_smoother;
    CEhlersSmootherCalculator *m_slow_smoother;
+   CEhlersSmootherCalculator *m_signal_smoother;
+   CMovingAverageCalculator  *m_signal_ma_engine;
 
-   double            m_sig_f1, m_sig_f2;
+   //--- CRITICAL FIX: Persistent buffers for intermediate calculations
+   double            m_fast_buffer[];
+   double            m_slow_buffer[];
 
    virtual CEhlersSmootherCalculator *CreateSmootherInstance(void);
-   void              CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_SMOOTHING_METHOD method, int start_pos);
 
 public:
                      CMACDSuperSmootherCalculator(void);
    virtual          ~CMACDSuperSmootherCalculator(void);
 
    bool              Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &macd_line[], double &signal_line[], double &histogram[]);
   };
 
-//+------------------------------------------------------------------+
-//|                                                                  |
 //+------------------------------------------------------------------+
 class CMACDSuperSmootherCalculator_HA : public CMACDSuperSmootherCalculator
   {
@@ -52,7 +53,7 @@ protected:
   };
 
 //+==================================================================+
-//|         METHOD IMPLEMENTATIONS: CMACDSuperSmootherCalculator     |
+//|                 METHOD IMPLEMENTATIONS                           |
 //+==================================================================+
 
 //+------------------------------------------------------------------+
@@ -62,8 +63,8 @@ CMACDSuperSmootherCalculator::CMACDSuperSmootherCalculator(void)
   {
    m_fast_smoother = NULL;
    m_slow_smoother = NULL;
-   m_sig_f1 = 0;
-   m_sig_f2 = 0;
+   m_signal_smoother = NULL;
+   m_signal_ma_engine = NULL;
   }
 
 //+------------------------------------------------------------------+
@@ -75,15 +76,17 @@ CMACDSuperSmootherCalculator::~CMACDSuperSmootherCalculator(void)
       delete m_fast_smoother;
    if(CheckPointer(m_slow_smoother) != POINTER_INVALID)
       delete m_slow_smoother;
+   if(CheckPointer(m_signal_smoother) != POINTER_INVALID)
+      delete m_signal_smoother;
+   if(CheckPointer(m_signal_ma_engine) != POINTER_INVALID)
+      delete m_signal_ma_engine;
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-CEhlersSmootherCalculator *CMACDSuperSmootherCalculator::CreateSmootherInstance(void)
-  {
-   return new CEhlersSmootherCalculator();
-  }
+CEhlersSmootherCalculator *CMACDSuperSmootherCalculator::CreateSmootherInstance(void) { return new CEhlersSmootherCalculator(); }
+CEhlersSmootherCalculator *CMACDSuperSmootherCalculator_HA::CreateSmootherInstance(void) { return new CEhlersSmootherCalculator_HA(); }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -100,8 +103,6 @@ bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, EN
    m_slow_period = slow_p;
    m_signal_period = (signal_p < 1) ? 1 : signal_p;
    m_signal_ma_type = signal_type;
-   m_sig_f1 = 0;
-   m_sig_f2 = 0;
 
    m_fast_smoother = CreateSmootherInstance();
    m_slow_smoother = CreateSmootherInstance();
@@ -110,143 +111,65 @@ bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, EN
       CheckPointer(m_slow_smoother) == POINTER_INVALID || !m_slow_smoother.Init(m_slow_period, SUPERSMOOTHER, SOURCE_PRICE))
       return false;
 
+   if(m_signal_ma_type == SMOOTH_SuperSmoother)
+     {
+      m_signal_smoother = new CEhlersSmootherCalculator();
+      if(!m_signal_smoother.Init(m_signal_period, SUPERSMOOTHER, SOURCE_PRICE))
+         return false;
+     }
+   else
+     {
+      m_signal_ma_engine = new CMovingAverageCalculator();
+      ENUM_MA_TYPE ma_type = (ENUM_MA_TYPE)m_signal_ma_type;
+      if(!m_signal_ma_engine.Init(m_signal_period, ma_type))
+         return false;
+     }
+
    return true;
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CMACDSuperSmootherCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CMACDSuperSmootherCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &macd_line[], double &signal_line[], double &histogram[])
   {
    if(rates_total < m_slow_period + m_signal_period)
       return;
 
-   double fast_buffer[], slow_buffer[];
-   ArrayResize(fast_buffer, rates_total);
-   ArrayResize(slow_buffer, rates_total);
-   m_fast_smoother.Calculate(rates_total, price_type, open, high, low, close, fast_buffer);
-   m_slow_smoother.Calculate(rates_total, price_type, open, high, low, close, slow_buffer);
-   for(int i = 0; i < rates_total; i++)
-      macd_line[i] = fast_buffer[i] - slow_buffer[i];
+//--- Resize persistent internal buffers
+   if(ArraySize(m_fast_buffer) != rates_total)
+      ArrayResize(m_fast_buffer, rates_total);
+   if(ArraySize(m_slow_buffer) != rates_total)
+      ArrayResize(m_slow_buffer, rates_total);
 
-   int signal_start = m_slow_period + m_signal_period - 1;
-   CalculateMA(macd_line, signal_line, m_signal_period, m_signal_ma_type, signal_start);
+//--- Calculate Fast and Slow Smoothers (Incremental)
+// Now passing persistent buffers, so history is preserved!
+   m_fast_smoother.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_fast_buffer);
+   m_slow_smoother.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_slow_buffer);
 
-   for(int i = 0; i < rates_total; i++)
+//--- Calculate MACD Line
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = start_index; i < rates_total; i++)
+      macd_line[i] = m_fast_buffer[i] - m_slow_buffer[i];
+
+//--- Calculate Signal Line
+   if(m_signal_ma_type == SMOOTH_SuperSmoother)
+     {
+      m_signal_smoother.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                                  macd_line, macd_line, macd_line, macd_line,
+                                  signal_line);
+     }
+   else
+     {
+      m_signal_ma_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                                   macd_line, macd_line, macd_line, macd_line,
+                                   signal_line);
+     }
+
+//--- Calculate Histogram
+   for(int i = start_index; i < rates_total; i++)
       histogram[i] = macd_line[i] - signal_line[i];
   }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void CMACDSuperSmootherCalculator::CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_SMOOTHING_METHOD method, int start_pos)
-  {
-   for(int i = start_pos; i < ArraySize(source_array); i++)
-     {
-      switch(method)
-        {
-         case SMOOTH_SuperSmoother:
-           {
-            double a1 = exp(-M_SQRT2 * M_PI / period);
-            double b1 = 2.0 * a1 * cos(M_SQRT2 * M_PI / period);
-            double c2 = b1, c3 = -a1 * a1, c1 = 1.0 - c2 - c3;
-            if(i==start_pos)
-              {
-               double sum=0;
-               int count=0;
-               for(int j=0; j<period; j++)
-                 {
-                  if(source_array[i-j] != EMPTY_VALUE)
-                    {
-                     sum+=source_array[i-j];
-                     count++;
-                    }
-                 }
-               if(count > 0)
-                  dest_array[i] = sum/count;
-               m_sig_f1 = dest_array[i];
-               m_sig_f2 = (i > 0 && dest_array[i-1] != EMPTY_VALUE) ? dest_array[i-1] : dest_array[i];
-              }
-            else
-              {
-               dest_array[i] = c1 * (source_array[i] + source_array[i-1]) / 2.0 + c2 * m_sig_f1 + c3 * m_sig_f2;
-               m_sig_f2 = m_sig_f1;
-               m_sig_f1 = dest_array[i];
-              }
-            break;
-           }
-         case SMOOTH_EMA:
-         case SMOOTH_SMMA:
-            if(i == start_pos)
-              {
-               double sum=0;
-               int count=0;
-               for(int j=0; j<period; j++)
-                 {
-                  if(source_array[i-j] != EMPTY_VALUE)
-                    {
-                     sum+=source_array[i-j];
-                     count++;
-                    }
-                 }
-               if(count > 0)
-                  dest_array[i]=sum/count;
-              }
-            else
-              {
-               if(method==SMOOTH_EMA)
-                 {
-                  double pr=2.0/(period+1.0);
-                  dest_array[i]=source_array[i]*pr+dest_array[i-1]*(1.0-pr);
-                 }
-               else
-                  dest_array[i]=(dest_array[i-1]*(period-1)+source_array[i])/period;
-              }
-            break;
-         case SMOOTH_LWMA:
-           {
-            double sum=0, w_sum=0;
-            for(int j=0; j<period; j++)
-              {
-               if(source_array[i-j] == EMPTY_VALUE)
-                  continue;
-               int w=period-j;
-               sum+=source_array[i-j]*w;
-               w_sum+=w;
-              }
-            if(w_sum>0)
-               dest_array[i]=sum/w_sum;
-           }
-         break;
-         default: // SMOOTH_SMA
-           {
-            double sum=0;
-            int count=0;
-            for(int j=0; j<period; j++)
-              {
-               if(source_array[i-j] != EMPTY_VALUE)
-                 {
-                  sum+=source_array[i-j];
-                  count++;
-                 }
-              }
-            if(count > 0)
-               dest_array[i]=sum/count;
-           }
-         break;
-        }
-     }
-  }
-
-//+==================================================================+
-//|       METHOD IMPLEMENTATIONS: CMACDSuperSmootherCalculator_HA    |
-//+==================================================================+
-
-//--- CORRECTED: This method definition now belongs to the _HA class ---
-CEhlersSmootherCalculator *CMACDSuperSmootherCalculator_HA::CreateSmootherInstance(void)
-  {
-   return new CEhlersSmootherCalculator_HA();
-  }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
