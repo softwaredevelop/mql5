@@ -1,4 +1,4 @@
-# Ehlers Smoother MTF Professional
+# Ehlers Smoother MTF Pro
 
 ## 1. Summary (Introduction)
 
@@ -30,11 +30,16 @@ The underlying calculations are identical to the standard Ehlers Smoothers, whic
 
 * **Stable Calculation Engine (`Ehlers_Smoother_Calculator.mqh`):** The indicator reuses the exact same, proven calculation engine as the standard `Ehlers_Smoother_Pro`. Crucially, this engine implements **correct state management** for the recursive filter's internal variables (`m_f1`, `m_f2`), ensuring a stable and accurate output.
 
-* **Dual-Mode Logic:** The `OnCalculate` function contains a smart branching logic.
-  * If a higher timeframe is selected, it performs the full MTF data fetching and projection process.
-  * If the current timeframe is selected, it bypasses the MTF logic and functions identically to the standard `Ehlers_Smoother_Pro`, calculating directly on the current chart's data for maximum efficiency.
+* **Optimized Incremental Calculation:**
+    Unlike basic MTF indicators that download and recalculate the entire higher-timeframe history on every tick, this indicator employs a sophisticated incremental algorithm.
+  * **HTF State Tracking:** It tracks the calculation state of the higher timeframe separately (`htf_prev_calculated`).
+  * **Persistent Buffers:** The internal buffer for the higher timeframe (`BufferFilter_HTF_Internal`) is maintained globally, preserving the recursive state of the IIR filter between ticks.
+  * **Efficient Mapping:** The projection loop only updates the bars corresponding to the new data, drastically reducing CPU usage.
+  * This results in **O(1) complexity** per tick, ensuring the indicator remains lightweight even when running on multiple charts simultaneously.
 
-* **Stability via Full Recalculation:** We employ a full recalculation for both modes, which is the most reliable method for highly sensitive recursive filters like Ehlers'.
+* **Dual-Mode Logic:** The `OnCalculate` function contains a smart branching logic.
+  * If a higher timeframe is selected, it performs the optimized MTF data fetching and projection process.
+  * If the current timeframe is selected, it bypasses the MTF logic and functions identically to the standard `Ehlers_Smoother_Pro`, calculating directly on the current chart's data for maximum efficiency.
 
 ## 4. Parameters
 
