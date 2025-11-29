@@ -1,4 +1,4 @@
-# Ehlers Bands Professional
+# Ehlers Bands Pro
 
 ## 1. Summary (Introduction)
 
@@ -34,8 +34,12 @@ The indicator calculates volatility bands around a dynamically adapting centerli
 ## 3. MQL5 Implementation Details
 
 * **Modular Architecture:** The `Ehlers_Bands_Calculator` is built on top of our existing, robust `Ehlers_Smoother_Calculator`. It instantiates a smoother object internally to calculate the centerline, demonstrating the power of reusable code modules.
-* **Heikin Ashi Integration:** The indicator fully supports Heikin Ashi data. When selected, both the centerline and the standard deviation are calculated based on the smoothed HA values.
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call to ensure the stateful calculations are always stable and accurate.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal price buffer (`m_price`) persists between ticks. This allows the standard deviation calculation to access historical price data efficiently without re-copying or re-calculating the entire series.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+* **Heikin Ashi Integration:** The indicator fully supports Heikin Ashi data. When selected, both the centerline and the standard deviation are calculated based on the smoothed HA values, leveraging the same optimized engine.
 
 ## 4. Parameters
 
