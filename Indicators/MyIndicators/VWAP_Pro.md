@@ -1,4 +1,4 @@
-# Volume Weighted Average Price (VWAP) Professional
+# Volume Weighted Average Price (VWAP) Pro
 
 ## 1. Summary (Introduction)
 
@@ -39,6 +39,12 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 * **Modular Calculation Engine (`VWAP_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable `CVWAPCalculator` class. This engine uses an elegant, object-oriented inheritance model (`CVWAPCalculator` and `CVWAPCalculator_HA`) to support both standard and Heikin Ashi data sources without code duplication.
 
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal cumulative variables (`m_cumulative_tpv`, `m_cumulative_vol`) persist their state between ticks. This allows the calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Flexible and Robust Period Reset Logic:** The calculator uses `MqlDateTime` structures to accurately detect the start of a new period.
   * For **Daily, Weekly, and Monthly** periods, it tracks the change in day, week, or month.
   * For **Timezone-Shifted Daily** periods, it applies a user-defined hour offset to each bar's timestamp before checking for the day change.
@@ -47,8 +53,6 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 * **Clean Gapped-Line Drawing:** To provide a clear visual separation between periods, the indicator uses a **"double buffer" technique**. It plots odd-numbered periods and even-numbered periods on two separate, overlapping plot buffers. This creates a distinct visual gap at each reset point.
 
 * **Intelligent Volume Handling:** The indicator automatically detects if the selected instrument provides **Real Volume**. If a user requests Real Volume on a symbol where it's unavailable (like Forex/CFDs), the indicator will fail to load and print an informative error message.
-
-* **Stability via Full Recalculation:** We employ a full recalculation within `OnCalculate` for maximum stability and accuracy.
 
 ## 4. Parameters
 
