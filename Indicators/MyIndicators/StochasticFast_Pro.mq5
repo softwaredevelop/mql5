@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                           StochasticFast_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.00"
+#property version   "2.10" // Optimized for incremental calculation
 #property description "Professional Fast Stochastic with selectable MA type and"
 #property description "candle source (Standard or Heikin Ashi)."
 
@@ -106,10 +104,10 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
+//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated,
+                const int prev_calculated, // <--- Now used!
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -119,14 +117,12 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferK, BufferD);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
