@@ -1,4 +1,4 @@
-# Slow Stochastic Professional
+# Slow Stochastic Pro
 
 ## 1. Summary (Introduction)
 
@@ -38,9 +38,13 @@ Our MQL5 implementation is a robust, unified indicator built on a modular, objec
     The entire calculation logic for both standard and Heikin Ashi versions, including the flexible MA smoothing, is encapsulated within a single, powerful include file.
   * An elegant, object-oriented inheritance model (`CStochasticSlowCalculator` and `CStochasticSlowCalculator_HA`) allows the main indicator file to dynamically choose the correct calculation engine at runtime based on user input, eliminating code duplication.
 
-* **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for both the "Slowing" and the "%D" smoothing steps.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_raw_k`) persist their state between ticks. This allows recursive smoothing methods (like EMA and SMMA) to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` to ensure that the multi-stage calculation remains stable and accurate.
+* **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for both the "Slowing" and the "%D" smoothing steps.
 
 ## 4. Parameters
 
