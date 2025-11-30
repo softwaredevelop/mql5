@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                               RSI_Oscillator.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00"
+#property version   "3.10" // Optimized for incremental calculation
 #property description "RSI Oscillator (Histogram of RSI vs Signal Line) with selectable price source."
 
 #property indicator_separate_window
@@ -29,11 +28,15 @@ input ENUM_MA_METHOD           InpMethodMA     = MODE_SMA;
 //--- Indicator Buffers ---
 double    BufferOscillator[];
 
+//--- Internal Buffers (Must be global for incremental calculation) ---
+double    BufferRSI_Internal[];
+double    BufferMA_Internal[];
+double    BufferUpper_Internal[]; // Dummy, not used but needed for calculator
+double    BufferLower_Internal[]; // Dummy, not used but needed for calculator
+
 //--- Global calculator object ---
 CRSIProCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -66,28 +69,41 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
+
+// Free internal memory
+   ArrayFree(BufferRSI_Internal);
+   ArrayFree(BufferMA_Internal);
+   ArrayFree(BufferUpper_Internal);
+   ArrayFree(BufferLower_Internal);
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Step 1: Use the Pro calculator to get the core RSI and MA values
-   double rsi_buffer[], ma_buffer[], dummy_upper[], dummy_lower[];
-   ArrayResize(rsi_buffer, rates_total);
-   ArrayResize(ma_buffer, rates_total);
-   ArrayResize(dummy_upper, rates_total);
-   ArrayResize(dummy_lower, rates_total);
+//--- Resize internal buffers
+   if(ArraySize(BufferRSI_Internal) != rates_total)
+     {
+      ArrayResize(BufferRSI_Internal, rates_total);
+      ArrayResize(BufferMA_Internal, rates_total);
+      ArrayResize(BufferUpper_Internal, rates_total);
+      ArrayResize(BufferLower_Internal, rates_total);
+     }
 
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -95,17 +111,20 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close,
-                          rsi_buffer, ma_buffer, dummy_upper, dummy_lower);
+//--- Step 1: Run the main calculation (Incremental)
+//--- Passing global buffers to preserve state for recursive calculations
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                          BufferRSI_Internal, BufferMA_Internal, BufferUpper_Internal, BufferLower_Internal);
 
-//--- Step 2: Calculate the final Oscillator value (RSI - MA)
+//--- Step 2: Calculate the final Oscillator value (Optimized Loop)
    int start_pos = InpPeriodRSI + InpPeriodMA - 1;
-   for(int i = start_pos; i < rates_total; i++)
+   int loop_start = MathMax(start_pos, (prev_calculated > 0 ? prev_calculated - 1 : 0));
+
+   for(int i = loop_start; i < rates_total; i++)
      {
-      BufferOscillator[i] = rsi_buffer[i] - ma_buffer[i];
+      BufferOscillator[i] = BufferRSI_Internal[i] - BufferMA_Internal[i];
      }
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
