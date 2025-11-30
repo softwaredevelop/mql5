@@ -1,4 +1,4 @@
-# Fast Stochastic RSI Professional
+# Fast Stochastic RSI Pro
 
 ## 1. Summary (Introduction)
 
@@ -30,13 +30,17 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
 
 * **Component-Based Design:** The StochRSI calculator (`StochRSI_Fast_Calculator.mqh`) **reuses** our existing, standalone `RSI_Pro_Calculator.mqh` module. This eliminates code duplication and ensures consistency.
 
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_rsi_buffer`) persist their state between ticks. This allows the calculation to efficiently access historical RSI data for the High/Low range search without re-copying or re-calculating the entire series.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Object-Oriented Logic:**
   * The `CStochRSI_Fast_Calculator` contains a pointer to an `CRSIProCalculator` object.
   * The Heikin Ashi version (`CStochRSI_Fast_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module (`CRSIProCalculator_HA`).
 
 * **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for the "%D" signal line smoothing.
-
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
 
 ## 4. Parameters
 
