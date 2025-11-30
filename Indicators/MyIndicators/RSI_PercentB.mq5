@@ -1,12 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                                RSI_PercentB.mq5  |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10"
+#property version   "1.20" // Optimized for incremental calculation
 #property description "RSI %B. Shows the position of the RSI line relative to its Bollinger Bands."
-#property description "Includes a full range of standard and Heikin Ashi price sources."
 
 #property indicator_separate_window
 #property indicator_buffers 1
@@ -38,11 +36,15 @@ input double             InpBandsDev     = 2.0;
 //--- Indicator Buffers ---
 double    BufferPercentB[];
 
+//--- Internal Buffers (Must be global for incremental calculation) ---
+double    BufferRSI_Internal[];
+double    BufferMA_Internal[];
+double    BufferUpper_Internal[];
+double    BufferLower_Internal[];
+
 //--- Global calculator object ---
 CRSIProCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -74,28 +76,41 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
+
+// Free internal memory
+   ArrayFree(BufferRSI_Internal);
+   ArrayFree(BufferMA_Internal);
+   ArrayFree(BufferUpper_Internal);
+   ArrayFree(BufferLower_Internal);
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Step 1: Run the main calculation to get all RSI Pro components
-   double rsi_buffer[], ma_buffer[], upper_band[], lower_band[];
-   ArrayResize(rsi_buffer, rates_total);
-   ArrayResize(ma_buffer, rates_total);
-   ArrayResize(upper_band, rates_total);
-   ArrayResize(lower_band, rates_total);
+//--- Resize internal buffers
+   if(ArraySize(BufferRSI_Internal) != rates_total)
+     {
+      ArrayResize(BufferRSI_Internal, rates_total);
+      ArrayResize(BufferMA_Internal, rates_total);
+      ArrayResize(BufferUpper_Internal, rates_total);
+      ArrayResize(BufferLower_Internal, rates_total);
+     }
 
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -103,17 +118,22 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close,
-                          rsi_buffer, ma_buffer, upper_band, lower_band);
+//--- Step 1: Run the main calculation (Incremental)
+//--- Passing global buffers to preserve state for recursive calculations
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                          BufferRSI_Internal, BufferMA_Internal, BufferUpper_Internal, BufferLower_Internal);
 
-//--- Step 2: Calculate the final %B value
+//--- Step 2: Calculate the final %B value (Optimized Loop)
    int start_pos = InpPeriodRSI + InpPeriodMA - 1;
-   for(int i = start_pos; i < rates_total; i++)
+   int loop_start = MathMax(start_pos, (prev_calculated > 0 ? prev_calculated - 1 : 0));
+
+   for(int i = loop_start; i < rates_total; i++)
      {
-      double band_width = upper_band[i] - lower_band[i];
+      double band_width = BufferUpper_Internal[i] - BufferLower_Internal[i];
+
       if(band_width != 0)
         {
-         BufferPercentB[i] = (rsi_buffer[i] - lower_band[i]) / band_width;
+         BufferPercentB[i] = (BufferRSI_Internal[i] - BufferLower_Internal[i]) / band_width;
         }
       else
         {
@@ -123,5 +143,4 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
