@@ -1,16 +1,14 @@
 //+------------------------------------------------------------------+
 //|                                      StochRSI_Fast_Calculator.mqh|
-//|  Calculation engine for Standard and Heikin Ashi Fast StochRSI.  |
+//|  VERSION 1.20: Optimized for incremental calculation.            |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\RSI_Pro_Calculator.mqh> // Re-use the RSI Pro engine
+#include <MyIncludes\RSI_Pro_Calculator.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|           CLASS 1: CStochRSI_Fast_Calculator (Base Class)        |
-//|                                                                  |
 //+==================================================================+
 class CStochRSI_Fast_Calculator
   {
@@ -18,6 +16,9 @@ protected:
    int               m_rsi_period, m_k_period, m_d_period;
    ENUM_MA_METHOD    m_d_ma_type;
    CRSIProCalculator *m_rsi_calculator;
+
+   //--- Persistent Buffers for Incremental Calculation
+   double            m_rsi_buffer[];
 
    double            Highest(const double &array[], int period, int current_pos);
    double            Lowest(const double &array[], int period, int current_pos);
@@ -27,12 +28,14 @@ public:
    virtual          ~CStochRSI_Fast_Calculator(void);
 
    bool              Init(int rsi_p, int k_p, int d_p, ENUM_MA_METHOD d_ma);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &k_buffer[], double &d_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//| CStochRSI_Fast_Calculator: Constructor                           |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
 CStochRSI_Fast_Calculator::CStochRSI_Fast_Calculator(void)
   {
@@ -40,7 +43,7 @@ CStochRSI_Fast_Calculator::CStochRSI_Fast_Calculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| CStochRSI_Fast_Calculator: Destructor                            |
+//| Destructor                                                       |
 //+------------------------------------------------------------------+
 CStochRSI_Fast_Calculator::~CStochRSI_Fast_Calculator(void)
   {
@@ -49,7 +52,7 @@ CStochRSI_Fast_Calculator::~CStochRSI_Fast_Calculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| CStochRSI_Fast_Calculator: Initialization                        |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_METHOD d_ma)
   {
@@ -64,9 +67,9 @@ bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_METHOD
   }
 
 //+------------------------------------------------------------------+
-//| CStochRSI_Fast_Calculator: Main Calculation Method               |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CStochRSI_Fast_Calculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CStochRSI_Fast_Calculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
   {
    if(rates_total <= m_rsi_period + m_k_period + m_d_period)
@@ -74,24 +77,43 @@ void CStochRSI_Fast_Calculator::Calculate(int rates_total, const double &open[],
    if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
       return;
 
-   double rsi_buffer[], dummy1[], dummy2[], dummy3[];
-   ArrayResize(rsi_buffer, rates_total);
-   m_rsi_calculator.Calculate(rates_total, price_type, open, high, low, close, rsi_buffer, dummy1, dummy2, dummy3);
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
 
+//--- 2. Resize Internal Buffers
+   if(ArraySize(m_rsi_buffer) != rates_total)
+      ArrayResize(m_rsi_buffer, rates_total);
+
+//--- 3. Calculate RSI (Incremental)
+   double dummy1[], dummy2[], dummy3[];
+   m_rsi_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                              m_rsi_buffer, dummy1, dummy2, dummy3);
+
+//--- 4. Calculate %K (Fast %K)
    int k_start = m_rsi_period + m_k_period - 2;
-   for(int i = k_start; i < rates_total; i++)
+   int loop_start_k = MathMax(k_start, start_index);
+
+   for(int i = loop_start_k; i < rates_total; i++)
      {
-      double highest_rsi = Highest(rsi_buffer, m_k_period, i);
-      double lowest_rsi  = Lowest(rsi_buffer, m_k_period, i);
+      double highest_rsi = Highest(m_rsi_buffer, m_k_period, i);
+      double lowest_rsi  = Lowest(m_rsi_buffer, m_k_period, i);
       double range = highest_rsi - lowest_rsi;
+
       if(range > 0.00001)
-         k_buffer[i] = (rsi_buffer[i] - lowest_rsi) / range * 100.0;
+         k_buffer[i] = (m_rsi_buffer[i] - lowest_rsi) / range * 100.0;
       else
          k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
      }
 
+//--- 5. Calculate %D (Signal Line) by smoothing %K
    int d_start = k_start + m_d_period - 1;
-   for(int i = d_start; i < rates_total; i++)
+   int loop_start_d = MathMax(d_start, start_index);
+
+   for(int i = loop_start_d; i < rates_total; i++)
      {
       switch(m_d_ma_type)
         {
@@ -126,7 +148,7 @@ void CStochRSI_Fast_Calculator::Calculate(int rates_total, const double &open[],
   }
 
 //+------------------------------------------------------------------+
-//| Finds the highest value in a given period of an array.           |
+//| Highest                                                          |
 //+------------------------------------------------------------------+
 double CStochRSI_Fast_Calculator::Highest(const double &array[], int period, int current_pos)
   {
@@ -143,7 +165,7 @@ double CStochRSI_Fast_Calculator::Highest(const double &array[], int period, int
   }
 
 //+------------------------------------------------------------------+
-//| Finds the lowest value in a given period of an array.            |
+//| Lowest                                                           |
 //+------------------------------------------------------------------+
 double CStochRSI_Fast_Calculator::Lowest(const double &array[], int period, int current_pos)
   {
@@ -160,9 +182,7 @@ double CStochRSI_Fast_Calculator::Lowest(const double &array[], int period, int 
   }
 
 //+==================================================================+
-//|                                                                  |
 //|         CLASS 2: CStochRSI_Fast_Calculator_HA (Heikin Ashi)      |
-//|                                                                  |
 //+==================================================================+
 class CStochRSI_Fast_Calculator_HA : public CStochRSI_Fast_Calculator
   {
@@ -171,7 +191,7 @@ public:
   };
 
 //+------------------------------------------------------------------+
-//| CStochRSI_Fast_Calculator_HA: Constructor                        |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
 CStochRSI_Fast_Calculator_HA::CStochRSI_Fast_Calculator_HA(void)
   {
@@ -179,5 +199,4 @@ CStochRSI_Fast_Calculator_HA::CStochRSI_Fast_Calculator_HA(void)
       delete m_rsi_calculator;
    m_rsi_calculator = new CRSIProCalculator_HA();
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
