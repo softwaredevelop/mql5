@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                  Laguerre_Filter_Adaptive_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "1.00"
+#property version   "1.10" // Optimized for incremental calculation
 #property description "John Ehlers' Adaptive Laguerre Filter. The filter's coefficient (gamma)"
 #property description "is dynamically adjusted based on the measured market cycle period."
 
@@ -68,7 +66,18 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -79,7 +88,8 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferFilter);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter);
 
    return(rates_total);
   }
