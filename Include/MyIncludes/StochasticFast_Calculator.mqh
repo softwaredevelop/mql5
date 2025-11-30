@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                     StochasticFast_Calculator.mqh|
-//| Calculation engine for Standard and Heikin Ashi Fast Stochastic. |
+//|      VERSION 1.20: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,33 +8,36 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|           CLASS 1: CStochasticFastCalculator (Base Class)        |
-//|                                                                  |
 //+==================================================================+
 class CStochasticFastCalculator
   {
 protected:
    int               m_k_period, m_d_period;
    ENUM_MA_METHOD    m_d_ma_type;
+
+   //--- Persistent Buffers for Incremental Calculation
    double            m_src_high[], m_src_low[], m_src_close[];
 
    double            Highest(int period, int current_pos);
    double            Lowest(int period, int current_pos);
 
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Updated: Accepts start_index
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CStochasticFastCalculator(void) {};
    virtual          ~CStochasticFastCalculator(void) {};
 
    bool              Init(int k_p, int d_p, ENUM_MA_METHOD d_ma);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &k_buffer[], double &d_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//| CStochasticFastCalculator: Initialization                        |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CStochasticFastCalculator::Init(int k_p, int d_p, ENUM_MA_METHOD d_ma)
   {
@@ -45,31 +48,53 @@ bool CStochasticFastCalculator::Init(int k_p, int d_p, ENUM_MA_METHOD d_ma)
   }
 
 //+------------------------------------------------------------------+
-//| CStochasticFastCalculator: Main Calculation Method (Shared Logic)|
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CStochasticFastCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+void CStochasticFastCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
       double &k_buffer[], double &d_buffer[])
   {
    if(rates_total <= m_k_period + m_d_period)
       return;
-   if(!PrepareSourceData(rates_total, open, high, low, close))
+
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+//--- 2. Resize Buffers
+   if(ArraySize(m_src_high) != rates_total)
+     {
+      ArrayResize(m_src_high, rates_total);
+      ArrayResize(m_src_low, rates_total);
+      ArrayResize(m_src_close, rates_total);
+     }
+
+//--- 3. Prepare Source Data (Optimized)
+   if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
       return;
 
-//--- STEP 1: Calculate %K (Fast %K)
-   for(int i = m_k_period - 1; i < rates_total; i++)
+//--- 4. Calculate %K (Fast %K)
+   int loop_start_k = MathMax(m_k_period - 1, start_index);
+
+   for(int i = loop_start_k; i < rates_total; i++)
      {
       double highest_h = Highest(m_k_period, i);
       double lowest_l  = Lowest(m_k_period, i);
       double range = highest_h - lowest_l;
+
       if(range > 0)
          k_buffer[i] = (m_src_close[i] - lowest_l) / range * 100.0;
       else
          k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
      }
 
-//--- STEP 2: Calculate %D (Signal Line) by smoothing %K
+//--- 5. Calculate %D (Signal Line) by smoothing %K
    int d_start = m_k_period + m_d_period - 2;
-   for(int i = d_start; i < rates_total; i++)
+   int loop_start_d = MathMax(d_start, start_index);
+
+   for(int i = loop_start_d; i < rates_total; i++)
      {
       switch(m_d_ma_type)
         {
@@ -104,21 +129,22 @@ void CStochasticFastCalculator::Calculate(int rates_total, const double &open[],
   }
 
 //+------------------------------------------------------------------+
-//| CStochasticFastCalculator: Prepares the standard source data.    |
+//| Prepare Source Data (Standard - Optimized)                       |
 //+------------------------------------------------------------------+
-bool CStochasticFastCalculator::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CStochasticFastCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_src_high, rates_total);
-   ArrayCopy(m_src_high, high, 0, 0, rates_total);
-   ArrayResize(m_src_low, rates_total);
-   ArrayCopy(m_src_low, low, 0, 0, rates_total);
-   ArrayResize(m_src_close, rates_total);
-   ArrayCopy(m_src_close, close, 0, 0, rates_total);
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_src_high[i]  = high[i];
+      m_src_low[i]   = low[i];
+      m_src_close[i] = close[i];
+     }
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Finds the highest value in the internal price buffer.            |
+//| Highest                                                          |
 //+------------------------------------------------------------------+
 double CStochasticFastCalculator::Highest(int period, int current_pos)
   {
@@ -135,7 +161,7 @@ double CStochasticFastCalculator::Highest(int period, int current_pos)
   }
 
 //+------------------------------------------------------------------+
-//| Finds the lowest value in the internal price buffer.             |
+//| Lowest                                                           |
 //+------------------------------------------------------------------+
 double CStochasticFastCalculator::Lowest(int period, int current_pos)
   {
@@ -152,30 +178,44 @@ double CStochasticFastCalculator::Lowest(int period, int current_pos)
   }
 
 //+==================================================================+
-//|                                                                  |
 //|         CLASS 2: CStochasticFastCalculator_HA (Heikin Ashi)      |
-//|                                                                  |
 //+==================================================================+
 class CStochasticFastCalculator_HA : public CStochasticFastCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high_temp[], m_ha_low_temp[], m_ha_close_temp[];
+
 protected:
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| CStochasticFastCalculator_HA: Prepares the HA source data.       |
+//| Prepare Source Data (Heikin Ashi - Optimized)                    |
 //+------------------------------------------------------------------+
-bool CStochasticFastCalculator_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CStochasticFastCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(m_src_high, rates_total);
-   ArrayResize(m_src_low, rates_total);
-   ArrayResize(m_src_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, m_src_high, m_src_low, m_src_close);
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
+     {
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high_temp, rates_total);
+      ArrayResize(m_ha_low_temp, rates_total);
+      ArrayResize(m_ha_close_temp, rates_total);
+     }
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high_temp, m_ha_low_temp, m_ha_close_temp);
+
+//--- Copy to source buffers (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_src_high[i]  = m_ha_high_temp[i];
+      m_src_low[i]   = m_ha_low_temp[i];
+      m_src_close[i] = m_ha_close_temp[i];
+     }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
