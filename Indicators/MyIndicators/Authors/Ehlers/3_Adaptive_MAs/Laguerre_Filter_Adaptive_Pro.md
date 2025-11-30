@@ -1,4 +1,4 @@
-# Laguerre Filter Adaptive Professional
+# Laguerre Filter Adaptive Pro
 
 ## 1. Summary (Introduction)
 
@@ -33,9 +33,15 @@ The indicator uses a multi-stage digital signal processing (DSP) pipeline to ach
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained, Stateful Calculator:** Due to the complexity of the cycle measurement algorithm, this indicator uses a dedicated, self-contained calculator (`..._Calculator.mqh`). This calculator is designed as a **stateful class**, where all internal recursive variables (for cycle measurement and filtering) are stored as member variables. This ensures that the indicator's state is correctly maintained between ticks.
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the entire adaptive calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation is a highly complex, multi-stage recursive process. To ensure absolute stability and prevent desynchronization, the indicator employs a **full recalculation** on every `OnCalculate` call. This is the only robust method for this type of complex DSP filter.
+* **Self-Contained, Stateful Calculator:** Due to the complexity of the cycle measurement algorithm, this indicator uses a dedicated, self-contained calculator (`Laguerre_Filter_Adaptive_Calculator.mqh`). This calculator is designed as a **stateful class**, where all internal recursive variables (for cycle measurement and filtering) are stored as member variables. This ensures that the indicator's state is correctly maintained between ticks.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers for the Homodyne Discriminator (`m_filt_buf`, `m_I1_buf`, etc.) persist their state between ticks. This allows the complex DSP pipeline to continue seamlessly from the last known values without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
+* **Heikin Ashi Integration:** An inherited `_HA` class allows the entire adaptive calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
 
 ## 4. Parameters
 
