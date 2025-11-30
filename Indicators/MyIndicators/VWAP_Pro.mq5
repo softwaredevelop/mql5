@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                    VWAP_Pro.mq5  |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.30" // Added Custom Session inputs
+#property version   "1.40" // Optimized for incremental calculation
 #property description "Volume Weighted Average Price (VWAP) with selectable reset period, timezone shift,"
 #property description "custom session times, and candle source (Standard or Heikin Ashi)."
 
@@ -124,13 +123,25 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
+//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime& time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-   g_calculator.Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferVWAP_Odd, BufferVWAP_Even);
+
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, BufferVWAP_Odd, BufferVWAP_Even);
+
    return(rates_total);
   }
 //+------------------------------------------------------------------+
