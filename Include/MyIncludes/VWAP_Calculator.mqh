@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|         Calculation engine for Standard and Heikin Ashi VWAP.    |
+//|      VERSION 1.40: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -17,38 +17,63 @@ enum ENUM_VWAP_PERIOD
   };
 
 //+==================================================================+
-//|                                                                  |
 //|             CLASS 1: CVWAPCalculator (Base Class)                |
-//|                                                                  |
 //+==================================================================+
 class CVWAPCalculator
   {
 protected:
    ENUM_VWAP_PERIOD    m_period;
    ENUM_APPLIED_VOLUME m_volume_type;
-   double              m_typical_price[];
    bool                m_enabled;
    long                m_tz_shift_seconds; // Timezone shift in seconds
+
+   //--- Persistent Buffers
+   double              m_typical_price[];
+
+   //--- Persistent State for Incremental Calculation
+   double              m_cumulative_tpv;
+   double              m_cumulative_vol;
+   int                 m_period_index;
+   bool                m_in_session;
+   datetime            m_last_time; // Time of the last processed bar
 
    //--- For custom sessions ---
    int                 m_start_hour, m_start_min;
    int                 m_end_hour, m_end_min;
 
    bool              IsTimeInSession(const MqlDateTime &dt);
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
+
+   //--- Updated: Accepts start_index
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CVWAPCalculator(void) { m_enabled = false; m_tz_shift_seconds = 0; };
+                     CVWAPCalculator(void);
    virtual          ~CVWAPCalculator(void) {};
 
    bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true);
    bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true);
-   void              Calculate(int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[]);
   };
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Standard Initialization (Updated)               |
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CVWAPCalculator::CVWAPCalculator(void)
+  {
+   m_enabled = false;
+   m_tz_shift_seconds = 0;
+   m_cumulative_tpv = 0;
+   m_cumulative_vol = 0;
+   m_period_index = 0;
+   m_in_session = false;
+   m_last_time = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| Init (Standard)                                                  |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours, bool enabled)
   {
@@ -69,7 +94,7 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
   }
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Overloaded Init for Custom Sessions             |
+//| Init (Custom Session)                                            |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled)
   {
@@ -79,7 +104,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
 
    m_period      = PERIOD_CUSTOM_SESSION;
    m_volume_type = vol_type;
-   m_tz_shift_seconds = 0; // Custom sessions don't use timezone shift
+   m_tz_shift_seconds = 0;
 
    string parts[];
    if(StringSplit(start_time, ':', parts) == 2)
@@ -102,7 +127,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
   }
 
 //+------------------------------------------------------------------+
-//| Helper function for custom session time check                    |
+//| Helper                                                           |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::IsTimeInSession(const MqlDateTime &dt)
   {
@@ -117,26 +142,55 @@ bool CVWAPCalculator::IsTimeInSession(const MqlDateTime &dt)
   }
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Main Calculation Method (Updated Logic)         |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
+void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                 const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[])
   {
    if(!m_enabled || rates_total < 1)
       return;
-   if(!PrepareSourceData(rates_total, open, high, low, close))
+
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+     {
+      start_index = 0;
+      // Reset State
+      m_cumulative_tpv = 0;
+      m_cumulative_vol = 0;
+      m_period_index = 0;
+      m_in_session = false;
+      m_last_time = 0;
+
+      ArrayInitialize(vwap_odd, EMPTY_VALUE);
+      ArrayInitialize(vwap_even, EMPTY_VALUE);
+     }
+   else
+     {
+      start_index = prev_calculated - 1;
+     }
+
+//--- 2. Resize Buffers
+   if(ArraySize(m_typical_price) != rates_total)
+      ArrayResize(m_typical_price, rates_total);
+   if(ArraySize(vwap_odd) != rates_total)
+      ArrayResize(vwap_odd, rates_total);
+   if(ArraySize(vwap_even) != rates_total)
+      ArrayResize(vwap_even, rates_total);
+
+//--- 3. Prepare Price
+   if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
       return;
 
-   ArrayInitialize(vwap_odd, EMPTY_VALUE);
-   ArrayInitialize(vwap_even, EMPTY_VALUE);
-
-   double cumulative_tpv = 0;
-   double cumulative_vol = 0;
-   int period_index = 0;
-   bool in_session = false;
-
-   for(int i = 0; i < rates_total; i++)
+//--- 4. Main Loop
+   for(int i = start_index; i < rates_total; i++)
      {
+      // Restore state from member variables (which represent state at i-1)
+      double current_cum_tpv = m_cumulative_tpv;
+      double current_cum_vol = m_cumulative_vol;
+      int current_period_idx = m_period_index;
+      bool current_in_session = m_in_session;
+
       bool new_period = false;
 
       if(i == 0)
@@ -145,11 +199,11 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
         }
       else
         {
+         // Check for period change
          switch(m_period)
            {
             case PERIOD_SESSION:
               {
-               // CORRECTED: Added (datetime) cast to prevent compiler warnings
                datetime adjusted_time_curr = time[i] + (datetime)m_tz_shift_seconds;
                datetime adjusted_time_prev = time[i-1] + (datetime)m_tz_shift_seconds;
                MqlDateTime dt_curr, dt_prev;
@@ -182,9 +236,9 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
                MqlDateTime dt_curr;
                TimeToStruct(time[i], dt_curr);
                bool is_in_current_session = IsTimeInSession(dt_curr);
-               if(is_in_current_session && !in_session)
+               if(is_in_current_session && !current_in_session)
                   new_period = true;
-               in_session = is_in_current_session;
+               current_in_session = is_in_current_session;
                break;
               }
            }
@@ -192,70 +246,103 @@ void CVWAPCalculator::Calculate(int rates_total, const datetime &time[], const d
 
       if(new_period)
         {
-         cumulative_tpv = 0;
-         cumulative_vol = 0;
-         period_index++;
+         current_cum_tpv = 0;
+         current_cum_vol = 0;
+         current_period_idx++;
         }
 
       long current_volume = (m_volume_type == VOLUME_TICK) ? tick_volume[i] : volume[i];
       if(current_volume < 1)
          current_volume = 1;
 
-      cumulative_tpv += m_typical_price[i] * (double)current_volume;
-      cumulative_vol += (double)current_volume;
+      current_cum_tpv += m_typical_price[i] * (double)current_volume;
+      current_cum_vol += (double)current_volume;
 
-      double vwap_value = (cumulative_vol > 0) ? cumulative_tpv / cumulative_vol : EMPTY_VALUE;
+      double vwap_value = (current_cum_vol > 0) ? current_cum_tpv / current_cum_vol : EMPTY_VALUE;
 
-      if(m_period != PERIOD_CUSTOM_SESSION || in_session)
+      // Fill buffers
+      if(m_period != PERIOD_CUSTOM_SESSION || current_in_session)
         {
-         if(period_index % 2 != 0)
+         if(current_period_idx % 2 != 0)
+           {
             vwap_odd[i] = vwap_value;
+            vwap_even[i] = EMPTY_VALUE; // Clear other buffer to create gap
+           }
          else
+           {
             vwap_even[i] = vwap_value;
+            vwap_odd[i] = EMPTY_VALUE;
+           }
+        }
+      else
+        {
+         vwap_odd[i] = EMPTY_VALUE;
+         vwap_even[i] = EMPTY_VALUE;
+        }
+
+      //--- CRITICAL: Update persistent state ONLY if this is NOT the last bar (or if we assume it's closed)
+      // Actually, in MT5 OnCalculate, we iterate up to rates_total-1.
+      // If we are at i, and i < rates_total-1, then bar i is closed (historical). We can save state.
+      // If i == rates_total-1, it is the current forming bar. We should NOT save state,
+      // because next tick we will process i again starting from the state of i-1.
+
+      if(i < rates_total - 1)
+        {
+         m_cumulative_tpv = current_cum_tpv;
+         m_cumulative_vol = current_cum_vol;
+         m_period_index = current_period_idx;
+         m_in_session = current_in_session;
+         m_last_time = time[i];
         }
      }
   }
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator: Prepares the standard source data.              |
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CVWAPCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_typical_price, rates_total);
-   for(int i=0; i<rates_total; i++)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
       m_typical_price[i] = (high[i] + low[i] + close[i]) / 3.0;
    return true;
   }
 
 //+==================================================================+
-//|                                                                  |
-//|           CLASS 2: CVWAPCalculator_HA (Heikin Ashi)              |
-//|                                                                  |
+//|             CLASS 2: CVWAPCalculator_HA (Heikin Ashi)            |
 //+==================================================================+
 class CVWAPCalculator_HA : public CVWAPCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| CVWAPCalculator_HA: Prepares the HA source data.                 |
+//| Prepare Price (Heikin Ashi - Optimized)                          |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CVWAPCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
+     {
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
 
-   ArrayResize(m_typical_price, rates_total);
-   for(int i=0; i<rates_total; i++)
-      m_typical_price[i] = (ha_high[i] + ha_low[i] + ha_close[i]) / 3.0;
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_typical_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+      m_typical_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
