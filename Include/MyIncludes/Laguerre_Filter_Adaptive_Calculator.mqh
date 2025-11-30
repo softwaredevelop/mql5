@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                         Laguerre_Filter_Adaptive_Calculator.mqh  |
-//|    Calculation engine for the Adaptive Laguerre Filter.          |
+//|    VERSION 1.10: Optimized for incremental calculation.          |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,27 +8,40 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|       CLASS 1: CLaguerreFilterAdaptiveCalculator (Base)          |
-//|                                                                  |
 //+==================================================================+
 class CLaguerreFilterAdaptiveCalculator
   {
 protected:
+   //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
 
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Internal State Buffers for Homodyne Discriminator & Laguerre
+   double            m_filt_buf[];
+   double            m_I1_buf[], m_Q1_buf[];
+   double            m_I2_buf[], m_Q2_buf[];
+   double            m_Re_buf[], m_Im_buf[];
+   double            m_Period_buf[];
+   double            m_DC_Period_buf[];
+
+   //--- Internal State Buffers for Laguerre Filter
+   double            m_L0_buf[], m_L1_buf[], m_L2_buf[], m_L3_buf[];
+
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CLaguerreFilterAdaptiveCalculator(void) {};
    virtual          ~CLaguerreFilterAdaptiveCalculator(void) {};
 
    bool              Init(void);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//| CLaguerreFilterAdaptiveCalculator: Initialization                |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CLaguerreFilterAdaptiveCalculator::Init(void)
   {
@@ -36,217 +49,242 @@ bool CLaguerreFilterAdaptiveCalculator::Init(void)
   }
 
 //+------------------------------------------------------------------+
-//| CLaguerreFilterAdaptiveCalculator: Main Calculation Method       |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CLaguerreFilterAdaptiveCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
+void CLaguerreFilterAdaptiveCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
   {
-   if(rates_total < 10) // Need a few bars to warm up
-      return;
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
+   if(rates_total < 10)
       return;
 
-// --- Internal buffer for the band-pass filter results ---
-   double filt_buffer[];
-   ArrayResize(filt_buffer, rates_total);
-   ArrayInitialize(filt_buffer, 0.0);
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
 
-// --- Cycle measurement (Homodyne Discriminator) variables ---
-   double Filt=0, Filt_prev=0, Filt_prev2=0;
-   double I1=0, Q1=0, I1_prev=0, Q1_prev=0;
-   double I2=0, Q2=0, I2_prev=0, Q2_prev=0;
-   double Re=0, Im=0;
-   double Period=0, Period_prev=0;
-   double DC_Period=0, DC_Period_prev=0;
+//--- 2. Resize Internal Buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_filt_buf, rates_total);
+      ArrayResize(m_I1_buf, rates_total);
+      ArrayResize(m_Q1_buf, rates_total);
+      ArrayResize(m_I2_buf, rates_total);
+      ArrayResize(m_Q2_buf, rates_total);
+      ArrayResize(m_Re_buf, rates_total);
+      ArrayResize(m_Im_buf, rates_total);
+      ArrayResize(m_Period_buf, rates_total);
+      ArrayResize(m_DC_Period_buf, rates_total);
+      ArrayResize(m_L0_buf, rates_total);
+      ArrayResize(m_L1_buf, rates_total);
+      ArrayResize(m_L2_buf, rates_total);
+      ArrayResize(m_L3_buf, rates_total);
+     }
 
-// --- Laguerre filter variables ---
-   double L0=0, L1=0, L2=0, L3=0;
-   double L0_prev=0, L1_prev=0, L2_prev=0, L3_prev=0;
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
 
-// --- Constants for band-pass filter ---
+//--- Constants for band-pass filter
    double alpha1 = (cos(0.707 * 2 * M_PI / 48.0) + sin(0.707 * 2 * M_PI / 48.0) - 1.0) / cos(0.707 * 2 * M_PI / 48.0);
    double beta1 = 1.0 - alpha1 / 2.0;
    beta1 *= beta1;
 
-// --- Full recalculation loop ---
-   for(int i = 0; i < rates_total; i++)
+//--- 4. Main Loop (Incremental)
+   int i = start_index;
+
+// Initialization for first few bars
+   if(i < 7) // Need at least 6 bars for Hilbert Transform lookback
      {
-      // --- Step 1: Band-Pass Filter to isolate cycle components ---
-      if(i > 1)
+      // Zero out initial buffers to be safe
+      for(int k=0; k<7; k++)
         {
-         Filt = beta1 * (m_price[i] - 2 * m_price[i-1] + m_price[i-2]) + (2 * (1 - alpha1 / 2.0)) * Filt_prev - ((1 - alpha1 / 2.0) * (1 - alpha1 / 2.0)) * Filt_prev2;
+         if(k >= rates_total)
+            break;
+         m_filt_buf[k] = 0;
+         m_I1_buf[k] = 0;
+         m_Q1_buf[k] = 0;
+         m_I2_buf[k] = 0;
+         m_Q2_buf[k] = 0;
+         m_Re_buf[k] = 0;
+         m_Im_buf[k] = 0;
+         m_Period_buf[k] = 0;
+         m_DC_Period_buf[k] = 0;
+         m_L0_buf[k] = m_price[k];
+         m_L1_buf[k] = m_price[k];
+         m_L2_buf[k] = m_price[k];
+         m_L3_buf[k] = m_price[k];
+         filter_buffer[k] = m_price[k];
         }
-      else
-        {
-         Filt = 0;
-        }
-      filt_buffer[i] = Filt;
+      i = 7;
+     }
 
-      // --- Step 2: Hilbert Transform to get InPhase and Quadrature components ---
-      if(i > 6)
-        {
-         Q1 = (0.0962 * filt_buffer[i] + 0.5769 * filt_buffer[i-2] - 0.5769 * filt_buffer[i-4] - 0.0962 * filt_buffer[i-6]) * (0.5 + 0.08 * (I1_prev + 50));
-         I1 = filt_buffer[i-3];
-        }
+   for(; i < rates_total; i++)
+     {
+      // --- Step 1: Band-Pass Filter ---
+      // Uses m_filt_buf[i-1] and [i-2]
+      m_filt_buf[i] = beta1 * (m_price[i] - 2 * m_price[i-1] + m_price[i-2]) +
+                      (2 * (1 - alpha1 / 2.0)) * m_filt_buf[i-1] -
+                      ((1 - alpha1 / 2.0) * (1 - alpha1 / 2.0)) * m_filt_buf[i-2];
 
-      // --- Step 3: Homodyne Discriminator to find phase ---
-      if(i > 0)
-        {
-         I2 = I1 - Q1_prev;
-         Q2 = Q1 + I1_prev;
-         Re = I2 * I2_prev + Q2 * Q2_prev;
-         Im = I2 * Q2_prev - Q2 * I2_prev;
-        }
+      // --- Step 2: Hilbert Transform ---
+      // Uses m_filt_buf[i], [i-2], [i-4], [i-6] and m_I1_buf[i-1] (stored as prev)
+      // Note: Original code used I1_prev which is I1[i-1]
+      m_Q1_buf[i] = (0.0962 * m_filt_buf[i] + 0.5769 * m_filt_buf[i-2] - 0.5769 * m_filt_buf[i-4] - 0.0962 * m_filt_buf[i-6]) *
+                    (0.5 + 0.08 * (m_I1_buf[i-1] + 50));
+      m_I1_buf[i] = m_filt_buf[i-3];
 
-      if(Im != 0.0 && Re != 0.0)
-         Period = 2 * M_PI / atan(Im / Re);
-      else
-         Period = 0.0;
+      // --- Step 3: Homodyne Discriminator ---
+      m_I2_buf[i] = m_I1_buf[i] - m_Q1_buf[i-1];
+      m_Q2_buf[i] = m_Q1_buf[i] + m_I1_buf[i-1];
 
-      // --- Step 4: Clean up and smooth the calculated Period ---
-      if(Period > 1.5 * Period_prev)
-         Period = 1.5 * Period_prev;
-      if(Period < 0.67 * Period_prev)
-         Period = 0.67 * Period_prev;
+      m_Re_buf[i] = m_I2_buf[i] * m_I2_buf[i-1] + m_Q2_buf[i] * m_Q2_buf[i-1];
+      m_Im_buf[i] = m_I2_buf[i] * m_Q2_buf[i-1] - m_Q2_buf[i] * m_I2_buf[i-1];
+
+      // Smooth Re/Im
+      m_Re_buf[i] = 0.2 * m_Re_buf[i] + 0.8 * m_Re_buf[i-1];
+      m_Im_buf[i] = 0.2 * m_Im_buf[i] + 0.8 * m_Im_buf[i-1];
+
+      double Period = 0;
+      if(m_Im_buf[i] != 0.0 && m_Re_buf[i] != 0.0)
+         Period = 2 * M_PI / atan(m_Im_buf[i] / m_Re_buf[i]);
+
+      // --- Step 4: Clean up Period ---
+      if(Period > 1.5 * m_Period_buf[i-1])
+         Period = 1.5 * m_Period_buf[i-1];
+      if(Period < 0.67 * m_Period_buf[i-1])
+         Period = 0.67 * m_Period_buf[i-1];
       if(Period < 6)
          Period = 6;
       if(Period > 50)
          Period = 50;
-      DC_Period = 0.2 * Period + 0.8 * DC_Period_prev;
 
-      // --- Step 5: Calculate the adaptive gamma for this bar ---
+      m_Period_buf[i] = 0.2 * Period + 0.8 * m_Period_buf[i-1];
+      m_DC_Period_buf[i] = 0.33 * Period + 0.67 * m_DC_Period_buf[i-1]; // Using standard smoothing for DC
+
+      // --- Step 5: Adaptive Gamma ---
       double gamma = 0.0;
-      if(DC_Period > 0)
-         gamma = 4.0 / DC_Period;
+      if(m_DC_Period_buf[i] > 0)
+         gamma = 4.0 / m_DC_Period_buf[i]; // Tuning factor can be adjusted
 
-      // --- Step 6: Apply the Laguerre Filter with the dynamic gamma ---
-      if(i > 0)
-        {
-         L0 = (1.0 - gamma) * m_price[i] + gamma * L0_prev;
-         L1 = -gamma * L0 + L0_prev + gamma * L1_prev;
-         L2 = -gamma * L1 + L1_prev + gamma * L2_prev;
-         L3 = -gamma * L2 + L2_prev + gamma * L3_prev;
-        }
-      else // Initialization
-        {
-         L0 = m_price[i];
-         L1 = m_price[i];
-         L2 = m_price[i];
-         L3 = m_price[i];
-        }
+      // --- Step 6: Laguerre Filter ---
+      double L0_prev = m_L0_buf[i-1];
+      double L1_prev = m_L1_buf[i-1];
+      double L2_prev = m_L2_buf[i-1];
+      double L3_prev = m_L3_buf[i-1];
 
-      // --- CORRECTED: Calculate the final weighted filter output, not just L0 ---
-      filter_buffer[i] = (L0 + 2.0 * L1 + 2.0 * L2 + L3) / 6.0;
+      m_L0_buf[i] = (1.0 - gamma) * m_price[i] + gamma * L0_prev;
+      m_L1_buf[i] = -gamma * m_L0_buf[i] + L0_prev + gamma * L1_prev;
+      m_L2_buf[i] = -gamma * m_L1_buf[i] + L1_prev + gamma * L2_prev;
+      m_L3_buf[i] = -gamma * m_L2_buf[i] + L2_prev + gamma * L3_prev;
 
-      // --- Update previous values for the next iteration ---
-      Filt_prev2 = Filt_prev;
-      Filt_prev = Filt;
-      I1_prev = I1;
-      Q1_prev = Q1;
-      I2_prev = I2;
-      Q2_prev = Q2;
-      Period_prev = Period;
-      DC_Period_prev = DC_Period;
-      L0_prev = L0;
-      L1_prev = L1;
-      L2_prev = L2;
-      L3_prev = L3;
+      filter_buffer[i] = (m_L0_buf[i] + 2.0 * m_L1_buf[i] + 2.0 * m_L2_buf[i] + m_L3_buf[i]) / 6.0;
      }
   }
 
 //+------------------------------------------------------------------+
-//| CLaguerreFilterAdaptiveCalculator: Prepares the standard source price. |
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
-bool CLaguerreFilterAdaptiveCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CLaguerreFilterAdaptiveCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_price, rates_total);
-   switch(price_type)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
-      case PRICE_CLOSE:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(m_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
             m_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_TYPICAL:
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_WEIGHTED:
             m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
-         break;
-      default:
-         return false;
+            break;
+         default:
+            m_price[i] = close[i];
+            break;
+        }
      }
    return true;
   }
 
 //+==================================================================+
-//|                                                                  |
-//|       CLASS 2: CLaguerreFilterAdaptiveCalculator_HA (HA)         |
-//|                                                                  |
+//|             CLASS 2: CLaguerreFilterAdaptiveCalculator_HA        |
 //+==================================================================+
 class CLaguerreFilterAdaptiveCalculator_HA : public CLaguerreFilterAdaptiveCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| CLaguerreFilterAdaptiveCalculator_HA: Prepares the HA source price. |
+//| Prepare Price (Heikin Ashi - Optimized)                          |
 //+------------------------------------------------------------------+
-bool CLaguerreFilterAdaptiveCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CLaguerreFilterAdaptiveCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_price, rates_total);
-   switch(price_type)
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      case PRICE_CLOSE:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i]+ha_close[i])/4.0;
-         break;
-      default:
-         return false;
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+     {
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = m_ha_close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = m_ha_open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = m_ha_high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = m_ha_low[i];
+            break;
+         case PRICE_MEDIAN:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_price[i] = m_ha_close[i];
+            break;
+        }
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
