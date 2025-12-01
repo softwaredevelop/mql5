@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                 Supertrend_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "3.20" // Adapted to new ATR Calculator
+#property version   "3.30" // Optimized for incremental calculation
 #property description "Professional Supertrend with selectable candle and ATR source."
 
 //--- Indicator Window and Plot Properties ---
@@ -79,11 +77,25 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferSupertrend_Odd, BufferColor_Odd, BufferSupertrend_Even, BufferColor_Even);
+
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferSupertrend_Odd, BufferColor_Odd, BufferSupertrend_Even, BufferColor_Even);
+
    return(rates_total);
   }
 //+------------------------------------------------------------------+
