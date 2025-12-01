@@ -35,7 +35,7 @@ window_left=52
 window_top=52
 window_right=851
 window_bottom=474
-window_type=3
+window_type=1
 floating=0
 floating_left=0
 floating_top=0
@@ -101,7 +101,6 @@ name=Laguerre Filter
 draw=1
 style=0
 width=1
-arrow=251
 color=8388608
 </graph>
 
@@ -110,7 +109,6 @@ name=FIR Filter
 draw=1
 style=0
 width=1
-arrow=251
 color=9109504
 </graph>
 <inputs>
@@ -141,7 +139,6 @@ name=Laguerre Filter
 draw=1
 style=0
 width=1
-arrow=251
 color=255
 </graph>
 
@@ -150,7 +147,6 @@ name=FIR Filter
 draw=1
 style=0
 width=1
-arrow=251
 color=9109504
 </graph>
 <inputs>
@@ -181,7 +177,6 @@ name=Laguerre Filter
 draw=1
 style=0
 width=1
-arrow=251
 color=3329434
 </graph>
 
@@ -190,7 +185,6 @@ name=FIR Filter
 draw=1
 style=0
 width=1
-arrow=251
 color=9109504
 </graph>
 <inputs>
@@ -215,9 +209,9 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=0.000000
+scale_fix_min_val=-0.002381
 scale_fix_max=0
-scale_fix_max_val=0.000000
+scale_fix_max_val=0.002993
 expertmode=4
 fixed_height=-1
 
