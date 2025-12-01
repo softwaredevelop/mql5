@@ -1,4 +1,4 @@
-# Keltner Channel Professional
+# Keltner Channel Pro
 
 ## 1. Summary (Introduction)
 
@@ -37,13 +37,14 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 
 * **Modular Calculation Engine (`KeltnerChannel_Calculator.mqh`):**
     The entire calculation logic for all three modes is encapsulated within a single, powerful include file.
-  * **`CKeltnerChannelCalculator`**: The base class that performs the full calculation. It handles the MA calculation and the final band construction.
-  * **`CKeltnerChannelCalculator_HA`**: A child class that inherits all the complex logic and only overrides the initial data preparation step to use Heikin Ashi prices for the middle line MA.
+  * **Composition over Inheritance:** The calculator uses a composition-based design, internally instantiating dedicated engines for the Moving Average (`CMovingAverageCalculator`) and the ATR (`CATRCalculator`). This ensures that the Keltner Channel benefits from the same optimizations and robustness as the standalone indicators.
   * **ATR Source Logic:** The calculator internally checks the `InpAtrSource` parameter and decides whether to calculate the True Range from standard candles or from Heikin Ashi candles, providing all three logical variations within a clean, unified structure.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
-
-* **Fully Manual Calculations:** To guarantee 100% accuracy and consistency, all moving average and ATR calculations are performed **manually** within the calculator engine.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_ma_price` and `m_atr_buffer`) persist their state between ticks. This allows recursive smoothing methods (like EMA for the middle line and Wilder's Smoothing for ATR) to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 ## 4. Parameters
 
