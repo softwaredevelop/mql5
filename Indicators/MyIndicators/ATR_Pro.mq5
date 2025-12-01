@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       ATR_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // Added Percent mode
+#property version   "2.20" // Optimized for incremental calculation
 #property description "Professional Average True Range (ATR) with selectable display mode."
 
 #property indicator_separate_window
@@ -55,7 +54,8 @@ int OnInit()
    if(InpDisplayMode == ATR_PERCENT)
      {
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ATR%% %s(%d)", (InpCandleSource == CANDLE_HEIKIN_ASHI ? "HA " : ""), InpAtrPeriod));
-      IndicatorSetInteger(INDICATOR_DIGITS, 2);
+      //--- UPDATED: Increased precision for Percent mode
+      IndicatorSetInteger(INDICATOR_DIGITS, 4);
      }
    else
      {
@@ -91,14 +91,12 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferATR);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferATR);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
