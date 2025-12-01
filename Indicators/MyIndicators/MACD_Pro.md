@@ -40,14 +40,20 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 
 * **Modular Calculation Engine (`MACD_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
-  * **`CMACDCalculator`**: The base class that performs the full, multi-stage MACD calculation on a given source price.
-  * **`CMACDCalculator_HA`**: A child class that inherits all the complex logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices as its input. This object-oriented approach eliminates code duplication.
+  * **Composition over Inheritance:** The calculator internally instantiates two dedicated `CMovingAverageCalculator` engines (from our universal `MovingAverage_Engine.mqh`) to handle the Fast and Slow MA calculations. This ensures that the core MA logic is consistent across our entire indicator suite.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
+* **Hybrid Signal Line Implementation:**
+    While the Fast and Slow MAs use the universal engine, the Signal Line calculation employs a specialized, local implementation.
+  * **Why?** The MACD Line (the input for the Signal Line) does not start at the beginning of the chart; it has a significant "warm-up" period determined by the Slow MA. Standard MA engines often assume data starts at index 0.
+  * **Solution:** Our custom Signal Line logic correctly handles this offset, ensuring that recursive smoothing methods (like EMA and SMMA) initialize correctly at the exact point where valid MACD data becomes available. This prevents calculation errors at the start of the data series.
 
-* **Fully Manual MA Calculations:** To guarantee 100% accuracy and consistency, all moving average types (**SMA, EMA, SMMA, LWMA**) are implemented **manually** within the calculator engine.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`m_fast_ma`, `m_slow_ma`) persist their state between ticks. This allows recursive calculations to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
 
-* **TradingView-Style Visualization:** Our implementation plots all three standard components: the MACD Line, the Signal Line, and the true Histogram (the difference between the two lines).
+* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
 
 ## 4. Parameters
 
