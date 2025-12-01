@@ -1,4 +1,4 @@
-# Average True Range (ATR) Professional
+# Average True Range (ATR) Pro
 
 ## 1. Summary (Introduction)
 
@@ -36,9 +36,13 @@ The ATR is based on the concept of the "True Range" (TR), which provides a more 
 
 * **Modular Calculation Engine (`ATR_Calculator.mqh`):** All core calculation logic is encapsulated within a reusable include file. The engine now includes a final, optional step to convert the result to a percentage based on a user-selected mode.
 
-* **Object-Oriented Design (Inheritance):** A base class, `CATRCalculator`, handles the shared Wilder's smoothing algorithm. A derived class, `CATRCalculator_HA`, overrides only the initial calculation of the raw True Range values to use Heikin Ashi candles.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_tr` and `m_atr_raw`) persist their state between ticks. This allows the recursive Wilder's Smoothing algorithm to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Stability via Full Recalculation:** We use a full recalculation on every tick for maximum stability.
+* **Object-Oriented Design (Inheritance):** A base class, `CATRCalculator`, handles the shared Wilder's smoothing algorithm. A derived class, `CATRCalculator_HA`, overrides only the initial calculation of the raw True Range values to use Heikin Ashi candles.
 
 ## 4. Parameters (`ATR_Pro.mq5`)
 
