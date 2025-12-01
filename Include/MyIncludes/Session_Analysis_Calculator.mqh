@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                 Session_Analysis_Calculator.mqh  |
 //|      Calculation engine for drawing session boxes and analytics. |
+//|      Restored original logic with updated HA call.               |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,9 +9,7 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|           CLASS 1: CSessionAnalyzer (Base Class)                 |
-//|                                                                  |
 //+==================================================================+
 class CSessionAnalyzer
   {
@@ -27,7 +26,6 @@ protected:
    double            m_src_high[], m_src_low[], m_src_price[];
 
    bool              IsTimeInSession(const MqlDateTime &dt);
-   // RE-INTRODUCED: Made virtual to allow overriding for Heikin Ashi
    virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
    void              DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[]);
 
@@ -82,18 +80,19 @@ void CSessionAnalyzer::Cleanup(void)
   }
 
 //+------------------------------------------------------------------+
-// CORRECTED: Update method signature is simplified
 void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
    if(!m_enabled || rates_total < 2)
       return;
-// The price_type is now passed directly to PrepareSourceData
+
    if(!PrepareSourceData(rates_total, open, high, low, close, price_type))
       return;
 
    bool in_session = false;
    int session_start_bar = -1;
 
+// Optimization: Only check visible bars + buffer?
+// For now, full loop as requested to match original behavior.
    for(int i = 1; i < rates_total; i++)
      {
       MqlDateTime dt;
@@ -143,6 +142,7 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
       ObjectSetInteger(0, box_name, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, box_name, OBJPROP_BACK, true);
       ObjectSetInteger(0, box_name, OBJPROP_FILL, m_fill_box);
+      ObjectSetInteger(0, box_name, OBJPROP_SELECTABLE, false);
      }
    else
      {
@@ -150,11 +150,6 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
       ObjectMove(0, box_name, 1, time[end_bar], session_low);
      }
 
-// --- Calculation for Mean and Linear Regression Lines ---
-// NOTE: The calculation is based on the m_src_price array, which is determined by the user's InpSourcePrice input.
-// The standard MT5 Regression Channel object calculates its centerline based on PRICE_MEDIAN ((High+Low)/2).
-// To match the built-in object perfectly, the user must select PRICE_MEDIAN as the source price.
-// Using other sources like PRICE_TYPICAL or PRICE_CLOSE will result in a valid, but different, regression line.
    if(m_show_mean || m_show_linreg)
      {
       double cumulative_price = 0;
@@ -185,6 +180,7 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
            }
          ObjectSetInteger(0, mean_line_name, OBJPROP_COLOR, m_color);
          ObjectSetInteger(0, mean_line_name, OBJPROP_STYLE, STYLE_SOLID);
+         ObjectSetInteger(0, mean_line_name, OBJPROP_SELECTABLE, false);
         }
       if(m_show_linreg && bar_count > 1)
         {
@@ -206,12 +202,13 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
             ObjectSetInteger(0, lr_line_name, OBJPROP_COLOR, m_color);
             ObjectSetInteger(0, lr_line_name, OBJPROP_STYLE, STYLE_SOLID);
             ObjectSetInteger(0, lr_line_name, OBJPROP_WIDTH, 1);
+            ObjectSetInteger(0, lr_line_name, OBJPROP_SELECTABLE, false);
            }
         }
      }
   }
 
-// Base implementation for standard prices
+//+------------------------------------------------------------------+
 bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
    ArrayResize(m_src_high, rates_total);
@@ -250,10 +247,6 @@ bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], 
   }
 
 //+==================================================================+
-//|                                                                  |
-//|       CLASS 2: CSessionAnalyzer_HA (Heikin Ashi) - RE-INTRODUCED |
-//|                                                                  |
-//+==================================================================+
 class CSessionAnalyzer_HA : public CSessionAnalyzer
   {
 private:
@@ -272,13 +265,13 @@ bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[
    ArrayResize(ha_high,  rates_total);
    ArrayResize(ha_low,   rates_total);
    ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
-// Prepare High and Low for the box drawing from HA candles
+//--- UPDATED: Pass '0' as start_index for full recalculation
+   m_ha_calculator.Calculate(rates_total, 0, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+
    ArrayCopy(m_src_high,  ha_high,  0, 0, rates_total);
    ArrayCopy(m_src_low,   ha_low,   0, 0, rates_total);
 
-// Prepare the source price for Mean/LinReg from HA candles
    ArrayResize(m_src_price, rates_total);
    switch(price_type)
      {
@@ -309,5 +302,4 @@ bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
