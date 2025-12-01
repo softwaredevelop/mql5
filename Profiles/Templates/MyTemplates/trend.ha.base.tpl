@@ -101,7 +101,6 @@ name=HA Open;HA High;HA Low;HA Close
 draw=17
 style=0
 width=1
-arrow=251
 color=15570276,1993170
 </graph>
 
@@ -110,7 +109,6 @@ name=OHLC
 draw=0
 style=0
 width=1
-arrow=251
 color=
 </graph>
 </indicator>
