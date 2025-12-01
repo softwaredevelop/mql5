@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "6.30" // FIXED: Unified Heikin Ashi logic for all components
+#property version   "6.30" // Restored original logic with HA fix
 #property description "Draws boxes, analytics, and session-based VWAP via high-performance buffers."
 #property indicator_chart_window
 // Buffers: M1(Pre A/B, Core A/B, Post A/B, Full A/B) = 8. Total for 3 markets = 24
@@ -344,14 +344,16 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime& time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime& time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
   {
    if(rates_total > 0 && time[rates_total - 1] == g_last_bar_time && Bars(_Symbol, _Period) == rates_total)
       return(rates_total);
    if(rates_total > 0)
       g_last_bar_time = time[rates_total - 1];
 
-// --- Explicitly clear all VWAP buffers at the start of each new bar calculation ---
+// --- Clear VWAP buffers ---
    ArrayInitialize(BufferM1_Pre_A, EMPTY_VALUE);
    ArrayInitialize(BufferM1_Pre_B, EMPTY_VALUE);
    ArrayInitialize(BufferM1_Core_A, EMPTY_VALUE);
@@ -385,33 +387,34 @@ int OnCalculate(const int rates_total, const int, const datetime& time[], const 
      }
 
 // --- VWAP Buffer Calculation Logic ---
+   int vwap_prev_calc = 0; // Force full recalc for VWAP to match original behavior
+
    if(CheckPointer(g_vwap_calculators[0]))
-      g_vwap_calculators[0].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Pre_A, BufferM1_Pre_B);
+      g_vwap_calculators[0].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM1_Pre_A, BufferM1_Pre_B);
    if(CheckPointer(g_vwap_calculators[1]))
-      g_vwap_calculators[1].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Core_A, BufferM1_Core_B);
+      g_vwap_calculators[1].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM1_Core_A, BufferM1_Core_B);
    if(CheckPointer(g_vwap_calculators[2]))
-      g_vwap_calculators[2].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Post_A, BufferM1_Post_B);
+      g_vwap_calculators[2].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM1_Post_A, BufferM1_Post_B);
    if(CheckPointer(g_vwap_calculators[3]))
-      g_vwap_calculators[3].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM1_Full_A, BufferM1_Full_B);
+      g_vwap_calculators[3].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM1_Full_A, BufferM1_Full_B);
    if(CheckPointer(g_vwap_calculators[4]))
-      g_vwap_calculators[4].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Pre_A, BufferM2_Pre_B);
+      g_vwap_calculators[4].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM2_Pre_A, BufferM2_Pre_B);
    if(CheckPointer(g_vwap_calculators[5]))
-      g_vwap_calculators[5].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Core_A, BufferM2_Core_B);
+      g_vwap_calculators[5].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM2_Core_A, BufferM2_Core_B);
    if(CheckPointer(g_vwap_calculators[6]))
-      g_vwap_calculators[6].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Post_A, BufferM2_Post_B);
+      g_vwap_calculators[6].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM2_Post_A, BufferM2_Post_B);
    if(CheckPointer(g_vwap_calculators[7]))
-      g_vwap_calculators[7].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM2_Full_A, BufferM2_Full_B);
+      g_vwap_calculators[7].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM2_Full_A, BufferM2_Full_B);
    if(CheckPointer(g_vwap_calculators[8]))
-      g_vwap_calculators[8].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM3_Pre_A, BufferM3_Pre_B);
+      g_vwap_calculators[8].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM3_Pre_A, BufferM3_Pre_B);
    if(CheckPointer(g_vwap_calculators[9]))
-      g_vwap_calculators[9].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM3_Core_A, BufferM3_Core_B);
+      g_vwap_calculators[9].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM3_Core_A, BufferM3_Core_B);
    if(CheckPointer(g_vwap_calculators[10]))
-      g_vwap_calculators[10].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM3_Post_A, BufferM3_Post_B);
+      g_vwap_calculators[10].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM3_Post_A, BufferM3_Post_B);
    if(CheckPointer(g_vwap_calculators[11]))
-      g_vwap_calculators[11].Calculate(rates_total, time, open, high, low, close, tick_volume, volume, BufferM3_Full_A, BufferM3_Full_B);
+      g_vwap_calculators[11].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM3_Full_A, BufferM3_Full_B);
 
    ChartRedraw();
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
