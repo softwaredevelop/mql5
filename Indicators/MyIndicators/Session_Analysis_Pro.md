@@ -1,4 +1,4 @@
-# Session Analysis Professional
+# Session Analysis Pro
 
 ## 1. Summary (Introduction)
 
@@ -33,16 +33,13 @@ Our MQL5 implementation follows a modern, robust, and high-performance **hybrid 
   * **VWAP via Indicator Buffers:** All VWAP calculations are handled by a dedicated `CVWAPCalculator` engine. This engine writes its results directly into MQL5's fastest drawing mechanism: **indicator buffers** (`DRAW_LINE`). We use the **"double buffer" technique** to create clean visual gaps between sessions.
   * **Boxes & Stats via Graphical Objects:** The Session Box, Mean, and Linear Regression lines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`). This is handled by a separate `CSessionAnalyzer` class, providing flexibility for these elements.
 
-* **Unified Heikin Ashi Integration:** When `CANDLE_HEIKIN_ASHI` is selected, the indicator uses a unified approach. Both the `CVWAPCalculator` and the `CSessionAnalyzer` instantiate their respective `_HA` child classes. This ensures that **all visual components**—the VWAP lines, the session range boxes, the Mean, and the Linear Regression lines—are consistently calculated using the smoothed Heikin Ashi data.
+* **Unified Heikin Ashi Integration:** When `CANDLE_HEIKIN_ASHI` is selected, the indicator uses a unified approach. Both the `CVWAPCalculator` and the `CSessionAnalyzer` instantiate their respective `_HA` child classes, leveraging our optimized `HeikinAshi_Tools` library. This ensures that **all visual components** are consistently calculated using the smoothed Heikin Ashi data.
 
 * **Robust Multi-Instance Support:** Each instance of the indicator on a chart generates a unique, stable ID for its graphical objects using the `ChartWindowFind()` method. This ID is used as a prefix for all object names, ensuring that multiple copies of the indicator can run on the same chart without any conflicts.
 
-* **Robust Cleanup on Re-initialization:** To prevent "ghost" objects or line fragments after a timeframe change or parameter edit, the indicator employs a strict two-phase cleanup process:
-    1. **Object Cleanup:** In `OnInit`, it immediately deletes all graphical objects associated with its unique instance ID from the chart.
-    2. **Buffer Cleanup:** At the beginning of every **new bar calculation** in `OnCalculate`, it explicitly clears all 24 VWAP buffers by filling them with `EMPTY_VALUE`.
-    This "clean slate" approach guarantees a perfect and stable redraw under all conditions.
-
-* **Efficient "On New Bar" Updates:** All calculations and redraws are executed only **once per bar**, preventing unnecessary CPU load on every tick.
+* **Stability via Full Recalculation on New Bar:** Given the complexity of managing multiple overlapping sessions and graphical objects, we employ a **full recalculation** strategy. However, to ensure high performance, this heavy calculation is executed **only once per new bar**.
+  * When a new bar opens, the indicator clears its buffers and recalculates the session logic from scratch.
+  * This "clean slate" approach guarantees absolute data integrity and visual stability, preventing any synchronization issues between the buffers and the objects, while keeping the chart responsive during the bar's formation.
 
 ## 4. Parameters
 
