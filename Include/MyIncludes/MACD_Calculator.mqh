@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               MACD_Calculator.mqh|
-//|         Calculation engine for Standard and Heikin Ashi MACD.    |
+//|      VERSION 1.20: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,31 +8,35 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|             CLASS 1: CMACDCalculator (Base Class)                |
-//|                                                                  |
 //+==================================================================+
 class CMACDCalculator
   {
 protected:
    int               m_fast_period, m_slow_period, m_signal_period;
    ENUM_MA_METHOD    m_source_ma_type, m_signal_ma_type;
-   double            m_price[];
 
-   //--- Virtual method for preparing the price series.
-   virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
+   //--- Persistent Buffers for Incremental Calculation
+   double            m_price[];
+   double            m_fast_ma[];
+   double            m_slow_ma[];
+
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
 
 public:
                      CMACDCalculator(void) {};
    virtual          ~CMACDCalculator(void) {};
 
    bool              Init(int fast_p, int slow_p, int signal_p, ENUM_MA_METHOD src_ma, ENUM_MA_METHOD sig_ma);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &macd_line[], double &signal_line[], double &histogram[]);
   };
 
 //+------------------------------------------------------------------+
-//| CMACDCalculator: Initialization                                  |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CMACDCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_MA_METHOD src_ma, ENUM_MA_METHOD sig_ma)
   {
@@ -51,24 +55,38 @@ bool CMACDCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_MA_METHOD 
   }
 
 //+------------------------------------------------------------------+
-//| CMACDCalculator: Main Calculation Method (CORRECTED LOGIC)       |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CMACDCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CMACDCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                 double &macd_line[], double &signal_line[], double &histogram[])
   {
    int start_pos = m_slow_period + m_signal_period - 2;
    if(rates_total <= start_pos)
       return;
 
-   if(!PreparePriceSeries(rates_total, open, high, low, close, price_type))
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+//--- 2. Resize Buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_fast_ma, rates_total);
+      ArrayResize(m_slow_ma, rates_total);
+     }
+
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, open, high, low, close, price_type))
       return;
 
-   double fast_ma[], slow_ma[];
-   ArrayResize(fast_ma, rates_total);
-   ArrayResize(slow_ma, rates_total);
+//--- 4. Calculate Fast MA (Incremental)
+   int loop_start_fast = MathMax(m_fast_period - 1, start_index);
 
-//--- STEP 1: Calculate Fast MA
-   for(int i = m_fast_period - 1; i < rates_total; i++)
+   for(int i = loop_start_fast; i < rates_total; i++)
      {
       switch(m_source_ma_type)
         {
@@ -79,30 +97,32 @@ void CMACDCalculator::Calculate(int rates_total, const double &open[], const dou
                double sum=0;
                for(int j=0; j<m_fast_period; j++)
                   sum+=m_price[i-j];
-               fast_ma[i]=sum/m_fast_period;
+               m_fast_ma[i]=sum/m_fast_period;
               }
             else
               {
                if(m_source_ma_type==MODE_EMA)
                  {
                   double pr=2.0/(m_fast_period+1.0);
-                  fast_ma[i]=m_price[i]*pr+fast_ma[i-1]*(1.0-pr);
+                  m_fast_ma[i]=m_price[i]*pr+m_fast_ma[i-1]*(1.0-pr);
                  }
                else
-                  fast_ma[i]=(fast_ma[i-1]*(m_fast_period-1)+m_price[i])/m_fast_period;
+                  m_fast_ma[i]=(m_fast_ma[i-1]*(m_fast_period-1)+m_price[i])/m_fast_period;
               }
             break;
          case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_fast_period; j++) {int w=m_fast_period-j; sum+=m_price[i-j]*w; w_sum+=w;} if(w_sum>0) fast_ma[i]=sum/w_sum;}
+           {double sum=0,w_sum=0; for(int j=0; j<m_fast_period; j++) {int w=m_fast_period-j; sum+=m_price[i-j]*w; w_sum+=w;} if(w_sum>0) m_fast_ma[i]=sum/w_sum;}
          break;
          default:
-           {double sum=0; for(int j=0; j<m_fast_period; j++) sum+=m_price[i-j]; fast_ma[i]=sum/m_fast_period;}
+           {double sum=0; for(int j=0; j<m_fast_period; j++) sum+=m_price[i-j]; m_fast_ma[i]=sum/m_fast_period;}
          break;
         }
      }
 
-//--- STEP 2: Calculate Slow MA
-   for(int i = m_slow_period - 1; i < rates_total; i++)
+//--- 5. Calculate Slow MA (Incremental)
+   int loop_start_slow = MathMax(m_slow_period - 1, start_index);
+
+   for(int i = loop_start_slow; i < rates_total; i++)
      {
       switch(m_source_ma_type)
         {
@@ -113,37 +133,41 @@ void CMACDCalculator::Calculate(int rates_total, const double &open[], const dou
                double sum=0;
                for(int j=0; j<m_slow_period; j++)
                   sum+=m_price[i-j];
-               slow_ma[i]=sum/m_slow_period;
+               m_slow_ma[i]=sum/m_slow_period;
               }
             else
               {
                if(m_source_ma_type==MODE_EMA)
                  {
                   double pr=2.0/(m_slow_period+1.0);
-                  slow_ma[i]=m_price[i]*pr+slow_ma[i-1]*(1.0-pr);
+                  m_slow_ma[i]=m_price[i]*pr+m_slow_ma[i-1]*(1.0-pr);
                  }
                else
-                  slow_ma[i]=(slow_ma[i-1]*(m_slow_period-1)+m_price[i])/m_slow_period;
+                  m_slow_ma[i]=(m_slow_ma[i-1]*(m_slow_period-1)+m_price[i])/m_slow_period;
               }
             break;
          case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_slow_period; j++) {int w=m_slow_period-j; sum+=m_price[i-j]*w; w_sum+=w;} if(w_sum>0) slow_ma[i]=sum/w_sum;}
+           {double sum=0,w_sum=0; for(int j=0; j<m_slow_period; j++) {int w=m_slow_period-j; sum+=m_price[i-j]*w; w_sum+=w;} if(w_sum>0) m_slow_ma[i]=sum/w_sum;}
          break;
          default:
-           {double sum=0; for(int j=0; j<m_slow_period; j++) sum+=m_price[i-j]; slow_ma[i]=sum/m_slow_period;}
+           {double sum=0; for(int j=0; j<m_slow_period; j++) sum+=m_price[i-j]; m_slow_ma[i]=sum/m_slow_period;}
          break;
         }
      }
 
-//--- STEP 3: Calculate MACD Line
-   for(int i = m_slow_period - 1; i < rates_total; i++)
+//--- 6. Calculate MACD Line
+   int loop_start_macd = MathMax(loop_start_slow, loop_start_fast); // Should be slow
+
+   for(int i = loop_start_macd; i < rates_total; i++)
      {
-      macd_line[i] = fast_ma[i] - slow_ma[i];
+      macd_line[i] = m_fast_ma[i] - m_slow_ma[i];
      }
 
-//--- STEP 4: Calculate Signal Line
+//--- 7. Calculate Signal Line (Incremental)
    int signal_start_pos = m_slow_period + m_signal_period - 2;
-   for(int i = signal_start_pos; i < rates_total; i++)
+   int loop_start_signal = MathMax(signal_start_pos, start_index);
+
+   for(int i = loop_start_signal; i < rates_total; i++)
      {
       switch(m_signal_ma_type)
         {
@@ -176,103 +200,115 @@ void CMACDCalculator::Calculate(int rates_total, const double &open[], const dou
         }
      }
 
-//--- STEP 5: Calculate Histogram
-   for(int i = signal_start_pos; i < rates_total; i++)
+//--- 8. Calculate Histogram
+   for(int i = loop_start_signal; i < rates_total; i++)
      {
       histogram[i] = macd_line[i] - signal_line[i];
      }
   }
 
 //+------------------------------------------------------------------+
-//| CMACDCalculator: Prepares the standard source price series.      |
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
-bool CMACDCalculator::PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+bool CMACDCalculator::PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
-   ArrayResize(m_price, rates_total);
-   switch(price_type)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
             m_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_TYPICAL:
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_WEIGHTED:
             m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
-         break;
+            break;
+         default:
+            m_price[i] = close[i];
+            break;
+        }
      }
    return true;
   }
 
 //+==================================================================+
-//|                                                                  |
-//|           CLASS 2: CMACDCalculator_HA (Heikin Ashi)              |
-//|                                                                  |
+//|             CLASS 2: CMACDCalculator_HA (Heikin Ashi)            |
 //+==================================================================+
 class CMACDCalculator_HA : public CMACDCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type) override;
   };
 
 //+------------------------------------------------------------------+
-//| CMACDCalculator_HA: Prepares the Heikin Ashi source price.       |
+//| Prepare Price (Heikin Ashi - Optimized)                          |
 //+------------------------------------------------------------------+
-bool CMACDCalculator_HA::PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+bool CMACDCalculator_HA::PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_price, rates_total);
-   switch(price_type)
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-         break;
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+     {
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = m_ha_close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = m_ha_open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = m_ha_high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = m_ha_low[i];
+            break;
+         case PRICE_MEDIAN:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_price[i] = m_ha_close[i];
+            break;
+        }
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
