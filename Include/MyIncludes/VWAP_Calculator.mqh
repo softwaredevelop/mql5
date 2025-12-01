@@ -298,11 +298,14 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Standard - Optimized)                             |
+//| Prepare Price (Standard - Optimized Copy)                        |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
+   if(ArraySize(m_typical_price) != rates_total)
+      ArrayResize(m_typical_price, rates_total);
+
+// Optimized loop starting from start_index
    for(int i = start_index; i < rates_total; i++)
       m_typical_price[i] = (high[i] + low[i] + close[i]) / 3.0;
    return true;
@@ -323,11 +326,10 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
+//| Prepare Price (Heikin Ashi - Optimized Copy)                     |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -336,11 +338,13 @@ bool CVWAPCalculator_HA::PrepareSourceData(int rates_total, int start_index, con
       ArrayResize(m_ha_close, rates_total);
      }
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-//--- Copy to m_typical_price (Optimized loop)
+   if(ArraySize(m_typical_price) != rates_total)
+      ArrayResize(m_typical_price, rates_total);
+
+// Optimized loop starting from start_index
    for(int i = start_index; i < rates_total; i++)
       m_typical_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
    return true;
