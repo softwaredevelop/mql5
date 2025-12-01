@@ -1,11 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                               MACD_Calculator.mqh|
-//|      VERSION 1.20: Optimized for incremental calculation.        |
+//|      VERSION 2.10: Reverted Signal Line to local calculation.    |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
 //|             CLASS 1: CMACDCalculator (Base Class)                |
@@ -13,8 +14,13 @@
 class CMACDCalculator
   {
 protected:
-   int               m_fast_period, m_slow_period, m_signal_period;
-   ENUM_MA_METHOD    m_source_ma_type, m_signal_ma_type;
+   //--- Engines for MACD Line
+   CMovingAverageCalculator *m_fast_ma_engine;
+   CMovingAverageCalculator *m_slow_ma_engine;
+
+   //--- Parameters for Signal Line
+   int               m_signal_period;
+   ENUM_MA_METHOD    m_signal_ma_type;
 
    //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
@@ -24,9 +30,12 @@ protected:
    //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
 
+   //--- Local Helper for Signal Line (Handles offset data correctly)
+   void              CalculateSignalMA(const double &source[], double &dest[], int rates_total, int start_index, int period, ENUM_MA_METHOD method, int data_start_pos);
+
 public:
-                     CMACDCalculator(void) {};
-   virtual          ~CMACDCalculator(void) {};
+                     CMACDCalculator(void);
+   virtual          ~CMACDCalculator(void);
 
    bool              Init(int fast_p, int slow_p, int signal_p, ENUM_MA_METHOD src_ma, ENUM_MA_METHOD sig_ma);
 
@@ -36,21 +45,49 @@ public:
   };
 
 //+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CMACDCalculator::CMACDCalculator(void)
+  {
+   m_fast_ma_engine = new CMovingAverageCalculator();
+   m_slow_ma_engine = new CMovingAverageCalculator();
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CMACDCalculator::~CMACDCalculator(void)
+  {
+   if(CheckPointer(m_fast_ma_engine) != POINTER_INVALID)
+      delete m_fast_ma_engine;
+   if(CheckPointer(m_slow_ma_engine) != POINTER_INVALID)
+      delete m_slow_ma_engine;
+  }
+
+//+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
 bool CMACDCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_MA_METHOD src_ma, ENUM_MA_METHOD sig_ma)
   {
-   m_fast_period = (fast_p < 1) ? 1 : fast_p;
-   m_slow_period = (slow_p < 1) ? 1 : slow_p;
-   if(m_fast_period > m_slow_period)
+// Ensure fast < slow
+   int f_p = (fast_p < 1) ? 1 : fast_p;
+   int s_p = (slow_p < 1) ? 1 : slow_p;
+   if(f_p > s_p)
      {
-      int temp=m_fast_period;
-      m_fast_period=m_slow_period;
-      m_slow_period=temp;
+      int temp=f_p;
+      f_p=s_p;
+      s_p=temp;
      }
+
    m_signal_period = (signal_p < 1) ? 1 : signal_p;
-   m_source_ma_type = src_ma;
    m_signal_ma_type = sig_ma;
+
+// Initialize Engines
+   if(!m_fast_ma_engine.Init(f_p, (ENUM_MA_TYPE)src_ma))
+      return false;
+   if(!m_slow_ma_engine.Init(s_p, (ENUM_MA_TYPE)src_ma))
+      return false;
+
    return true;
   }
 
@@ -60,8 +97,7 @@ bool CMACDCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_MA_METHOD 
 void CMACDCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                 double &macd_line[], double &signal_line[], double &histogram[])
   {
-   int start_pos = m_slow_period + m_signal_period - 2;
-   if(rates_total <= start_pos)
+   if(rates_total < 2)
       return;
 
 //--- 1. Determine Start Index
@@ -83,127 +119,109 @@ void CMACDCalculator::Calculate(int rates_total, int prev_calculated, const doub
    if(!PreparePriceSeries(rates_total, start_index, open, high, low, close, price_type))
       return;
 
-//--- 4. Calculate Fast MA (Incremental)
-   int loop_start_fast = MathMax(m_fast_period - 1, start_index);
+//--- 4. Calculate Fast & Slow MAs (Delegated to Engine)
+// We pass PRICE_CLOSE because we already prepared m_price array with the correct price type!
+// The engine will copy m_price to its internal buffer.
+   m_fast_ma_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE, m_price, m_price, m_price, m_price, m_fast_ma);
+   m_slow_ma_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE, m_price, m_price, m_price, m_price, m_slow_ma);
 
-   for(int i = loop_start_fast; i < rates_total; i++)
-     {
-      switch(m_source_ma_type)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == m_fast_period - 1)
-              {
-               double sum=0;
-               for(int j=0; j<m_fast_period; j++)
-                  sum+=m_price[i-j];
-               m_fast_ma[i]=sum/m_fast_period;
-              }
-            else
-              {
-               if(m_source_ma_type==MODE_EMA)
-                 {
-                  double pr=2.0/(m_fast_period+1.0);
-                  m_fast_ma[i]=m_price[i]*pr+m_fast_ma[i-1]*(1.0-pr);
-                 }
-               else
-                  m_fast_ma[i]=(m_fast_ma[i-1]*(m_fast_period-1)+m_price[i])/m_fast_period;
-              }
-            break;
-         case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_fast_period; j++) {int w=m_fast_period-j; sum+=m_price[i-j]*w; w_sum+=w;} if(w_sum>0) m_fast_ma[i]=sum/w_sum;}
-         break;
-         default:
-           {double sum=0; for(int j=0; j<m_fast_period; j++) sum+=m_price[i-j]; m_fast_ma[i]=sum/m_fast_period;}
-         break;
-        }
-     }
+//--- 5. Calculate MACD Line
+   int slow_period = m_slow_ma_engine.GetPeriod();
+   int loop_start_macd = MathMax(slow_period - 1, start_index);
 
-//--- 5. Calculate Slow MA (Incremental)
-   int loop_start_slow = MathMax(m_slow_period - 1, start_index);
-
-   for(int i = loop_start_slow; i < rates_total; i++)
-     {
-      switch(m_source_ma_type)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == m_slow_period - 1)
-              {
-               double sum=0;
-               for(int j=0; j<m_slow_period; j++)
-                  sum+=m_price[i-j];
-               m_slow_ma[i]=sum/m_slow_period;
-              }
-            else
-              {
-               if(m_source_ma_type==MODE_EMA)
-                 {
-                  double pr=2.0/(m_slow_period+1.0);
-                  m_slow_ma[i]=m_price[i]*pr+m_slow_ma[i-1]*(1.0-pr);
-                 }
-               else
-                  m_slow_ma[i]=(m_slow_ma[i-1]*(m_slow_period-1)+m_price[i])/m_slow_period;
-              }
-            break;
-         case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_slow_period; j++) {int w=m_slow_period-j; sum+=m_price[i-j]*w; w_sum+=w;} if(w_sum>0) m_slow_ma[i]=sum/w_sum;}
-         break;
-         default:
-           {double sum=0; for(int j=0; j<m_slow_period; j++) sum+=m_price[i-j]; m_slow_ma[i]=sum/m_slow_period;}
-         break;
-        }
-     }
-
-//--- 6. Calculate MACD Line
-   int loop_start_macd = MathMax(loop_start_slow, loop_start_fast); // Should be slow
+// Initialize buffer on full recalc
+   if(prev_calculated == 0)
+      ArrayInitialize(macd_line, EMPTY_VALUE);
 
    for(int i = loop_start_macd; i < rates_total; i++)
      {
-      macd_line[i] = m_fast_ma[i] - m_slow_ma[i];
+      if(m_fast_ma[i] != EMPTY_VALUE && m_slow_ma[i] != EMPTY_VALUE)
+         macd_line[i] = m_fast_ma[i] - m_slow_ma[i];
+      else
+         macd_line[i] = EMPTY_VALUE;
      }
 
-//--- 7. Calculate Signal Line (Incremental)
-   int signal_start_pos = m_slow_period + m_signal_period - 2;
-   int loop_start_signal = MathMax(signal_start_pos, start_index);
+//--- 6. Calculate Signal Line (Using Local Helper)
+// The MACD line starts being valid at 'slow_period - 1'.
+   if(prev_calculated == 0)
+      ArrayInitialize(signal_line, EMPTY_VALUE);
 
-   for(int i = loop_start_signal; i < rates_total; i++)
+   CalculateSignalMA(macd_line, signal_line, rates_total, start_index, m_signal_period, m_signal_ma_type, slow_period - 1);
+
+//--- 7. Calculate Histogram
+   int signal_start = slow_period - 1 + m_signal_period - 1;
+   int loop_start_hist = MathMax(signal_start, start_index);
+
+   if(prev_calculated == 0)
+      ArrayInitialize(histogram, EMPTY_VALUE);
+
+   for(int i = loop_start_hist; i < rates_total; i++)
      {
-      switch(m_signal_ma_type)
+      if(macd_line[i] != EMPTY_VALUE && signal_line[i] != EMPTY_VALUE)
+         histogram[i] = macd_line[i] - signal_line[i];
+      else
+         histogram[i] = EMPTY_VALUE;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Local Helper for Signal Line Calculation                         |
+//+------------------------------------------------------------------+
+void CMACDCalculator::CalculateSignalMA(const double &source[], double &dest[], int rates_total, int start_index, int period, ENUM_MA_METHOD method, int data_start_pos)
+  {
+// The actual calculation starts 'period' bars after the data starts
+   int calc_start_pos = data_start_pos + period - 1;
+   int i = MathMax(calc_start_pos, start_index);
+
+   if(i >= rates_total)
+      return;
+
+   for(; i < rates_total; i++)
+     {
+      switch(method)
         {
          case MODE_EMA:
          case MODE_SMMA:
-            if(i == signal_start_pos)
+            if(i == calc_start_pos)
               {
                double sum=0;
-               for(int j=0; j<m_signal_period; j++)
-                  sum+=macd_line[i-j];
-               signal_line[i]=sum/m_signal_period;
+               for(int j=0; j<period; j++)
+                  sum+=source[i-j];
+               dest[i]=sum/period;
               }
             else
               {
-               if(m_signal_ma_type==MODE_EMA)
+               if(method==MODE_EMA)
                  {
-                  double pr=2.0/(m_signal_period+1.0);
-                  signal_line[i]=macd_line[i]*pr+signal_line[i-1]*(1.0-pr);
+                  double pr=2.0/(period+1.0);
+                  dest[i]=source[i]*pr+dest[i-1]*(1.0-pr);
                  }
                else
-                  signal_line[i]=(signal_line[i-1]*(m_signal_period-1)+macd_line[i])/m_signal_period;
+                  dest[i]=(dest[i-1]*(period-1)+source[i])/period;
               }
             break;
          case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_signal_period; j++) {int w=m_signal_period-j; sum+=macd_line[i-j]*w; w_sum+=w;} if(w_sum>0) signal_line[i]=sum/w_sum;}
+           {
+            double sum=0,w_sum=0;
+            for(int j=0; j<period; j++)
+              {
+               int w=period-j;
+               sum+=source[i-j]*w;
+               w_sum+=w;
+              }
+            if(w_sum>0)
+               dest[i]=sum/w_sum;
+           }
          break;
-         default:
-           {double sum=0; for(int j=0; j<m_signal_period; j++) sum+=macd_line[i-j]; signal_line[i]=sum/m_signal_period;}
+         default: // SMA
+           {
+            double sum=0;
+            for(int j=0; j<period; j++)
+               sum+=source[i-j];
+            dest[i]=sum/period;
+           }
          break;
         }
-     }
-
-//--- 8. Calculate Histogram
-   for(int i = loop_start_signal; i < rates_total; i++)
-     {
-      histogram[i] = macd_line[i] - signal_line[i];
      }
   }
 
