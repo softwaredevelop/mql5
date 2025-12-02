@@ -1,4 +1,4 @@
-# Polynomial Regression Object Professional
+# Polynomial Regression Object Pro
 
 ## 1. Summary (Introduction)
 
@@ -42,9 +42,9 @@ For each new bar, the following process is performed on the most recent `N` pric
 
 * **Object-Based Drawing:** This indicator does **not** use standard indicator buffers for plotting. Instead, it generates a set of graphical objects (`OBJ_TREND`) on the chart. The smooth curves are constructed from many small, connected straight-line segments.
 
-* **High Efficiency:** The entire calculation and object redrawing process is computationally intensive. To ensure optimal performance, the logic is executed **only once per bar**, not on every tick. On each new bar, the old objects are deleted and the new channel is drawn.
+* **Optimized Object Management:** While the mathematical regression is recalculated fully on every tick (as the curve changes shape dynamically), the graphical rendering is highly optimized. Instead of deleting and recreating hundreds of objects on every update (which causes flickering and lag), the indicator intelligently checks for existing objects and simply **moves** them to their new coordinates using `ObjectMove`. This ensures smooth, high-performance rendering even during rapid price changes.
 
-* **Robust Object Management:** All objects created by the indicator share a **stable and unique prefix**. This prefix is generated in `OnInit()` using a combination of the chart's ID (`ChartID()`) and the indicator's sub-window index (`ChartWindowFind()`). This creates a reliable "digital fingerprint" for each indicator instance, ensuring that object cleanup (`ObjectsDeleteAll`) works perfectly even during timeframe changes or indicator re-initializations, preventing any "ghost" objects from being left on the chart. All objects are automatically cleaned up when the indicator is removed.
+* **Robust Object Cleanup:** All objects created by the indicator share a **stable and unique prefix**. This prefix is generated in `OnInit()` using a combination of the chart's ID (`ChartID()`) and the indicator's sub-window index (`ChartWindowFind()`). This creates a reliable "digital fingerprint" for each indicator instance, ensuring that object cleanup (`ObjectsDeleteAll`) works perfectly even during timeframe changes or indicator re-initializations, preventing any "ghost" objects from being left on the chart.
 
 * **Modular Calculation Engine (`Polynomial_Regression_Object_Calculator.mqh`):** All complex mathematical and drawing logic is encapsulated within the dedicated calculator engine, keeping the main indicator file clean and simple.
 
