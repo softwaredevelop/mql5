@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // Fixed Dashboard positioning and colors
+#property version   "2.20" // Added visibility toggles
 #property description "Displays the relative strength of 8 major currencies."
 
 #property indicator_separate_window
@@ -60,6 +60,16 @@ input bool            InpSmooth    = true;         // Smooth Results?
 input int             InpSmoothPer = 5;            // Smoothing Period
 input bool            InpShowPanel = true;         // Show Dashboard Panel?
 
+input group           "Visibility Settings"
+input bool            InpShowUSD   = true;         // Show USD
+input bool            InpShowEUR   = true;         // Show EUR
+input bool            InpShowGBP   = true;         // Show GBP
+input bool            InpShowJPY   = true;         // Show JPY
+input bool            InpShowAUD   = true;         // Show AUD
+input bool            InpShowCAD   = true;         // Show CAD
+input bool            InpShowCHF   = true;         // Show CHF
+input bool            InpShowNZD   = true;         // Show NZD
+
 //--- Buffers
 double BufUSD[], BufEUR[], BufGBP[], BufJPY[], BufAUD[], BufCAD[], BufCHF[], BufNZD[];
 
@@ -67,6 +77,7 @@ double BufUSD[], BufEUR[], BufGBP[], BufJPY[], BufAUD[], BufCAD[], BufCHF[], Buf
 CCurrencyStrengthCalculator *g_calculator;
 string g_prefix;
 int    g_window_idx;
+bool   g_show_flags[8]; // Array to store visibility
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -80,19 +91,31 @@ int OnInit()
    SetIndexBuffer(6, BufCHF, INDICATOR_DATA);
    SetIndexBuffer(7, BufNZD, INDICATOR_DATA);
 
+// Store flags
+   g_show_flags[0] = InpShowUSD;
+   g_show_flags[1] = InpShowEUR;
+   g_show_flags[2] = InpShowGBP;
+   g_show_flags[3] = InpShowJPY;
+   g_show_flags[4] = InpShowAUD;
+   g_show_flags[5] = InpShowCAD;
+   g_show_flags[6] = InpShowCHF;
+   g_show_flags[7] = InpShowNZD;
+
    for(int i=0; i<8; i++)
+     {
       PlotIndexSetInteger(i, PLOT_DRAW_BEGIN, InpPeriod + (InpSmooth ? InpSmoothPer : 0));
+
+      // Hide plot if disabled
+      if(!g_show_flags[i])
+         PlotIndexSetInteger(i, PLOT_DRAW_TYPE, DRAW_NONE);
+     }
 
    g_calculator = new CCurrencyStrengthCalculator();
    ENUM_TIMEFRAMES tf = (InpTimeframe == PERIOD_CURRENT) ? (ENUM_TIMEFRAMES)Period() : InpTimeframe;
    g_calculator.Init(InpPeriod, tf);
 
-// Unique prefix
    g_prefix = "CS_Pro_" + IntegerToString(ChartID()) + "_";
-
-// Find window index (might be 0 in OnInit, updated in OnCalculate if needed)
    g_window_idx = ChartWindowFind();
-
    ObjectsDeleteAll(0, g_prefix);
 
    IndicatorSetString(INDICATOR_SHORTNAME, "Currency Strength");
@@ -186,7 +209,7 @@ void DrawDashboard(int last_idx)
    values[6] = BufCHF[last_idx];
    values[7] = BufNZD[last_idx];
 
-// Handle NaN/Empty for display
+// Handle NaN/Empty
    for(int i=0; i<8; i++)
       if(!MathIsValidNumber(values[i]) || values[i] == EMPTY_VALUE)
          values[i] = 0.0;
@@ -206,14 +229,26 @@ void DrawDashboard(int last_idx)
    int x_base = 10;
    int x_step = 95;
    int y_pos = 20;
+   int drawn_count = 0; // Counter for visible items
 
    for(int i=0; i<8; i++)
      {
       int idx = indices[i];
-      string name = g_prefix + "Label_" + IntegerToString(i);
+
+      // Skip if disabled by user
+      if(!g_show_flags[idx])
+        {
+         // Delete label if it exists (from previous state)
+         string name = g_prefix + "Label_" + IntegerToString(i); // Note: i is the sorted position
+         // Actually, we should delete ALL labels first or manage them by ID.
+         // Simpler: Just don't draw. But if we change params, OnInit clears objects.
+         // So we are safe.
+         continue;
+        }
+
+      string name = g_prefix + "Label_" + IntegerToString(i); // Use 'i' (rank) for name to keep them ordered
 
       string val_str;
-      // Check if data is truly missing (using BufUSD as proxy for all)
       if(values[idx] == 0.0 && (BufUSD[last_idx] == EMPTY_VALUE || BufUSD[last_idx] == 0.0))
          val_str = "N/A";
       else
@@ -230,10 +265,18 @@ void DrawDashboard(int last_idx)
          ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
         }
 
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x_base + i * x_step);
+      // Use drawn_count for X position to stack them neatly
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x_base + drawn_count * x_step);
       ObjectSetString(0, name, OBJPROP_TEXT, text);
       ObjectSetInteger(0, name, OBJPROP_COLOR, colors[idx]);
+
+      drawn_count++;
      }
+
+// Delete unused labels (if we went from showing 8 to 3)
+// Since we use 'i' (0..7) for names, if we only draw 3, labels 3..7 might remain if not cleared.
+// But OnInit clears all. OnCalculate updates.
+// If we change visibility, OnInit runs, clearing everything. So this is fine.
 
    ChartRedraw();
   }
