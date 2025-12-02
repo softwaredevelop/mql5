@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Added 3 decimal precision and robust error handling
+#property version   "2.00" // Added visibility toggles
 #property description "Displays the relative strength of user-defined symbols (Indices, Commodities, etc.)."
 
 #property indicator_separate_window
@@ -39,20 +39,28 @@ input bool            InpShowPanel = true;         // Show Dashboard Panel?
 
 input group           "Symbols & Colors"
 input string          InpSymbol1   = "US500";      // Symbol 1
+input bool            InpShow1     = true;         // Show Symbol 1
 input color           InpColor1    = clrGreen;     // Color 1
 input string          InpSymbol2   = "USTEC";      // Symbol 2
+input bool            InpShow2     = true;         // Show Symbol 2
 input color           InpColor2    = clrRed;       // Color 2
 input string          InpSymbol3   = "US30";       // Symbol 3
+input bool            InpShow3     = true;         // Show Symbol 3
 input color           InpColor3    = clrDodgerBlue;// Color 3
 input string          InpSymbol4   = "DE40";       // Symbol 4
+input bool            InpShow4     = true;         // Show Symbol 4
 input color           InpColor4    = clrGold;      // Color 4
 input string          InpSymbol5   = "UK100";      // Symbol 5
+input bool            InpShow5     = true;         // Show Symbol 5
 input color           InpColor5    = clrMagenta;   // Color 5
 input string          InpSymbol6   = "JP225";      // Symbol 6
+input bool            InpShow6     = true;         // Show Symbol 6
 input color           InpColor6    = clrOrange;    // Color 6
-input string          InpSymbol7   = "XAUUSD";       // Symbol 7
+input string          InpSymbol7   = "Gold";       // Symbol 7
+input bool            InpShow7     = true;         // Show Symbol 7
 input color           InpColor7    = clrSlateGray;     // Color 7
-input string          InpSymbol8   = "XTIUSD";        // Symbol 8
+input string          InpSymbol8   = "";        // Symbol 8
+input bool            InpShow8     = true;         // Show Symbol 8
 input color           InpColor8    = clrTurquoise; // Color 8
 
 //--- Buffers
@@ -64,6 +72,7 @@ string g_prefix;
 int    g_window_idx;
 string g_symbols[8];
 color  g_colors[8];
+bool   g_show_flags[8];
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -80,20 +89,28 @@ int OnInit()
 // Collect inputs
    g_symbols[0] = InpSymbol1;
    g_colors[0] = InpColor1;
+   g_show_flags[0] = InpShow1;
    g_symbols[1] = InpSymbol2;
    g_colors[1] = InpColor2;
+   g_show_flags[1] = InpShow2;
    g_symbols[2] = InpSymbol3;
    g_colors[2] = InpColor3;
+   g_show_flags[2] = InpShow3;
    g_symbols[3] = InpSymbol4;
    g_colors[3] = InpColor4;
+   g_show_flags[3] = InpShow4;
    g_symbols[4] = InpSymbol5;
    g_colors[4] = InpColor5;
+   g_show_flags[4] = InpShow5;
    g_symbols[5] = InpSymbol6;
    g_colors[5] = InpColor6;
+   g_show_flags[5] = InpShow6;
    g_symbols[6] = InpSymbol7;
    g_colors[6] = InpColor7;
+   g_show_flags[6] = InpShow7;
    g_symbols[7] = InpSymbol8;
    g_colors[7] = InpColor8;
+   g_show_flags[7] = InpShow8;
 
    for(int i=0; i<8; i++)
      {
@@ -101,8 +118,8 @@ int OnInit()
       PlotIndexSetInteger(i, PLOT_LINE_COLOR, g_colors[i]);
       PlotIndexSetString(i, PLOT_LABEL, g_symbols[i]);
 
-      // Hide unused plots
-      if(g_symbols[i] == "")
+      // Hide unused or disabled plots
+      if(g_symbols[i] == "" || !g_show_flags[i])
          PlotIndexSetInteger(i, PLOT_DRAW_TYPE, DRAW_NONE);
      }
 
@@ -252,23 +269,25 @@ void DrawDashboard(int last_idx)
            }
 
    int x_base = 10;
-   int x_step = 105;
+   int x_step = 95;
    int y_pos = 20;
    int drawn_count = 0;
 
    for(int i=0; i<8; i++)
      {
       int idx = indices[i];
-      if(g_symbols[idx] == "")
-         continue; // Skip empty slots
+
+      // Skip empty OR disabled slots
+      if(g_symbols[idx] == "" || !g_show_flags[idx])
+         continue;
 
       string name = g_prefix + "Label_" + IntegerToString(i);
 
       string val_str;
-      if(values[idx] == 0.0 && (Buf1[last_idx] == EMPTY_VALUE)) // Check if it was truly empty
+      if(values[idx] == 0.0 && (Buf1[last_idx] == EMPTY_VALUE))
          val_str = "N/A";
       else
-         val_str = StringFormat("%.3f%%", values[idx]); // 3 decimals
+         val_str = StringFormat("%.3f%%", values[idx]);
 
       string text = StringFormat("%s: %s", g_symbols[idx], val_str);
 
