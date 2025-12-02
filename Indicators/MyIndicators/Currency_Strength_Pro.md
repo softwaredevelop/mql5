@@ -24,10 +24,10 @@ The indicator uses a Rate of Change (ROC) based algorithm to score each currency
 
 ## 3. MQL5 Implementation Details
 
-* **Multi-Symbol Engine (`Currency_Strength_Calculator.mqh`):** The core logic is encapsulated in a robust engine that handles the complexity of accessing data from 28 different symbols simultaneously. It includes error handling for missing history or synchronization issues.
+* **Multi-Symbol Engine (`Currency_Strength_Calculator.mqh`):** The core logic is encapsulated in a robust engine that handles the complexity of accessing data from 28 different symbols simultaneously.
+* **Robust Data Handling:** The indicator includes advanced synchronization checks (`IsDataReady`). It ensures that historical data for all 28 pairs is fully loaded and synchronized before performing calculations. This prevents the display of misleading or "glitchy" lines during chart startup or timeframe changes.
 * **Optimized Performance:** To prevent freezing the terminal, the indicator limits the history calculation on the first load. Subsequent updates are incremental and extremely fast.
-* **Interactive Dashboard:** A custom-drawn dashboard panel in the indicator window provides a real-time, sorted list of currencies with their exact strength values, color-coded to match the chart lines.
-* **Dynamic Positioning:** The dashboard automatically adjusts its layout to fit the indicator window.
+* **Interactive Dashboard:** A custom-drawn dashboard panel in the indicator window provides a real-time, sorted list of currencies with their exact strength values (to 3 decimal places). It gracefully handles missing data by displaying "N/A" instead of erroneous values.
 
 ## 4. Parameters
 
