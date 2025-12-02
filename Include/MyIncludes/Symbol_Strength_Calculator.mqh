@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                   Symbol_Strength_Calculator.mqh |
-//|      VERSION 1.10: Robust data handling and synchronization.     |
+//|      VERSION 1.20: Added symbol existence check.                 |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -26,7 +26,6 @@ public:
    void              CalculateStep(int bar_index, double &strengths[]);
    int               GetCount() { return m_symbol_count; }
 
-   //--- NEW: Check if data is ready for all symbols
    bool              IsDataReady(void);
   };
 
@@ -41,13 +40,44 @@ bool CSymbolStrengthCalculator::Init(int period, ENUM_TIMEFRAMES tf, const strin
 
    for(int i=0; i<m_symbol_count; i++)
      {
-      m_symbols[i] = symbols[i];
-      if(m_symbols[i] != "")
+      string sym = symbols[i];
+
+      // Skip empty inputs
+      if(sym == "")
         {
-         SymbolSelect(m_symbols[i], true);
-         // Force synchronization
-         iTime(m_symbols[i], m_timeframe, 0);
+         m_symbols[i] = "";
+         continue;
         }
+
+      // Check if symbol exists in Market Watch or Database
+      if(!SymbolInfoInteger(sym, SYMBOL_SELECT))
+        {
+         if(GetLastError() == 4106) // ERR_UNKNOWN_SYMBOL
+           {
+            // Try to select it (maybe it exists but not selected)
+            if(!SymbolSelect(sym, true))
+              {
+               Print("Global Market Strength Error: Symbol '", sym, "' not found! Please check spelling.");
+               m_symbols[i] = ""; // Disable this slot to prevent blocking
+               continue;
+              }
+           }
+         else
+           {
+            // Try to select anyway
+            if(!SymbolSelect(sym, true))
+              {
+               Print("Global Market Strength Error: Symbol '", sym, "' not found! Please check spelling.");
+               m_symbols[i] = ""; // Disable this slot
+               continue;
+              }
+           }
+        }
+
+      // If we are here, symbol exists and is selected
+      m_symbols[i] = sym;
+      // Force sync
+      iTime(m_symbols[i], m_timeframe, 0);
      }
    return true;
   }
@@ -58,7 +88,7 @@ bool CSymbolStrengthCalculator::IsDataReady(void)
    for(int i=0; i<m_symbol_count; i++)
      {
       if(m_symbols[i] == "")
-         continue;
+         continue; // Skip invalid/empty symbols
 
       // Check if bars are synchronized
       if(!SeriesInfoInteger(m_symbols[i], m_timeframe, SERIES_SYNCHRONIZED))
@@ -84,7 +114,6 @@ double CSymbolStrengthCalculator::GetROC(string symbol, int index)
    if(CopyClose(symbol, m_timeframe, index + m_period, 1, close_prev) <= 0)
       return EMPTY_VALUE;
 
-// Robust check for zero or invalid price
    if(close_prev[0] <= 0.0000001 || !MathIsValidNumber(close_prev[0]))
       return EMPTY_VALUE;
    if(close_curr[0] <= 0.0000001 || !MathIsValidNumber(close_curr[0]))
@@ -102,7 +131,7 @@ double CSymbolStrengthCalculator::GetROC(string symbol, int index)
 void CSymbolStrengthCalculator::CalculateStep(int bar_index, double &strengths[])
   {
    ArrayResize(strengths, m_symbol_count);
-   ArrayInitialize(strengths, EMPTY_VALUE); // Default to EMPTY
+   ArrayInitialize(strengths, EMPTY_VALUE);
 
    for(int i = 0; i < m_symbol_count; i++)
      {
