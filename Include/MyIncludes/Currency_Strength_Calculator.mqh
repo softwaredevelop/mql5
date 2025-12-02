@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                 Currency_Strength_Calculator.mqh |
-//|      Engine for calculating relative currency strength.          |
+//|      VERSION 1.10: Robust data handling and synchronization.     |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -40,6 +40,9 @@ public:
 
    //--- Main calculation: Fills the strength array [8] for a specific bar index
    void              CalculateStep(int bar_index, double &strengths[]);
+
+   //--- NEW: Check if data is ready for all pairs
+   bool              IsDataReady(void);
   };
 
 //+------------------------------------------------------------------+
@@ -47,28 +50,56 @@ bool CCurrencyStrengthCalculator::Init(int period, ENUM_TIMEFRAMES tf)
   {
    m_period = period;
    m_timeframe = tf;
+
+// Ensure all symbols are selected
+   for(int i=0; i<28; i++)
+     {
+      if(!SymbolInfoInteger(g_pairs[i], SYMBOL_SELECT))
+         SymbolSelect(g_pairs[i], true);
+      // Force sync
+      iTime(g_pairs[i], m_timeframe, 0);
+     }
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+bool CCurrencyStrengthCalculator::IsDataReady(void)
+  {
+   for(int i=0; i<28; i++)
+     {
+      // Check if bars are synchronized
+      if(!SeriesInfoInteger(g_pairs[i], m_timeframe, SERIES_SYNCHRONIZED))
+         return false;
+
+      // Check if enough bars are available
+      if(SeriesInfoInteger(g_pairs[i], m_timeframe, SERIES_BARS_COUNT) < m_period + 10)
+         return false;
+     }
    return true;
   }
 
 //+------------------------------------------------------------------+
 double CCurrencyStrengthCalculator::GetROC(string symbol, int index)
   {
-// We need Close[index] and Close[index + period]
    double close_curr[1], close_prev[1];
 
-// Check if symbol is available in Market Watch
-   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
-      SymbolSelect(symbol, true);
-
    if(CopyClose(symbol, m_timeframe, index, 1, close_curr) <= 0)
-      return 0.0;
+      return EMPTY_VALUE;
    if(CopyClose(symbol, m_timeframe, index + m_period, 1, close_prev) <= 0)
-      return 0.0;
+      return EMPTY_VALUE;
 
-   if(close_prev[0] == 0)
-      return 0.0;
+// Robust check
+   if(close_prev[0] <= 0.0000001 || !MathIsValidNumber(close_prev[0]))
+      return EMPTY_VALUE;
+   if(close_curr[0] <= 0.0000001 || !MathIsValidNumber(close_curr[0]))
+      return EMPTY_VALUE;
 
-   return ((close_curr[0] - close_prev[0]) / close_prev[0]) * 100.0;
+   double roc = ((close_curr[0] - close_prev[0]) / close_prev[0]) * 100.0;
+
+   if(!MathIsValidNumber(roc))
+      return EMPTY_VALUE;
+
+   return roc;
   }
 
 //+------------------------------------------------------------------+
@@ -83,6 +114,9 @@ void CCurrencyStrengthCalculator::CalculateStep(int bar_index, double &strengths
       string quote = StringSubstr(symbol, 3, 3);
 
       double roc = GetROC(symbol, bar_index);
+
+      if(roc == EMPTY_VALUE)
+         continue; // Skip invalid pairs
 
       // Find indices
       int base_idx = -1, quote_idx = -1;
@@ -101,7 +135,5 @@ void CCurrencyStrengthCalculator::CalculateStep(int bar_index, double &strengths
          strengths[quote_idx] -= roc;
         }
      }
-
-// Optional: Normalize or smooth here if needed
   }
 //+------------------------------------------------------------------+
