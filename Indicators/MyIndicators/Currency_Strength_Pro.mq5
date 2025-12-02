@@ -110,8 +110,11 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
   {
-// Update window index (sometimes OnInit returns -1 for subwindows)
    g_window_idx = ChartWindowFind();
+
+//--- NEW: Check Data Readiness
+   if(!g_calculator.IsDataReady())
+      return 0;
 
    int start_index;
    if(prev_calculated == 0)
@@ -183,6 +186,11 @@ void DrawDashboard(int last_idx)
    values[6] = BufCHF[last_idx];
    values[7] = BufNZD[last_idx];
 
+// Handle NaN/Empty for display
+   for(int i=0; i<8; i++)
+      if(!MathIsValidNumber(values[i]) || values[i] == EMPTY_VALUE)
+         values[i] = 0.0;
+
 // Sort by strength
    int indices[] = {0, 1, 2, 3, 4, 5, 6, 7};
    for(int i=0; i<8; i++)
@@ -196,15 +204,22 @@ void DrawDashboard(int last_idx)
 
 // Draw Objects
    int x_base = 10;
-   int x_step = 95; // Increased slightly to fit 3 decimals
+   int x_step = 95;
    int y_pos = 20;
 
    for(int i=0; i<8; i++)
      {
       int idx = indices[i];
       string name = g_prefix + "Label_" + IntegerToString(i);
-      //--- UPDATED: Use %.3f for higher precision
-      string text = StringFormat("%s: %.3f", currencies[idx], values[idx]);
+
+      string val_str;
+      // Check if data is truly missing (using BufUSD as proxy for all)
+      if(values[idx] == 0.0 && (BufUSD[last_idx] == EMPTY_VALUE || BufUSD[last_idx] == 0.0))
+         val_str = "N/A";
+      else
+         val_str = StringFormat("%.3f", values[idx]);
+
+      string text = StringFormat("%s: %s", currencies[idx], val_str);
 
       if(ObjectFind(0, name) < 0)
         {
