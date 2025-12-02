@@ -32,12 +32,12 @@ The indicator uses a Rate of Change (ROC) based algorithm to score each currency
 ## 4. Parameters
 
 * **`InpPeriod`:** The lookback period for the ROC calculation. Default is `14`.
-  * Lower values (e.g., 5-10) make the indicator more sensitive to recent news.
-  * Higher values (e.g., 20-50) show the longer-term trend strength.
 * **`InpTimeframe`:** The timeframe used for the calculation. Usually set to `PERIOD_CURRENT`, but can be fixed to a higher timeframe (e.g., H1) for multi-timeframe analysis.
 * **`InpSmooth`:** Enables smoothing of the strength lines. Default is `true`.
 * **`InpSmoothPer`:** The period for the smoothing. Default is `5`.
 * **`InpShowPanel`:** Toggles the visibility of the dashboard panel.
+* **Visibility Settings:**
+  * **`InpShowUSD` - `InpShowNZD`:** Individual toggles for each currency. This allows you to hide currencies you are not interested in, reducing chart clutter and focusing your analysis on specific pairs or groups (e.g., only showing USD, EUR, and JPY).
 
 ## 5. Usage and Interpretation
 
@@ -64,7 +64,8 @@ The most effective way to use this indicator is during the pre-market analysis b
 
 1. **Check H1/H4:** Identify the strongest and weakest currencies over the last 24 hours.
 2. **Select Pairs:** Create a "Watchlist" for the day by pairing the Top 2 strongest against the Bottom 2 weakest currencies. (e.g., Strong GBP + Weak AUD -> Trade GBPAUD Long).
-3. **Wait for Timing:** Switch to a lower timeframe (M5/M15) on your selected pair and use your tactical indicators (like `VWAP_Pro` or `MACD_Laguerre_Pro`) to time the entry.
+3. **Focus:** Use the **Visibility Settings** to hide all other currencies, leaving only the ones involved in your watchlist visible on the chart. This removes noise and helps you track the specific battle between your chosen currencies.
+4. **Wait for Timing:** Switch to a lower timeframe (M5/M15) on your selected pair and use your tactical indicators (like `VWAP_Pro` or `MACD_Laguerre_Pro`) to time the entry.
 
 ### Tips
 
