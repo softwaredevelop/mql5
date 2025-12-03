@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00" // Added visibility toggles
+#property version   "2.30" // Fixed smoothing overflow bug
 #property description "Displays the relative strength of user-defined symbols (Indices, Commodities, etc.)."
 
 #property indicator_separate_window
@@ -86,6 +86,17 @@ int OnInit()
    SetIndexBuffer(6, Buf7, INDICATOR_DATA);
    SetIndexBuffer(7, Buf8, INDICATOR_DATA);
 
+// Initialize with EMPTY_VALUE to detect uncalculated areas
+   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(5, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(6, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(7, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
+// ... (Rest of OnInit remains the same) ...
 // Collect inputs
    g_symbols[0] = InpSymbol1;
    g_colors[0] = InpColor1;
@@ -118,7 +129,6 @@ int OnInit()
       PlotIndexSetInteger(i, PLOT_LINE_COLOR, g_colors[i]);
       PlotIndexSetString(i, PLOT_LABEL, g_symbols[i]);
 
-      // Hide unused or disabled plots
       if(g_symbols[i] == "" || !g_show_flags[i])
          PlotIndexSetInteger(i, PLOT_DRAW_TYPE, DRAW_NONE);
      }
@@ -148,13 +158,23 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
   {
    g_window_idx = ChartWindowFind();
 
-//--- Check Data Readiness
    if(!g_calculator.IsDataReady())
       return 0;
 
    int start_index;
    if(prev_calculated == 0)
+     {
       start_index = 0;
+      // Explicitly clear buffers on full recalc
+      ArrayInitialize(Buf1, EMPTY_VALUE);
+      ArrayInitialize(Buf2, EMPTY_VALUE);
+      ArrayInitialize(Buf3, EMPTY_VALUE);
+      ArrayInitialize(Buf4, EMPTY_VALUE);
+      ArrayInitialize(Buf5, EMPTY_VALUE);
+      ArrayInitialize(Buf6, EMPTY_VALUE);
+      ArrayInitialize(Buf7, EMPTY_VALUE);
+      ArrayInitialize(Buf8, EMPTY_VALUE);
+     }
    else
       start_index = prev_calculated - 1;
 
@@ -183,10 +203,26 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
    if(InpSmooth && InpSmoothPer > 1)
      {
       double alpha = 2.0 / (InpSmoothPer + 1.0);
-      int smooth_start = (start_index == 0) ? 1 : start_index;
 
-      for(int i = smooth_start; i < rates_total; i++)
+      // Determine start of smoothing loop
+      int i = start_index;
+
+      // If this is the very first bar of the calculation (e.g. index 0 or index 1000 after limit),
+      // we cannot smooth it with the previous bar because the previous bar is EMPTY or non-existent.
+      // So we skip the first bar of the batch (leaving it raw) and start smoothing from the next.
+
+      if(i == 0)
+         i = 1;
+      else
+         if(Buf1[i-1] == EMPTY_VALUE)
+            i++; // Check Buf1 as proxy for all
+
+      for(; i < rates_total; i++)
         {
+         // Safety check: if prev value is empty, we can't smooth.
+         if(Buf1[i-1] == EMPTY_VALUE)
+            continue;
+
          if(g_symbols[0] != "")
             Buf1[i] = Buf1[i] * alpha + Buf1[i-1] * (1.0 - alpha);
          if(g_symbols[1] != "")
