@@ -32,7 +32,7 @@ InpM1_PostMarket_LinReg=true
 ; M1 Full Day Analysis
 InpM1_FullDay_Enable=false
 InpM1_FullDay_Color=8421504
-InpM1_FullDay_VWAP=true
+InpM1_FullDay_VWAP=false
 InpM1_FullDay_Mean=false
 InpM1_FullDay_LinReg=false
 ; Market 2 Settings (e.g., LSE)
@@ -64,7 +64,7 @@ InpM2_PostMarket_LinReg=true
 ; M2 Full Day Analysis
 InpM2_FullDay_Enable=false
 InpM2_FullDay_Color=8421504
-InpM2_FullDay_VWAP=true
+InpM2_FullDay_VWAP=false
 InpM2_FullDay_Mean=false
 InpM2_FullDay_LinReg=false
 ; Market 3 Settings (e.g., TSE)
@@ -96,6 +96,6 @@ InpM3_PostMarket_LinReg=true
 ; M3 Full Day Analysis
 InpM3_FullDay_Enable=false
 InpM3_FullDay_Color=8421504
-InpM3_FullDay_VWAP=true
+InpM3_FullDay_VWAP=false
 InpM3_FullDay_Mean=false
 InpM3_FullDay_LinReg=false
