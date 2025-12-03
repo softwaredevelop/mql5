@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.20" // Added visibility toggles
+#property version   "2.30" // Fixed smoothing overflow bug
 #property description "Displays the relative strength of 8 major currencies."
 
 #property indicator_separate_window
@@ -43,7 +43,7 @@
 
 #property indicator_label7  "CHF"
 #property indicator_type7   DRAW_LINE
-#property indicator_color7  clrSlateGray // Changed from White for visibility
+#property indicator_color7  clrSlateGray
 #property indicator_width7  1
 
 #property indicator_label8  "NZD"
@@ -77,7 +77,7 @@ double BufUSD[], BufEUR[], BufGBP[], BufJPY[], BufAUD[], BufCAD[], BufCHF[], Buf
 CCurrencyStrengthCalculator *g_calculator;
 string g_prefix;
 int    g_window_idx;
-bool   g_show_flags[8]; // Array to store visibility
+bool   g_show_flags[8];
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -90,6 +90,16 @@ int OnInit()
    SetIndexBuffer(5, BufCAD, INDICATOR_DATA);
    SetIndexBuffer(6, BufCHF, INDICATOR_DATA);
    SetIndexBuffer(7, BufNZD, INDICATOR_DATA);
+
+// Initialize with EMPTY_VALUE to detect uncalculated areas
+   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(5, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(6, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(7, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
 // Store flags
    g_show_flags[0] = InpShowUSD;
@@ -105,7 +115,6 @@ int OnInit()
      {
       PlotIndexSetInteger(i, PLOT_DRAW_BEGIN, InpPeriod + (InpSmooth ? InpSmoothPer : 0));
 
-      // Hide plot if disabled
       if(!g_show_flags[i])
          PlotIndexSetInteger(i, PLOT_DRAW_TYPE, DRAW_NONE);
      }
@@ -135,13 +144,23 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
   {
    g_window_idx = ChartWindowFind();
 
-//--- NEW: Check Data Readiness
    if(!g_calculator.IsDataReady())
       return 0;
 
    int start_index;
    if(prev_calculated == 0)
+     {
       start_index = 0;
+      // Explicitly clear buffers on full recalc
+      ArrayInitialize(BufUSD, EMPTY_VALUE);
+      ArrayInitialize(BufEUR, EMPTY_VALUE);
+      ArrayInitialize(BufGBP, EMPTY_VALUE);
+      ArrayInitialize(BufJPY, EMPTY_VALUE);
+      ArrayInitialize(BufAUD, EMPTY_VALUE);
+      ArrayInitialize(BufCAD, EMPTY_VALUE);
+      ArrayInitialize(BufCHF, EMPTY_VALUE);
+      ArrayInitialize(BufNZD, EMPTY_VALUE);
+     }
    else
       start_index = prev_calculated - 1;
 
@@ -169,10 +188,26 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
    if(InpSmooth && InpSmoothPer > 1)
      {
       double alpha = 2.0 / (InpSmoothPer + 1.0);
-      int smooth_start = (start_index == 0) ? 1 : start_index;
 
-      for(int i = smooth_start; i < rates_total; i++)
+      // Determine start of smoothing loop
+      int i = start_index;
+
+      // If this is the very first bar of the calculation (e.g. index 0 or index 1000 after limit),
+      // we cannot smooth it with the previous bar because the previous bar is EMPTY or non-existent.
+      // So we skip the first bar of the batch (leaving it raw) and start smoothing from the next.
+
+      if(i == 0)
+         i = 1;
+      else
+         if(BufUSD[i-1] == EMPTY_VALUE)
+            i++;
+
+      for(; i < rates_total; i++)
         {
+         // Safety check: if prev value is empty, we can't smooth.
+         if(BufUSD[i-1] == EMPTY_VALUE)
+            continue;
+
          BufUSD[i] = BufUSD[i] * alpha + BufUSD[i-1] * (1.0 - alpha);
          BufEUR[i] = BufEUR[i] * alpha + BufEUR[i-1] * (1.0 - alpha);
          BufGBP[i] = BufGBP[i] * alpha + BufGBP[i-1] * (1.0 - alpha);
@@ -192,7 +227,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
   }
 
 //+------------------------------------------------------------------+
-//| Draw Dashboard Panel (Horizontal in Indicator Window)            |
+//| Draw Dashboard Panel                                             |
 //+------------------------------------------------------------------+
 void DrawDashboard(int last_idx)
   {
@@ -214,7 +249,7 @@ void DrawDashboard(int last_idx)
       if(!MathIsValidNumber(values[i]) || values[i] == EMPTY_VALUE)
          values[i] = 0.0;
 
-// Sort by strength
+// Sort
    int indices[] = {0, 1, 2, 3, 4, 5, 6, 7};
    for(int i=0; i<8; i++)
       for(int j=0; j<7-i; j++)
@@ -225,28 +260,19 @@ void DrawDashboard(int last_idx)
             indices[j+1] = temp;
            }
 
-// Draw Objects
    int x_base = 10;
    int x_step = 95;
    int y_pos = 20;
-   int drawn_count = 0; // Counter for visible items
+   int drawn_count = 0;
 
    for(int i=0; i<8; i++)
      {
       int idx = indices[i];
 
-      // Skip if disabled by user
       if(!g_show_flags[idx])
-        {
-         // Delete label if it exists (from previous state)
-         string name = g_prefix + "Label_" + IntegerToString(i); // Note: i is the sorted position
-         // Actually, we should delete ALL labels first or manage them by ID.
-         // Simpler: Just don't draw. But if we change params, OnInit clears objects.
-         // So we are safe.
          continue;
-        }
 
-      string name = g_prefix + "Label_" + IntegerToString(i); // Use 'i' (rank) for name to keep them ordered
+      string name = g_prefix + "Label_" + IntegerToString(i);
 
       string val_str;
       if(values[idx] == 0.0 && (BufUSD[last_idx] == EMPTY_VALUE || BufUSD[last_idx] == 0.0))
@@ -265,18 +291,12 @@ void DrawDashboard(int last_idx)
          ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
         }
 
-      // Use drawn_count for X position to stack them neatly
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x_base + drawn_count * x_step);
       ObjectSetString(0, name, OBJPROP_TEXT, text);
       ObjectSetInteger(0, name, OBJPROP_COLOR, colors[idx]);
 
       drawn_count++;
      }
-
-// Delete unused labels (if we went from showing 8 to 3)
-// Since we use 'i' (0..7) for names, if we only draw 3, labels 3..7 might remain if not cleared.
-// But OnInit clears all. OnCalculate updates.
-// If we change visibility, OnInit runs, clearing everything. So this is fine.
 
    ChartRedraw();
   }
