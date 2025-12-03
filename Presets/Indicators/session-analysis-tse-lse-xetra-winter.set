@@ -1,0 +1,101 @@
+; Global Settings
+InpFillBoxes=false
+InpVolumeType=0
+InpCandleSource=0
+InpSourcePrice=6
+; Market 1 Settings (e.g., NYSE)
+InpM1_Enable=true
+; M1 Pre-Market Session
+InpM1_PreMarket_Enable=true
+InpM1_PreMarket_Start=01:00
+InpM1_PreMarket_End=02:00
+InpM1_PreMarket_Color=13458026
+InpM1_PreMarket_VWAP=true
+InpM1_PreMarket_Mean=true
+InpM1_PreMarket_LinReg=true
+; M1 Core Trading Session
+InpM1_Core_Enable=true
+InpM1_Core_Start=02:00
+InpM1_Core_End=04:30
+InpM1_Core_Color=13458026
+InpM1_Core_VWAP=true
+InpM1_Core_Mean=true
+InpM1_Core_LinReg=true
+; M1 Post-Market Session
+InpM1_PostMarket_Enable=true
+InpM1_PostMarket_Start=05:30
+InpM1_PostMarket_End=08:30
+InpM1_PostMarket_Color=13458026
+InpM1_PostMarket_VWAP=true
+InpM1_PostMarket_Mean=true
+InpM1_PostMarket_LinReg=true
+; M1 Full Day Analysis
+InpM1_FullDay_Enable=false
+InpM1_FullDay_Color=8421504
+InpM1_FullDay_VWAP=false
+InpM1_FullDay_Mean=false
+InpM1_FullDay_LinReg=false
+; Market 2 Settings (e.g., LSE)
+InpM2_Enable=true
+; M2 Pre-Market Session
+InpM2_PreMarket_Enable=true
+InpM2_PreMarket_Start=07:00
+InpM2_PreMarket_End=10:00
+InpM2_PreMarket_Color=6053069
+InpM2_PreMarket_VWAP=true
+InpM2_PreMarket_Mean=true
+InpM2_PreMarket_LinReg=true
+; M2 Core Trading Session
+InpM2_Core_Enable=true
+InpM2_Core_Start=10:00
+InpM2_Core_End=18:30
+InpM2_Core_Color=6053069
+InpM2_Core_VWAP=true
+InpM2_Core_Mean=true
+InpM2_Core_LinReg=true
+; M2 Post-Market Session
+InpM2_PostMarket_Enable=true
+InpM2_PostMarket_Start=18:30
+InpM2_PostMarket_End=19:15
+InpM2_PostMarket_Color=6053069
+InpM2_PostMarket_VWAP=true
+InpM2_PostMarket_Mean=true
+InpM2_PostMarket_LinReg=true
+; M2 Full Day Analysis
+InpM2_FullDay_Enable=false
+InpM2_FullDay_Color=8421504
+InpM2_FullDay_VWAP=false
+InpM2_FullDay_Mean=false
+InpM2_FullDay_LinReg=false
+; Market 3 Settings (e.g., TSE)
+InpM3_Enable=true
+; M3 Pre-Market Session
+InpM3_PreMarket_Enable=true
+InpM3_PreMarket_Start=09:00
+InpM3_PreMarket_End=10:00
+InpM3_PreMarket_Color=5737262
+InpM3_PreMarket_VWAP=true
+InpM3_PreMarket_Mean=true
+InpM3_PreMarket_LinReg=true
+; M3 Core Trading Session
+InpM3_Core_Enable=false
+InpM3_Core_Start=10:00
+InpM3_Core_End=18:30
+InpM3_Core_Color=5737262
+InpM3_Core_VWAP=true
+InpM3_Core_Mean=true
+InpM3_Core_LinReg=true
+; M3 Post-Market Session
+InpM3_PostMarket_Enable=true
+InpM3_PostMarket_Start=18:30
+InpM3_PostMarket_End=21:00
+InpM3_PostMarket_Color=5737262
+InpM3_PostMarket_VWAP=true
+InpM3_PostMarket_Mean=true
+InpM3_PostMarket_LinReg=true
+; M3 Full Day Analysis
+InpM3_FullDay_Enable=false
+InpM3_FullDay_Color=8421504
+InpM3_FullDay_VWAP=false
+InpM3_FullDay_Mean=false
+InpM3_FullDay_LinReg=false
