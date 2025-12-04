@@ -23,7 +23,6 @@ The indicator identifies bars belonging to a specific time window and performs d
 2. **Volume Weighted Average Price (VWAP):** Calculates the cumulative, volume-weighted average of the `Typical Price` `(H+L+C)/3`, resetting at the start of each new session. The calculation is performed by a dedicated, optimized engine.
 3. **Mean Price:** Calculates the simple arithmetic average of the user-selected `Source Price` for all bars within the session.
 4. **Linear Regression Line:** Calculates the "least squares fit" trendline on the user-selected `Source Price`.
-    * **Note on Matching Built-in Tools:** The standard MetaTrader `Standard Deviation Channel` object calculates its centerline based on **`PRICE_CLOSE`**. To perfectly match the built-in object's trendline, select `PRICE_CLOSE` as the `Source Price` in the indicator settings. Our indicator's flexibility allows you to analyze regression based on other price types as well.
 
 ## 3. MQL5 Implementation Details
 
@@ -41,10 +40,13 @@ Our MQL5 implementation follows a modern, robust, and high-performance **hybrid 
   * When a new bar opens, the indicator clears its buffers and recalculates the session logic from scratch.
   * This "clean slate" approach guarantees absolute data integrity and visual stability, preventing any synchronization issues between the buffers and the objects, while keeping the chart responsive during the bar's formation.
 
+* **History Optimization:** To keep template files small and chart loading fast, the indicator includes a `Max History Days` parameter. This limits the drawing of both graphical objects (boxes) and indicator buffers (VWAP lines) to the specified number of days, preventing the accumulation of thousands of obsolete objects in history.
+
 ## 4. Parameters
 
 * **Global Settings:**
   * `InpFillBoxes`: Toggles whether the session range boxes are filled or drawn as outlines.
+  * `InpMaxHistoryDays`: Limits the number of past days for which sessions and VWAP lines are drawn. Set to `0` to draw all history (warning: may result in large template files). Default is `5`.
   * `InpVolumeType`: Selects between `Tick Volume` and `Real Volume` for all VWAP calculations.
   * `InpCandleSource`: Selects the candle type (`Standard` or `Heikin Ashi`) for the **VWAP** calculation.
   * `InpSourcePrice`: The source price for the **Mean and Linear Regression** calculations.
