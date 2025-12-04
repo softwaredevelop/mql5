@@ -6,7 +6,7 @@ To streamline market analysis, we use a standardized set of chart templates (`.t
 
 Our templates follow a consistent, hierarchical naming convention to ensure they are easy to identify and manage:
 
-`[Focus].[ChartType].[System].[Variation].tpl`
+`[Focus].[ChartType].[System].[Session].[Variation].tpl`
 
 - **`[Focus]`**: The primary trading style or goal.
   - `trend`: For trend-following strategies.
@@ -20,10 +20,18 @@ Our templates follow a consistent, hierarchical naming convention to ensure they
   - `ha`: Heikin Ashi candles.
 
 - **`[System]`**: The core indicator or concept the template is built around.
-  - `supertrend`, `murrey`, `vwap`, `bands`, `tdi`, etc.
+  - `vwap`, `laguerre`, `supersmoother`, `murrey`, etc.
 
-- **`[Variation]`** (Optional): A descriptor for the template's complexity or specific use case.
-  - `light`: A minimal set of essential indicators.
+- **`[Session]`** (Optional): Specifies the market session configuration (for templates using `Session_Analysis_Pro`).
+  - `tlx_sum`: TSE + LSE + Xetra (Summer)
+  - `tlx_win`: TSE + LSE + Xetra (Winter)
+  - `tln_sum`: TSE + LSE + NYSE (Summer)
+  - `tln_win`: TSE + LSE + NYSE (Winter)
+  - `lxn`: LSE + Xetra + NYSE
+  - *(Omitted if not applicable or generic)*
+
+- **`[Variation]`** (Optional): A descriptor for the template's complexity.
+  - `light`: Minimal set.
   - `full` or `suite`: A comprehensive set of indicators for deep analysis.
   - `v1`, `v2`, etc.
 
@@ -31,7 +39,5 @@ Our templates follow a consistent, hierarchical naming convention to ensure they
 
 | Template Name | Primary Purpose | Core Indicators |
 | :--- | :--- | :--- |
-| **`trend.ha.supertrend_adx.tpl`** | Mid-term trend-following and swing trading. | `Chart_HeikinAshi`, `Supertrend_Pro`, `ADX_Pro`, `McGinleyDynamic_Pro` |
-| **`reversal.std.bb_stoch.tpl`** | Mean-reversion and range trading. | `Bollinger_Bands_Pro`, `StochasticSlow_Pro`, `Bollinger_Band_Width_Pro`, `SymmetricWMA_Pro` |
-| **`scalp.std.vwap_momentum.tpl`**| Intraday trading around institutional benchmarks. | `VWAP_Pro`, `Session_Analysis_Pro`, `TSI_Pro`, `ATR_Pro` |
-| **`divergence.ha.uo_mfi.tpl`** | Identifying trend exhaustion and reversals via divergence. | `Chart_HeikinAshi`, `UltimateOscillator_Pro`, `MFI_Pro`, `FisherTransform_Pro` |
+| **`scalp.std.vwap.tln_sum.full.tpl`** | Intraday scalping during Summer sessions (Tokyo/London/NY). | `VWAP_Pro`, `Session_Analysis_Pro` (Summer), `StochRSI`, `SMI` |
+| **`trend.ha.laguerre.lxn.suite_v1.tpl`** | Trend following focused on European/US overlap. | `Chart_HeikinAshi`, `Laguerre_Filter_Pro`, `Session_Analysis_Pro` (LSE/Xetra/NY) |
