@@ -14,14 +14,14 @@
 //--- Plot 1: Laguerre RSI Line
 #property indicator_label1  "Laguerre RSI"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrDodgerBlue
+#property indicator_color1  clrTurquoise
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 //--- Plot 2: Signal Line
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrLightCoral
+#property indicator_color2  clrOrangeRed
 #property indicator_style2  STYLE_DOT
 #property indicator_width2  1
 
