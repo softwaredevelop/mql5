@@ -42,10 +42,7 @@ void OnStart()
    long curr_chart = ChartFirst();
    int closed_count = 0;
 
-// We need to collect IDs first, because closing a chart while iterating might break ChartNext logic
-// actually ChartNext takes the previous ID. If we close it, the ID is invalid.
-// So we must collect all IDs first.
-
+// Collect IDs first
    long chart_ids[];
    int total_charts = 0;
 
@@ -61,7 +58,6 @@ void OnStart()
    for(int i=0; i<total_charts; i++)
      {
       long id = chart_ids[i];
-      // FIX: Check if chart symbol is valid (not empty string)
       string sym = ChartSymbol(id);
       if(sym == "")
          continue;
@@ -74,10 +70,9 @@ void OnStart()
         }
       else
         {
-         string chart_symbol = ChartSymbol(id);
          for(int k=0; k<target_count; k++)
            {
-            if(chart_symbol == symbols_to_close[k])
+            if(sym == symbols_to_close[k])
               {
                should_close = true;
                break;
@@ -87,10 +82,6 @@ void OnStart()
 
       if(should_close)
         {
-         // Don't close the chart the script is running on?
-         // Usually scripts run on one chart. If we close it, script stops.
-         // But ChartClose(ChartID()) works, it just terminates the script.
-         // Let's close it.
          if(ChartClose(id))
             closed_count++;
         }
