@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "6.30" // Restored original logic with HA fix
+#property version   "6.50" // Added History Limit to reduce template size
 #property description "Draws boxes, analytics, and session-based VWAP via high-performance buffers."
 #property indicator_chart_window
 // Buffers: M1(Pre A/B, Core A/B, Post A/B, Full A/B) = 8. Total for 3 markets = 24
@@ -76,6 +76,7 @@ enum ENUM_CANDLE_SOURCE
 //--- Input Parameters ---
 input group "Global Settings"
 input bool                InpFillBoxes   = false;
+input int                 InpMaxHistoryDays = 5; // Limit object history (0 = All)
 input ENUM_APPLIED_VOLUME InpVolumeType  = VOLUME_TICK;
 input ENUM_CANDLE_SOURCE  InpCandleSource = CANDLE_STANDARD; // For VWAP and other analytics
 input ENUM_APPLIED_PRICE  InpSourcePrice = PRICE_TYPICAL; // For Mean/LinReg
@@ -203,6 +204,8 @@ CVWAPCalculator  *g_vwap_calculators[TOTAL_SESSIONS];
 datetime g_last_bar_time;
 
 //+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
 int OnInit()
   {
    g_last_bar_time = 0;
@@ -295,32 +298,33 @@ int OnInit()
      }
 
 // --- Init Logic for Box/Mean/LinReg Analyzers (Object-based) ---
-   g_box_analyzers[0].Init(InpM1_Enable && InpM1_PreMarket_Enable, InpM1_PreMarket_Start, InpM1_PreMarket_End, InpM1_PreMarket_Color, InpFillBoxes, InpM1_PreMarket_Mean, InpM1_PreMarket_LinReg, unique_prefix + "M1_Pre_");
-   g_box_analyzers[1].Init(InpM1_Enable && InpM1_Core_Enable, InpM1_Core_Start, InpM1_Core_End, InpM1_Core_Color, InpFillBoxes, InpM1_Core_Mean, InpM1_Core_LinReg, unique_prefix + "M1_Core_");
-   g_box_analyzers[2].Init(InpM1_Enable && InpM1_PostMarket_Enable, InpM1_PostMarket_Start, InpM1_PostMarket_End, InpM1_PostMarket_Color, InpFillBoxes, InpM1_PostMarket_Mean, InpM1_PostMarket_LinReg, unique_prefix + "M1_Post_");
-   g_box_analyzers[3].Init(InpM1_Enable && InpM1_FullDay_Enable, InpM1_PreMarket_Start, InpM1_PostMarket_End, InpM1_FullDay_Color, InpFillBoxes, InpM1_FullDay_Mean, InpM1_FullDay_LinReg, unique_prefix + "M1_Full_");
-   g_box_analyzers[4].Init(InpM2_Enable && InpM2_PreMarket_Enable, InpM2_PreMarket_Start, InpM2_PreMarket_End, InpM2_PreMarket_Color, InpFillBoxes, InpM2_PreMarket_Mean, InpM2_PreMarket_LinReg, unique_prefix + "M2_Pre_");
-   g_box_analyzers[5].Init(InpM2_Enable && InpM2_Core_Enable, InpM2_Core_Start, InpM2_Core_End, InpM2_Core_Color, InpFillBoxes, InpM2_Core_Mean, InpM2_Core_LinReg, unique_prefix + "M2_Core_");
-   g_box_analyzers[6].Init(InpM2_Enable && InpM2_PostMarket_Enable, InpM2_PostMarket_Start, InpM2_PostMarket_End, InpM2_PostMarket_Color, InpFillBoxes, InpM2_PostMarket_Mean, InpM2_PostMarket_LinReg, unique_prefix + "M2_Post_");
-   g_box_analyzers[7].Init(InpM2_Enable && InpM2_FullDay_Enable, InpM2_PreMarket_Start, InpM2_PostMarket_End, InpM2_FullDay_Color, InpFillBoxes, InpM2_FullDay_Mean, InpM2_FullDay_LinReg, unique_prefix + "M2_Full_");
-   g_box_analyzers[8].Init(InpM3_Enable && InpM3_PreMarket_Enable, InpM3_PreMarket_Start, InpM3_PreMarket_End, InpM3_PreMarket_Color, InpFillBoxes, InpM3_PreMarket_Mean, InpM3_PreMarket_LinReg, unique_prefix + "M3_Pre_");
-   g_box_analyzers[9].Init(InpM3_Enable && InpM3_Core_Enable, InpM3_Core_Start, InpM3_Core_End, InpM3_Core_Color, InpFillBoxes, InpM3_Core_Mean, InpM3_Core_LinReg, unique_prefix + "M3_Core_");
-   g_box_analyzers[10].Init(InpM3_Enable && InpM3_PostMarket_Enable, InpM3_PostMarket_Start, InpM3_PostMarket_End, InpM3_PostMarket_Color, InpFillBoxes, InpM3_PostMarket_Mean, InpM3_PostMarket_LinReg, unique_prefix + "M3_Post_");
-   g_box_analyzers[11].Init(InpM3_Enable && InpM3_FullDay_Enable, InpM3_PreMarket_Start, InpM3_PostMarket_End, InpM3_FullDay_Color, InpFillBoxes, InpM3_FullDay_Mean, InpM3_FullDay_LinReg, unique_prefix + "M3_Full_");
+   g_box_analyzers[0].Init(InpM1_Enable && InpM1_PreMarket_Enable, InpM1_PreMarket_Start, InpM1_PreMarket_End, InpM1_PreMarket_Color, InpFillBoxes, InpM1_PreMarket_Mean, InpM1_PreMarket_LinReg, unique_prefix + "M1_Pre_", InpMaxHistoryDays);
+   g_box_analyzers[1].Init(InpM1_Enable && InpM1_Core_Enable, InpM1_Core_Start, InpM1_Core_End, InpM1_Core_Color, InpFillBoxes, InpM1_Core_Mean, InpM1_Core_LinReg, unique_prefix + "M1_Core_", InpMaxHistoryDays);
+   g_box_analyzers[2].Init(InpM1_Enable && InpM1_PostMarket_Enable, InpM1_PostMarket_Start, InpM1_PostMarket_End, InpM1_PostMarket_Color, InpFillBoxes, InpM1_PostMarket_Mean, InpM1_PostMarket_LinReg, unique_prefix + "M1_Post_", InpMaxHistoryDays);
+   g_box_analyzers[3].Init(InpM1_Enable && InpM1_FullDay_Enable, InpM1_PreMarket_Start, InpM1_PostMarket_End, InpM1_FullDay_Color, InpFillBoxes, InpM1_FullDay_Mean, InpM1_FullDay_LinReg, unique_prefix + "M1_Full_", InpMaxHistoryDays);
+   g_box_analyzers[4].Init(InpM2_Enable && InpM2_PreMarket_Enable, InpM2_PreMarket_Start, InpM2_PreMarket_End, InpM2_PreMarket_Color, InpFillBoxes, InpM2_PreMarket_Mean, InpM2_PreMarket_LinReg, unique_prefix + "M2_Pre_", InpMaxHistoryDays);
+   g_box_analyzers[5].Init(InpM2_Enable && InpM2_Core_Enable, InpM2_Core_Start, InpM2_Core_End, InpM2_Core_Color, InpFillBoxes, InpM2_Core_Mean, InpM2_Core_LinReg, unique_prefix + "M2_Core_", InpMaxHistoryDays);
+   g_box_analyzers[6].Init(InpM2_Enable && InpM2_PostMarket_Enable, InpM2_PostMarket_Start, InpM2_PostMarket_End, InpM2_PostMarket_Color, InpFillBoxes, InpM2_PostMarket_Mean, InpM2_PostMarket_LinReg, unique_prefix + "M2_Post_", InpMaxHistoryDays);
+   g_box_analyzers[7].Init(InpM2_Enable && InpM2_FullDay_Enable, InpM2_PreMarket_Start, InpM2_PostMarket_End, InpM2_FullDay_Color, InpFillBoxes, InpM2_FullDay_Mean, InpM2_FullDay_LinReg, unique_prefix + "M2_Full_", InpMaxHistoryDays);
+   g_box_analyzers[8].Init(InpM3_Enable && InpM3_PreMarket_Enable, InpM3_PreMarket_Start, InpM3_PreMarket_End, InpM3_PreMarket_Color, InpFillBoxes, InpM3_PreMarket_Mean, InpM3_PreMarket_LinReg, unique_prefix + "M3_Pre_", InpMaxHistoryDays);
+   g_box_analyzers[9].Init(InpM3_Enable && InpM3_Core_Enable, InpM3_Core_Start, InpM3_Core_End, InpM3_Core_Color, InpFillBoxes, InpM3_Core_Mean, InpM3_Core_LinReg, unique_prefix + "M3_Core_", InpMaxHistoryDays);
+   g_box_analyzers[10].Init(InpM3_Enable && InpM3_PostMarket_Enable, InpM3_PostMarket_Start, InpM3_PostMarket_End, InpM3_PostMarket_Color, InpFillBoxes, InpM3_PostMarket_Mean, InpM3_PostMarket_LinReg, unique_prefix + "M3_Post_", InpMaxHistoryDays);
+   g_box_analyzers[11].Init(InpM3_Enable && InpM3_FullDay_Enable, InpM3_PreMarket_Start, InpM3_PostMarket_End, InpM3_FullDay_Color, InpFillBoxes, InpM3_FullDay_Mean, InpM3_FullDay_LinReg, unique_prefix + "M3_Full_", InpMaxHistoryDays);
 
 // --- Init Logic for VWAP Calculators (Buffer-based) ---
-   g_vwap_calculators[0].Init(InpM1_PreMarket_Start, InpM1_PreMarket_End, InpVolumeType, InpM1_Enable && InpM1_PreMarket_Enable && InpM1_PreMarket_VWAP);
-   g_vwap_calculators[1].Init(InpM1_Core_Start, InpM1_Core_End, InpVolumeType, InpM1_Enable && InpM1_Core_Enable && InpM1_Core_VWAP);
-   g_vwap_calculators[2].Init(InpM1_PostMarket_Start, InpM1_PostMarket_End, InpVolumeType, InpM1_Enable && InpM1_PostMarket_Enable && InpM1_PostMarket_VWAP);
-   g_vwap_calculators[3].Init(InpM1_PreMarket_Start, InpM1_PostMarket_End, InpVolumeType, InpM1_Enable && InpM1_FullDay_Enable && InpM1_FullDay_VWAP);
-   g_vwap_calculators[4].Init(InpM2_PreMarket_Start, InpM2_PreMarket_End, InpVolumeType, InpM2_Enable && InpM2_PreMarket_Enable && InpM2_PreMarket_VWAP);
-   g_vwap_calculators[5].Init(InpM2_Core_Start, InpM2_Core_End, InpVolumeType, InpM2_Enable && InpM2_Core_Enable && InpM2_Core_VWAP);
-   g_vwap_calculators[6].Init(InpM2_PostMarket_Start, InpM2_PostMarket_End, InpVolumeType, InpM2_Enable && InpM2_PostMarket_Enable && InpM2_PostMarket_VWAP);
-   g_vwap_calculators[7].Init(InpM2_PreMarket_Start, InpM2_PostMarket_End, InpVolumeType, InpM2_Enable && InpM2_FullDay_Enable && InpM2_FullDay_VWAP);
-   g_vwap_calculators[8].Init(InpM3_PreMarket_Start, InpM3_PreMarket_End, InpVolumeType, InpM3_Enable && InpM3_PreMarket_Enable && InpM3_PreMarket_VWAP);
-   g_vwap_calculators[9].Init(InpM3_Core_Start, InpM3_Core_End, InpVolumeType, InpM3_Enable && InpM3_Core_Enable && InpM3_Core_VWAP);
-   g_vwap_calculators[10].Init(InpM3_PostMarket_Start, InpM3_PostMarket_End, InpVolumeType, InpM3_Enable && InpM3_PostMarket_Enable && InpM3_PostMarket_VWAP);
-   g_vwap_calculators[11].Init(InpM3_PreMarket_Start, InpM3_PostMarket_End, InpVolumeType, InpM3_Enable && InpM3_FullDay_Enable && InpM3_FullDay_VWAP);
+// Updated to pass InpMaxHistoryDays
+   g_vwap_calculators[0].Init(InpM1_PreMarket_Start, InpM1_PreMarket_End, InpVolumeType, InpM1_Enable && InpM1_PreMarket_Enable && InpM1_PreMarket_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[1].Init(InpM1_Core_Start, InpM1_Core_End, InpVolumeType, InpM1_Enable && InpM1_Core_Enable && InpM1_Core_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[2].Init(InpM1_PostMarket_Start, InpM1_PostMarket_End, InpVolumeType, InpM1_Enable && InpM1_PostMarket_Enable && InpM1_PostMarket_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[3].Init(InpM1_PreMarket_Start, InpM1_PostMarket_End, InpVolumeType, InpM1_Enable && InpM1_FullDay_Enable && InpM1_FullDay_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[4].Init(InpM2_PreMarket_Start, InpM2_PreMarket_End, InpVolumeType, InpM2_Enable && InpM2_PreMarket_Enable && InpM2_PreMarket_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[5].Init(InpM2_Core_Start, InpM2_Core_End, InpVolumeType, InpM2_Enable && InpM2_Core_Enable && InpM2_Core_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[6].Init(InpM2_PostMarket_Start, InpM2_PostMarket_End, InpVolumeType, InpM2_Enable && InpM2_PostMarket_Enable && InpM2_PostMarket_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[7].Init(InpM2_PreMarket_Start, InpM2_PostMarket_End, InpVolumeType, InpM2_Enable && InpM2_FullDay_Enable && InpM2_FullDay_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[8].Init(InpM3_PreMarket_Start, InpM3_PreMarket_End, InpVolumeType, InpM3_Enable && InpM3_PreMarket_Enable && InpM3_PreMarket_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[9].Init(InpM3_Core_Start, InpM3_Core_End, InpVolumeType, InpM3_Enable && InpM3_Core_Enable && InpM3_Core_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[10].Init(InpM3_PostMarket_Start, InpM3_PostMarket_End, InpVolumeType, InpM3_Enable && InpM3_PostMarket_Enable && InpM3_PostMarket_VWAP, InpMaxHistoryDays);
+   g_vwap_calculators[11].Init(InpM3_PreMarket_Start, InpM3_PostMarket_End, InpVolumeType, InpM3_Enable && InpM3_FullDay_Enable && InpM3_FullDay_VWAP, InpMaxHistoryDays);
 
    IndicatorSetString(INDICATOR_SHORTNAME, "Session Analysis" + (is_ha_mode ? " HA" : ""));
    return(INIT_SUCCEEDED);
@@ -354,6 +358,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
       g_last_bar_time = time[rates_total - 1];
 
 // --- Clear VWAP buffers ---
+// Note: We clear them every new bar because we force full recalc for VWAP too
    ArrayInitialize(BufferM1_Pre_A, EMPTY_VALUE);
    ArrayInitialize(BufferM1_Pre_B, EMPTY_VALUE);
    ArrayInitialize(BufferM1_Core_A, EMPTY_VALUE);
@@ -380,14 +385,15 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
    ArrayInitialize(BufferM3_Full_B, EMPTY_VALUE);
 
 // --- Object Drawing Logic (Boxes, etc.) ---
+// Pass 0 as prev_calculated to force full update (but optimized inside to skip drawing old boxes)
    for(int i=0; i<TOTAL_SESSIONS; i++)
      {
       if(CheckPointer(g_box_analyzers[i]))
-         g_box_analyzers[i].Update(rates_total, time, open, high, low, close, (ENUM_APPLIED_PRICE)InpSourcePrice);
+         g_box_analyzers[i].Update(rates_total, 0, time, open, high, low, close, (ENUM_APPLIED_PRICE)InpSourcePrice);
      }
 
 // --- VWAP Buffer Calculation Logic ---
-   int vwap_prev_calc = 0; // Force full recalc for VWAP to match original behavior
+   int vwap_prev_calc = 0; // Force full recalc
 
    if(CheckPointer(g_vwap_calculators[0]))
       g_vwap_calculators[0].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferM1_Pre_A, BufferM1_Pre_B);
