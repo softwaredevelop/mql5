@@ -1,7 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                 Session_Analysis_Calculator.mqh  |
-//|      Calculation engine for drawing session boxes and analytics. |
-//|      Restored original logic with updated HA call.               |
+//|      VERSION 2.10: Added history limit for objects.              |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -22,23 +21,44 @@ protected:
    bool              m_fill_box;
    bool              m_show_mean;
    bool              m_show_linreg;
+   int               m_max_history_days; // Limit object history
 
+   //--- Persistent Data Buffers
    double            m_src_high[], m_src_low[], m_src_price[];
 
+   //--- Persistent State for Incremental Logic
+   bool              m_in_session;
+   int               m_session_start_bar;
+   datetime          m_session_start_time;
+
    bool              IsTimeInSession(const MqlDateTime &dt);
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
+
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
+
    void              DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[]);
 
 public:
-                     CSessionAnalyzer(void) {};
+                     CSessionAnalyzer(void);
    virtual          ~CSessionAnalyzer(void) {};
-   void              Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix);
-   void              Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
+
+   void              Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix, int max_history_days);
+
+   void              Update(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
+
    void              Cleanup(void);
   };
 
 //+------------------------------------------------------------------+
-void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix)
+CSessionAnalyzer::CSessionAnalyzer(void)
+  {
+   m_in_session = false;
+   m_session_start_bar = -1;
+   m_session_start_time = 0;
+   m_max_history_days = 0;
+  }
+
+//+------------------------------------------------------------------+
+void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix, int max_history_days)
   {
    m_enabled     = enabled;
    m_prefix      = prefix;
@@ -46,6 +66,7 @@ void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, co
    m_fill_box    = fill_box;
    m_show_mean   = show_mean;
    m_show_linreg = show_linreg;
+   m_max_history_days = max_history_days;
 
    string parts[];
    if(StringSplit(start_time, ':', parts) == 2)
@@ -80,48 +101,88 @@ void CSessionAnalyzer::Cleanup(void)
   }
 
 //+------------------------------------------------------------------+
-void CSessionAnalyzer::Update(const int rates_total, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+// Main Update Method
+//+------------------------------------------------------------------+
+void CSessionAnalyzer::Update(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
    if(!m_enabled || rates_total < 2)
       return;
 
-   if(!PrepareSourceData(rates_total, open, high, low, close, price_type))
+// Force full recalculation logic for stability (as requested)
+// But we use the structure that supports incremental if needed later.
+// Here we reset state every time because OnCalculate passes prev_calculated but we might want to redraw.
+// Actually, to fix the "bloat" issue, we must redraw only visible/recent history.
+
+// Reset state for full recalc
+   int start_index = 0;
+   m_in_session = false;
+   m_session_start_bar = -1;
+   m_session_start_time = 0;
+
+// Note: We don't call Cleanup() here every tick because it causes flickering.
+// We rely on ObjectFind/ObjectMove inside DrawSession.
+// However, if we change history limit, old objects might remain.
+// Ideally, Cleanup() should be called if parameters change (OnInit).
+
+   if(ArraySize(m_src_high) != rates_total)
+     {
+      ArrayResize(m_src_high, rates_total);
+      ArrayResize(m_src_low, rates_total);
+      ArrayResize(m_src_price, rates_total);
+     }
+
+   if(!PrepareSourceData(rates_total, start_index, open, high, low, close, price_type))
       return;
 
-   bool in_session = false;
-   int session_start_bar = -1;
+// Calculate cutoff time for history limit
+   datetime cutoff_time = 0;
+   if(m_max_history_days > 0)
+      cutoff_time = TimeCurrent() - m_max_history_days * 86400;
 
-// Optimization: Only check visible bars + buffer?
-// For now, full loop as requested to match original behavior.
-   for(int i = 1; i < rates_total; i++)
+   int i = start_index;
+   if(i == 0)
+      i = 1;
+
+   for(; i < rates_total; i++)
      {
       MqlDateTime dt;
       TimeToStruct(time[i], dt);
       bool is_in_current_session = IsTimeInSession(dt);
 
-      if(is_in_current_session && !in_session)
+      if(is_in_current_session && !m_in_session)
         {
-         in_session = true;
-         session_start_bar = i;
+         m_in_session = true;
+         m_session_start_bar = i;
+         m_session_start_time = time[i];
         }
       else
-         if(!is_in_current_session && in_session)
+         if(!is_in_current_session && m_in_session)
            {
-            in_session = false;
-            MqlDateTime start_dt;
-            TimeToStruct(time[session_start_bar], start_dt);
-            long session_id = (long)time[session_start_bar] - (start_dt.hour * 3600 + start_dt.min * 60 + start_dt.sec);
-            DrawSession(session_start_bar, i - 1, session_id, time);
-            session_start_bar = -1;
-           }
-     }
+            m_in_session = false;
 
-   if(in_session && session_start_bar != -1)
-     {
-      MqlDateTime start_dt;
-      TimeToStruct(time[session_start_bar], start_dt);
-      long session_id = (long)time[session_start_bar] - (start_dt.hour * 3600 + start_dt.min * 60 + start_dt.sec);
-      DrawSession(session_start_bar, rates_total - 1, session_id, time);
+            // Only draw if session end time is newer than cutoff
+            if(time[i] >= cutoff_time)
+              {
+               MqlDateTime start_dt;
+               TimeToStruct(m_session_start_time, start_dt);
+               long session_id = (long)m_session_start_time - (start_dt.hour * 3600 + start_dt.min * 60 + start_dt.sec);
+
+               DrawSession(m_session_start_bar, i - 1, session_id, time);
+              }
+            m_session_start_bar = -1;
+           }
+
+      if(m_in_session)
+        {
+         if(time[i] >= cutoff_time)
+           {
+            MqlDateTime start_dt;
+            TimeToStruct(m_session_start_time, start_dt);
+            long session_id = (long)m_session_start_time - (start_dt.hour * 3600 + start_dt.min * 60 + start_dt.sec);
+
+            DrawSession(m_session_start_bar, i, session_id, time);
+           }
+        }
      }
   }
 
@@ -131,8 +192,12 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
    if(start_bar < 0 || end_bar < start_bar)
       return;
 
-   double session_high = m_src_high[ArrayMaximum(m_src_high, start_bar, end_bar - start_bar + 1)];
-   double session_low = m_src_low[ArrayMinimum(m_src_low, start_bar, end_bar - start_bar + 1)];
+   int count = end_bar - start_bar + 1;
+   int high_idx = ArrayMaximum(m_src_high, start_bar, count);
+   int low_idx = ArrayMinimum(m_src_low, start_bar, count);
+
+   double session_high = m_src_high[high_idx];
+   double session_low = m_src_low[low_idx];
 
    string box_name = m_prefix + "Box_" + (string)session_id;
    if(ObjectFind(0, box_name) < 0)
@@ -150,6 +215,7 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
       ObjectMove(0, box_name, 1, time[end_bar], session_low);
      }
 
+// --- Mean and LinReg ---
    if(m_show_mean || m_show_linreg)
      {
       double cumulative_price = 0;
@@ -209,96 +275,105 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
   }
 
 //+------------------------------------------------------------------+
-bool CSessionAnalyzer::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+bool CSessionAnalyzer::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
-   ArrayResize(m_src_high, rates_total);
-   ArrayCopy(m_src_high, high, 0, 0, rates_total);
-   ArrayResize(m_src_low, rates_total);
-   ArrayCopy(m_src_low, low, 0, 0, rates_total);
-   ArrayResize(m_src_price, rates_total);
-   switch(price_type)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_src_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_src_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_src_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
+      m_src_high[i] = high[i];
+      m_src_low[i]  = low[i];
+
+      switch(price_type)
+        {
+         case PRICE_OPEN:
+            m_src_price[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            m_src_price[i] = high[i];
+            break;
+         case PRICE_LOW:
+            m_src_price[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
             m_src_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_TYPICAL:
             m_src_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_WEIGHTED:
             m_src_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_src_price, close, 0, 0, rates_total);
-         break;
+            break;
+         default:
+            m_src_price[i] = close[i];
+            break;
+        }
      }
    return true;
   }
 
 //+==================================================================+
+//|             CLASS 2: CSessionAnalyzer_HA (Heikin Ashi)           |
+//+==================================================================+
 class CSessionAnalyzer_HA : public CSessionAnalyzer
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type) override;
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type) override;
   };
 
 //+------------------------------------------------------------------+
-//| CSessionAnalyzer_HA: Prepares the HA source data.                |
+//| Prepare Source Data (Heikin Ashi - Optimized)                    |
 //+------------------------------------------------------------------+
-bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open,  rates_total);
-   ArrayResize(ha_high,  rates_total);
-   ArrayResize(ha_low,   rates_total);
-   ArrayResize(ha_close, rates_total);
-
-//--- UPDATED: Pass '0' as start_index for full recalculation
-   m_ha_calculator.Calculate(rates_total, 0, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayCopy(m_src_high,  ha_high,  0, 0, rates_total);
-   ArrayCopy(m_src_low,   ha_low,   0, 0, rates_total);
-
-   ArrayResize(m_src_price, rates_total);
-   switch(price_type)
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_src_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_src_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_src_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_src_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_src_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_src_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_src_price, ha_close, 0, 0, rates_total);
-         break;
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+//--- Note: Since we force start_index=0 in Update for full recalc, this will recalc HA too.
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to source buffers (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_src_high[i] = m_ha_high[i];
+      m_src_low[i]  = m_ha_low[i];
+
+      switch(price_type)
+        {
+         case PRICE_OPEN:
+            m_src_price[i] = m_ha_open[i];
+            break;
+         case PRICE_HIGH:
+            m_src_price[i] = m_ha_high[i];
+            break;
+         case PRICE_LOW:
+            m_src_price[i] = m_ha_low[i];
+            break;
+         case PRICE_MEDIAN:
+            m_src_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            m_src_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            m_src_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_src_price[i] = m_ha_close[i];
+            break;
+        }
      }
    return true;
   }
