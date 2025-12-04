@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|      VERSION 1.40: Optimized for incremental calculation.        |
+//|      VERSION 2.00: Added history limit for buffer output.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -25,7 +25,8 @@ protected:
    ENUM_VWAP_PERIOD    m_period;
    ENUM_APPLIED_VOLUME m_volume_type;
    bool                m_enabled;
-   long                m_tz_shift_seconds; // Timezone shift in seconds
+   long                m_tz_shift_seconds;
+   int                 m_max_history_days; // NEW: Limit buffer output
 
    //--- Persistent Buffers
    double              m_typical_price[];
@@ -35,25 +36,23 @@ protected:
    double              m_cumulative_vol;
    int                 m_period_index;
    bool                m_in_session;
-   datetime            m_last_time; // Time of the last processed bar
+   datetime            m_last_time;
 
    //--- For custom sessions ---
    int                 m_start_hour, m_start_min;
    int                 m_end_hour, m_end_min;
 
    bool              IsTimeInSession(const MqlDateTime &dt);
-
-   //--- Updated: Accepts start_index
    virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CVWAPCalculator(void);
    virtual          ~CVWAPCalculator(void) {};
 
-   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true);
-   bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true);
+   //--- Updated Init methods with max_history_days
+   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true, int max_history_days=0);
+   bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true, int max_history_days=0);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[]);
   };
@@ -70,12 +69,13 @@ CVWAPCalculator::CVWAPCalculator(void)
    m_period_index = 0;
    m_in_session = false;
    m_last_time = 0;
+   m_max_history_days = 0;
   }
 
 //+------------------------------------------------------------------+
 //| Init (Standard)                                                  |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours, bool enabled)
+bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours, bool enabled, int max_history_days)
   {
    m_enabled     = enabled;
    if(!m_enabled)
@@ -84,6 +84,7 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
    m_period      = period;
    m_volume_type = vol_type;
    m_tz_shift_seconds = tz_shift_hours * 3600;
+   m_max_history_days = max_history_days;
 
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
@@ -96,7 +97,7 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
 //+------------------------------------------------------------------+
 //| Init (Custom Session)                                            |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled)
+bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled, int max_history_days)
   {
    m_enabled = enabled;
    if(!m_enabled)
@@ -105,6 +106,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
    m_period      = PERIOD_CUSTOM_SESSION;
    m_volume_type = vol_type;
    m_tz_shift_seconds = 0;
+   m_max_history_days = max_history_days;
 
    string parts[];
    if(StringSplit(start_time, ':', parts) == 2)
@@ -150,12 +152,10 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
    if(!m_enabled || rates_total < 1)
       return;
 
-//--- 1. Determine Start Index
    int start_index;
    if(prev_calculated == 0)
      {
       start_index = 0;
-      // Reset State
       m_cumulative_tpv = 0;
       m_cumulative_vol = 0;
       m_period_index = 0;
@@ -170,7 +170,6 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
       start_index = prev_calculated - 1;
      }
 
-//--- 2. Resize Buffers
    if(ArraySize(m_typical_price) != rates_total)
       ArrayResize(m_typical_price, rates_total);
    if(ArraySize(vwap_odd) != rates_total)
@@ -178,14 +177,16 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
    if(ArraySize(vwap_even) != rates_total)
       ArrayResize(vwap_even, rates_total);
 
-//--- 3. Prepare Price
    if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
       return;
 
-//--- 4. Main Loop
+// Calculate cutoff time
+   datetime cutoff_time = 0;
+   if(m_max_history_days > 0)
+      cutoff_time = TimeCurrent() - m_max_history_days * 86400;
+
    for(int i = start_index; i < rates_total; i++)
      {
-      // Restore state from member variables (which represent state at i-1)
       double current_cum_tpv = m_cumulative_tpv;
       double current_cum_vol = m_cumulative_vol;
       int current_period_idx = m_period_index;
@@ -199,7 +200,6 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
         }
       else
         {
-         // Check for period change
          switch(m_period)
            {
             case PERIOD_SESSION:
@@ -260,17 +260,19 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
 
       double vwap_value = (current_cum_vol > 0) ? current_cum_tpv / current_cum_vol : EMPTY_VALUE;
 
-      // Fill buffers
+      // Fill buffers ONLY if within history limit
+      bool show_data = (time[i] >= cutoff_time);
+
       if(m_period != PERIOD_CUSTOM_SESSION || current_in_session)
         {
          if(current_period_idx % 2 != 0)
            {
-            vwap_odd[i] = vwap_value;
-            vwap_even[i] = EMPTY_VALUE; // Clear other buffer to create gap
+            vwap_odd[i] = show_data ? vwap_value : EMPTY_VALUE;
+            vwap_even[i] = EMPTY_VALUE;
            }
          else
            {
-            vwap_even[i] = vwap_value;
+            vwap_even[i] = show_data ? vwap_value : EMPTY_VALUE;
             vwap_odd[i] = EMPTY_VALUE;
            }
         }
@@ -279,12 +281,6 @@ void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const date
          vwap_odd[i] = EMPTY_VALUE;
          vwap_even[i] = EMPTY_VALUE;
         }
-
-      //--- CRITICAL: Update persistent state ONLY if this is NOT the last bar (or if we assume it's closed)
-      // Actually, in MT5 OnCalculate, we iterate up to rates_total-1.
-      // If we are at i, and i < rates_total-1, then bar i is closed (historical). We can save state.
-      // If i == rates_total-1, it is the current forming bar. We should NOT save state,
-      // because next tick we will process i again starting from the state of i-1.
 
       if(i < rates_total - 1)
         {
