@@ -1,5 +1,6 @@
 ; Global Settings
 InpFillBoxes=false
+InpMaxHistoryDays=5
 InpVolumeType=0
 InpCandleSource=0
 InpSourcePrice=6
