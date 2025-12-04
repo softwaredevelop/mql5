@@ -3,12 +3,13 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00" // Configurable via Inputs/.set files
+#property version   "2.10" // Added Market Watch source option
 #property description "Opens a configurable set of charts and templates for selected symbols."
 #property script_show_inputs
 
 //--- Input Parameters
-input string InpSymbols = "EURUSD,USDJPY"; // Comma-separated symbols
+input bool   InpUseMarketWatch = false;    // Load ALL symbols from Market Watch?
+input string InpSymbols        = "EURUSD,USDJPY"; // Comma-separated symbols (ignored if Market Watch is used)
 
 input group  "Chart Configuration 1"
 input ENUM_TIMEFRAMES InpPeriod_1   = PERIOD_M15;
@@ -48,12 +49,37 @@ input string          InpTemplate_8 = "";
 void OnStart()
   {
    string symbols[];
-   int count = StringSplit(InpSymbols, ',', symbols);
+   int count = 0;
 
-   if(count <= 0)
+   if(InpUseMarketWatch)
      {
-      Print("Error: No symbols specified.");
-      return;
+      // Load from Market Watch
+      int total = SymbolsTotal(true); // true = only selected in Market Watch
+      if(total > 0)
+        {
+         ArrayResize(symbols, total);
+         for(int i=0; i<total; i++)
+           {
+            symbols[i] = SymbolName(i, true);
+           }
+         count = total;
+         PrintFormat("Loaded %d symbols from Market Watch.", count);
+        }
+      else
+        {
+         Print("Error: Market Watch is empty?");
+         return;
+        }
+     }
+   else
+     {
+      // Load from Input String
+      count = StringSplit(InpSymbols, ',', symbols);
+      if(count <= 0)
+        {
+         Print("Error: No symbols specified.");
+         return;
+        }
      }
 
 // Collect configs into arrays for looping
@@ -86,7 +112,7 @@ void OnStart()
       if(symbol == "")
          continue;
 
-      // Check if symbol exists
+      // Check if symbol exists (redundant for Market Watch but safe)
       if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
         {
          if(!SymbolSelect(symbol, true))
@@ -99,7 +125,6 @@ void OnStart()
       // Open charts for this symbol
       for(int j = 0; j < 8; j++)
         {
-         // Skip empty slots
          if(templates[j] == "")
             continue;
 
