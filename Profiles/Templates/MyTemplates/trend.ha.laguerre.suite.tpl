@@ -320,7 +320,7 @@ name=Laguerre RSI
 draw=1
 style=0
 width=1
-color=13688896
+color=13422920
 </graph>
 
 <graph>
@@ -328,7 +328,7 @@ name=Signal
 draw=1
 style=2
 width=1
-color=17919
+color=8421616
 </graph>
 
 <level>
