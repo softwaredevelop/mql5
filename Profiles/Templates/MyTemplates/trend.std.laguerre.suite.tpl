@@ -285,7 +285,7 @@ name=Laguerre RSI
 draw=1
 style=0
 width=1
-color=13688896
+color=13422920
 </graph>
 
 <graph>
@@ -293,13 +293,13 @@ name=Signal
 draw=1
 style=2
 width=1
-color=17919
+color=8421616
 </graph>
 
 <level>
 level=10.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -307,7 +307,7 @@ descr=
 <level>
 level=20.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -315,7 +315,7 @@ descr=
 <level>
 level=50.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -323,7 +323,7 @@ descr=
 <level>
 level=80.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -331,7 +331,7 @@ descr=
 <level>
 level=90.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
