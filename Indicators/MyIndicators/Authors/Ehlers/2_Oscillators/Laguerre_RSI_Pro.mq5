@@ -33,7 +33,6 @@
 #property indicator_level3 50.0
 #property indicator_level4 80.0
 #property indicator_level5 90.0
-#property indicator_levelcolor clrGray
 #property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Laguerre_RSI_Calculator.mqh>
