@@ -244,9 +244,9 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=-0.002381
+scale_fix_min_val=0.000000
 scale_fix_max=0
-scale_fix_max_val=0.002993
+scale_fix_max_val=0.000000
 expertmode=4
 fixed_height=-1
 
@@ -320,7 +320,7 @@ name=Laguerre RSI
 draw=1
 style=0
 width=1
-color=16748574
+color=13688896
 </graph>
 
 <graph>
@@ -328,13 +328,13 @@ name=Signal
 draw=1
 style=2
 width=1
-color=8421616
+color=17919
 </graph>
 
 <level>
 level=10.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -342,7 +342,7 @@ descr=
 <level>
 level=20.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -350,7 +350,7 @@ descr=
 <level>
 level=50.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -358,7 +358,7 @@ descr=
 <level>
 level=80.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
@@ -366,7 +366,7 @@ descr=
 <level>
 level=90.000000
 style=2
-color=8421504
+color=12632256
 width=1
 descr=
 </level>
