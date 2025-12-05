@@ -61,7 +61,7 @@ windows_total=3
 
 <window>
 height=100.000000
-objects=99
+objects=104
 
 <indicator>
 name=Main
@@ -93,7 +93,7 @@ scale_fix_min=0
 scale_fix_min_val=0.000000
 scale_fix_max=0
 scale_fix_max_val=0.000000
-expertmode=0
+expertmode=4
 fixed_height=-1
 
 <graph>
@@ -101,7 +101,6 @@ name=M1 Pre VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=6053069
 </graph>
 
@@ -110,7 +109,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=6053069
 </graph>
 
@@ -119,7 +117,6 @@ name=M1 Core VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=6053069
 </graph>
 
@@ -128,7 +125,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=6053069
 </graph>
 
@@ -137,7 +133,6 @@ name=M1 Post VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=6053069
 </graph>
 
@@ -146,7 +141,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=6053069
 </graph>
 
@@ -155,7 +149,6 @@ name=M1 Full VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=8421504
 </graph>
 
@@ -164,7 +157,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=8421504
 </graph>
 
@@ -173,7 +165,6 @@ name=M2 Pre VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=5737262
 </graph>
 
@@ -182,7 +173,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=5737262
 </graph>
 
@@ -191,7 +181,6 @@ name=M2 Core VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=5737262
 </graph>
 
@@ -200,7 +189,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=5737262
 </graph>
 
@@ -209,7 +197,6 @@ name=M2 Post VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=5737262
 </graph>
 
@@ -218,7 +205,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=5737262
 </graph>
 
@@ -227,7 +213,6 @@ name=M2 Full VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=8421504
 </graph>
 
@@ -236,7 +221,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=8421504
 </graph>
 
@@ -245,7 +229,6 @@ name=M3 Pre VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=13458026
 </graph>
 
@@ -254,7 +237,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=13458026
 </graph>
 
@@ -263,7 +245,6 @@ name=M3 Core VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=13458026
 </graph>
 
@@ -272,7 +253,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=13458026
 </graph>
 
@@ -281,7 +261,6 @@ name=M3 Post VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=13458026
 </graph>
 
@@ -290,7 +269,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=13458026
 </graph>
 
@@ -299,7 +277,6 @@ name=M3 Full VWAP
 draw=1
 style=0
 width=1
-arrow=251
 color=8421504
 </graph>
 
@@ -308,7 +285,6 @@ name=
 draw=1
 style=0
 width=1
-arrow=251
 color=8421504
 </graph>
 <inputs>
@@ -418,7 +394,7 @@ InpM3_FullDay_LinReg=false
 </indicator>
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Pre_Box_1764547200
+name=SessPro_-1891943556_0_M1_Pre_Box_1764547200
 hidden=1
 color=6053069
 background=1
@@ -426,13 +402,13 @@ selectable=0
 filling=0
 date1=1764572400
 date2=1764582300
-value1=1.161290
-value2=1.159060
+value1=1.161300
+value2=1.159050
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_Mean_1764547200
+name=SessPro_-1891943556_0_M1_Pre_Mean_1764547200
 hidden=1
 color=6053069
 selectable=0
@@ -440,13 +416,13 @@ ray1=0
 ray2=0
 date1=1764572400
 date2=1764582300
-value1=1.159945
-value2=1.159945
+value1=1.159949
+value2=1.159949
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_LinReg_1764547200
+name=SessPro_-1891943556_0_M1_Pre_LinReg_1764547200
 hidden=1
 color=6053069
 selectable=0
@@ -454,13 +430,13 @@ ray1=0
 ray2=0
 date1=1764572400
 date2=1764582300
-value1=1.159444
-value2=1.160447
+value1=1.159440
+value2=1.160457
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Pre_Box_1764633600
+name=SessPro_-1891943556_0_M1_Pre_Box_1764633600
 hidden=1
 color=6053069
 background=1
@@ -474,7 +450,7 @@ value2=1.160500
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_Mean_1764633600
+name=SessPro_-1891943556_0_M1_Pre_Mean_1764633600
 hidden=1
 color=6053069
 selectable=0
@@ -488,7 +464,7 @@ value2=1.160988
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_LinReg_1764633600
+name=SessPro_-1891943556_0_M1_Pre_LinReg_1764633600
 hidden=1
 color=6053069
 selectable=0
@@ -496,13 +472,13 @@ ray1=0
 ray2=0
 date1=1764658800
 date2=1764668700
-value1=1.160733
-value2=1.161244
+value1=1.160730
+value2=1.161246
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Pre_Box_1764720000
+name=SessPro_-1891943556_0_M1_Pre_Box_1764720000
 hidden=1
 color=6053069
 background=1
@@ -510,13 +486,13 @@ selectable=0
 filling=0
 date1=1764745200
 date2=1764755100
-value1=1.165260
-value2=1.163940
+value1=1.165280
+value2=1.163950
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_Mean_1764720000
+name=SessPro_-1891943556_0_M1_Pre_Mean_1764720000
 hidden=1
 color=6053069
 selectable=0
@@ -524,13 +500,13 @@ ray1=0
 ray2=0
 date1=1764745200
 date2=1764755100
-value1=1.164414
-value2=1.164414
+value1=1.164413
+value2=1.164413
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_LinReg_1764720000
+name=SessPro_-1891943556_0_M1_Pre_LinReg_1764720000
 hidden=1
 color=6053069
 selectable=0
@@ -538,13 +514,13 @@ ray1=0
 ray2=0
 date1=1764745200
 date2=1764755100
-value1=1.164291
-value2=1.164537
+value1=1.164298
+value2=1.164529
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Pre_Box_1764806400
+name=SessPro_-1891943556_0_M1_Pre_Box_1764806400
 hidden=1
 color=6053069
 background=1
@@ -552,41 +528,83 @@ selectable=0
 filling=0
 date1=1764831600
 date2=1764841500
-value1=1.166570
+value1=1.166550
+value2=1.165310
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M1_Pre_Mean_1764806400
+hidden=1
+color=6053069
+selectable=0
+ray1=0
+ray2=0
+date1=1764831600
+date2=1764841500
+value1=1.165789
+value2=1.165789
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M1_Pre_LinReg_1764806400
+hidden=1
+color=6053069
+selectable=0
+ray1=0
+ray2=0
+date1=1764831600
+date2=1764841500
+value1=1.165722
+value2=1.165855
+</object>
+
+<object>
+type=20
+name=SessPro_-1891943556_0_M1_Pre_Box_1764892800
+hidden=1
+color=6053069
+background=1
+selectable=0
+filling=0
+date1=1764918000
+date2=1764925200
+value1=1.166470
 value2=1.165320
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_Mean_1764806400
+name=SessPro_-1891943556_0_M1_Pre_Mean_1764892800
 hidden=1
 color=6053069
 selectable=0
 ray1=0
 ray2=0
-date1=1764831600
-date2=1764841500
-value1=1.165797
-value2=1.165797
+date1=1764918000
+date2=1764925200
+value1=1.165766
+value2=1.165766
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Pre_LinReg_1764806400
+name=SessPro_-1891943556_0_M1_Pre_LinReg_1764892800
 hidden=1
 color=6053069
 selectable=0
 ray1=0
 ray2=0
-date1=1764831600
-date2=1764841500
-value1=1.165727
-value2=1.165867
+date1=1764918000
+date2=1764925200
+value1=1.165439
+value2=1.166093
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Core_Box_1764547200
+name=SessPro_-1891943556_0_M1_Core_Box_1764547200
 hidden=1
 color=6053069
 background=1
@@ -594,13 +612,13 @@ selectable=0
 filling=0
 date1=1764583200
 date2=1764612900
-value1=1.165200
-value2=1.160410
+value1=1.165220
+value2=1.160400
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_Mean_1764547200
+name=SessPro_-1891943556_0_M1_Core_Mean_1764547200
 hidden=1
 color=6053069
 selectable=0
@@ -608,13 +626,13 @@ ray1=0
 ray2=0
 date1=1764583200
 date2=1764612900
-value1=1.162897
-value2=1.162897
+value1=1.162903
+value2=1.162903
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_LinReg_1764547200
+name=SessPro_-1891943556_0_M1_Core_LinReg_1764547200
 hidden=1
 color=6053069
 selectable=0
@@ -622,13 +640,13 @@ ray1=0
 ray2=0
 date1=1764583200
 date2=1764612900
-value1=1.161816
-value2=1.163979
+value1=1.161815
+value2=1.163990
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Core_Box_1764633600
+name=SessPro_-1891943556_0_M1_Core_Box_1764633600
 hidden=1
 color=6053069
 background=1
@@ -636,13 +654,13 @@ selectable=0
 filling=0
 date1=1764669600
 date2=1764699300
-value1=1.162350
-value2=1.159340
+value1=1.162330
+value2=1.159330
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_Mean_1764633600
+name=SessPro_-1891943556_0_M1_Core_Mean_1764633600
 hidden=1
 color=6053069
 selectable=0
@@ -656,7 +674,7 @@ value2=1.161066
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_LinReg_1764633600
+name=SessPro_-1891943556_0_M1_Core_LinReg_1764633600
 hidden=1
 color=6053069
 selectable=0
@@ -664,13 +682,13 @@ ray1=0
 ray2=0
 date1=1764669600
 date2=1764699300
-value1=1.161020
-value2=1.161112
+value1=1.161015
+value2=1.161116
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Core_Box_1764720000
+name=SessPro_-1891943556_0_M1_Core_Box_1764720000
 hidden=1
 color=6053069
 background=1
@@ -678,13 +696,13 @@ selectable=0
 filling=0
 date1=1764756000
 date2=1764785700
-value1=1.167530
+value1=1.167540
 value2=1.163570
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_Mean_1764720000
+name=SessPro_-1891943556_0_M1_Core_Mean_1764720000
 hidden=1
 color=6053069
 selectable=0
@@ -692,13 +710,13 @@ ray1=0
 ray2=0
 date1=1764756000
 date2=1764785700
-value1=1.165796
-value2=1.165796
+value1=1.165808
+value2=1.165808
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_LinReg_1764720000
+name=SessPro_-1891943556_0_M1_Core_LinReg_1764720000
 hidden=1
 color=6053069
 selectable=0
@@ -706,13 +724,13 @@ ray1=0
 ray2=0
 date1=1764756000
 date2=1764785700
-value1=1.164637
-value2=1.166955
+value1=1.164653
+value2=1.166963
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Core_Box_1764806400
+name=SessPro_-1891943556_0_M1_Core_Box_1764806400
 hidden=1
 color=6053069
 background=1
@@ -720,13 +738,13 @@ selectable=0
 filling=0
 date1=1764842400
 date2=1764872100
-value1=1.168220
-value2=1.165230
+value1=1.168200
+value2=1.165190
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_Mean_1764806400
+name=SessPro_-1891943556_0_M1_Core_Mean_1764806400
 hidden=1
 color=6053069
 selectable=0
@@ -734,13 +752,13 @@ ray1=0
 ray2=0
 date1=1764842400
 date2=1764872100
-value1=1.167141
-value2=1.167141
+value1=1.167127
+value2=1.167127
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Core_LinReg_1764806400
+name=SessPro_-1891943556_0_M1_Core_LinReg_1764806400
 hidden=1
 color=6053069
 selectable=0
@@ -748,13 +766,13 @@ ray1=0
 ray2=0
 date1=1764842400
 date2=1764872100
-value1=1.167571
-value2=1.166711
+value1=1.167561
+value2=1.166694
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Post_Box_1764547200
+name=SessPro_-1891943556_0_M1_Post_Box_1764547200
 hidden=1
 color=6053069
 background=1
@@ -762,13 +780,13 @@ selectable=0
 filling=0
 date1=1764613800
 date2=1764615600
-value1=1.162700
-value2=1.162090
+value1=1.162680
+value2=1.162070
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_Mean_1764547200
+name=SessPro_-1891943556_0_M1_Post_Mean_1764547200
 hidden=1
 color=6053069
 selectable=0
@@ -776,13 +794,13 @@ ray1=0
 ray2=0
 date1=1764613800
 date2=1764615600
-value1=1.162333
-value2=1.162333
+value1=1.162328
+value2=1.162328
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_LinReg_1764547200
+name=SessPro_-1891943556_0_M1_Post_LinReg_1764547200
 hidden=1
 color=6053069
 selectable=0
@@ -790,13 +808,13 @@ ray1=0
 ray2=0
 date1=1764613800
 date2=1764615600
-value1=1.162455
-value2=1.162212
+value1=1.162449
+value2=1.162206
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Post_Box_1764633600
+name=SessPro_-1891943556_0_M1_Post_Box_1764633600
 hidden=1
 color=6053069
 background=1
@@ -804,13 +822,13 @@ selectable=0
 filling=0
 date1=1764700200
 date2=1764702000
-value1=1.160970
-value2=1.159140
+value1=1.160980
+value2=1.159130
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_Mean_1764633600
+name=SessPro_-1891943556_0_M1_Post_Mean_1764633600
 hidden=1
 color=6053069
 selectable=0
@@ -818,13 +836,13 @@ ray1=0
 ray2=0
 date1=1764700200
 date2=1764702000
-value1=1.159922
-value2=1.159922
+value1=1.159911
+value2=1.159911
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_LinReg_1764633600
+name=SessPro_-1891943556_0_M1_Post_LinReg_1764633600
 hidden=1
 color=6053069
 selectable=0
@@ -832,13 +850,13 @@ ray1=0
 ray2=0
 date1=1764700200
 date2=1764702000
-value1=1.160351
-value2=1.159494
+value1=1.160336
+value2=1.159486
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Post_Box_1764720000
+name=SessPro_-1891943556_0_M1_Post_Box_1764720000
 hidden=1
 color=6053069
 background=1
@@ -846,13 +864,13 @@ selectable=0
 filling=0
 date1=1764786600
 date2=1764788400
-value1=1.166560
+value1=1.166540
 value2=1.165760
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_Mean_1764720000
+name=SessPro_-1891943556_0_M1_Post_Mean_1764720000
 hidden=1
 color=6053069
 selectable=0
@@ -860,13 +878,13 @@ ray1=0
 ray2=0
 date1=1764786600
 date2=1764788400
-value1=1.166103
-value2=1.166103
+value1=1.166104
+value2=1.166104
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_LinReg_1764720000
+name=SessPro_-1891943556_0_M1_Post_LinReg_1764720000
 hidden=1
 color=6053069
 selectable=0
@@ -874,13 +892,13 @@ ray1=0
 ray2=0
 date1=1764786600
 date2=1764788400
-value1=1.166217
-value2=1.165990
+value1=1.166216
+value2=1.165993
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M1_Post_Box_1764806400
+name=SessPro_-1891943556_0_M1_Post_Box_1764806400
 hidden=1
 color=6053069
 background=1
@@ -888,13 +906,13 @@ selectable=0
 filling=0
 date1=1764873000
 date2=1764874800
-value1=1.165990
+value1=1.165970
 value2=1.165360
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_Mean_1764806400
+name=SessPro_-1891943556_0_M1_Post_Mean_1764806400
 hidden=1
 color=6053069
 selectable=0
@@ -902,13 +920,13 @@ ray1=0
 ray2=0
 date1=1764873000
 date2=1764874800
-value1=1.165684
-value2=1.165684
+value1=1.165673
+value2=1.165673
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M1_Post_LinReg_1764806400
+name=SessPro_-1891943556_0_M1_Post_LinReg_1764806400
 hidden=1
 color=6053069
 selectable=0
@@ -916,13 +934,13 @@ ray1=0
 ray2=0
 date1=1764873000
 date2=1764874800
-value1=1.165628
-value2=1.165741
+value1=1.165617
+value2=1.165730
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Pre_Box_1764547200
+name=SessPro_-1891943556_0_M2_Pre_Box_1764547200
 hidden=1
 color=5737262
 background=1
@@ -930,13 +948,13 @@ selectable=0
 filling=0
 date1=1764579600
 date2=1764582300
-value1=1.161290
+value1=1.161300
 value2=1.159550
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_Mean_1764547200
+name=SessPro_-1891943556_0_M2_Pre_Mean_1764547200
 hidden=1
 color=5737262
 selectable=0
@@ -944,13 +962,13 @@ ray1=0
 ray2=0
 date1=1764579600
 date2=1764582300
-value1=1.160572
-value2=1.160572
+value1=1.160578
+value2=1.160578
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_LinReg_1764547200
+name=SessPro_-1891943556_0_M2_Pre_LinReg_1764547200
 hidden=1
 color=5737262
 selectable=0
@@ -958,13 +976,13 @@ ray1=0
 ray2=0
 date1=1764579600
 date2=1764582300
-value1=1.160061
-value2=1.161083
+value1=1.160068
+value2=1.161087
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Pre_Box_1764633600
+name=SessPro_-1891943556_0_M2_Pre_Box_1764633600
 hidden=1
 color=5737262
 background=1
@@ -973,12 +991,12 @@ filling=0
 date1=1764666000
 date2=1764668700
 value1=1.161630
-value2=1.160880
+value2=1.160890
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_Mean_1764633600
+name=SessPro_-1891943556_0_M2_Pre_Mean_1764633600
 hidden=1
 color=5737262
 selectable=0
@@ -986,13 +1004,13 @@ ray1=0
 ray2=0
 date1=1764666000
 date2=1764668700
-value1=1.161299
-value2=1.161299
+value1=1.161301
+value2=1.161301
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_LinReg_1764633600
+name=SessPro_-1891943556_0_M2_Pre_LinReg_1764633600
 hidden=1
 color=5737262
 selectable=0
@@ -1000,13 +1018,13 @@ ray1=0
 ray2=0
 date1=1764666000
 date2=1764668700
-value1=1.161313
-value2=1.161286
+value1=1.161318
+value2=1.161283
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Pre_Box_1764720000
+name=SessPro_-1891943556_0_M2_Pre_Box_1764720000
 hidden=1
 color=5737262
 background=1
@@ -1014,13 +1032,13 @@ selectable=0
 filling=0
 date1=1764752400
 date2=1764755100
-value1=1.165260
-value2=1.163940
+value1=1.165280
+value2=1.163950
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_Mean_1764720000
+name=SessPro_-1891943556_0_M2_Pre_Mean_1764720000
 hidden=1
 color=5737262
 selectable=0
@@ -1028,13 +1046,13 @@ ray1=0
 ray2=0
 date1=1764752400
 date2=1764755100
-value1=1.164542
-value2=1.164542
+value1=1.164535
+value2=1.164535
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_LinReg_1764720000
+name=SessPro_-1891943556_0_M2_Pre_LinReg_1764720000
 hidden=1
 color=5737262
 selectable=0
@@ -1042,13 +1060,13 @@ ray1=0
 ray2=0
 date1=1764752400
 date2=1764755100
-value1=1.164942
-value2=1.164142
+value1=1.164937
+value2=1.164133
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Pre_Box_1764806400
+name=SessPro_-1891943556_0_M2_Pre_Box_1764806400
 hidden=1
 color=5737262
 background=1
@@ -1056,13 +1074,13 @@ selectable=0
 filling=0
 date1=1764838800
 date2=1764841500
-value1=1.166570
+value1=1.166550
 value2=1.165540
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_Mean_1764806400
+name=SessPro_-1891943556_0_M2_Pre_Mean_1764806400
 hidden=1
 color=5737262
 selectable=0
@@ -1070,13 +1088,13 @@ ray1=0
 ray2=0
 date1=1764838800
 date2=1764841500
-value1=1.165911
-value2=1.165911
+value1=1.165902
+value2=1.165902
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Pre_LinReg_1764806400
+name=SessPro_-1891943556_0_M2_Pre_LinReg_1764806400
 hidden=1
 color=5737262
 selectable=0
@@ -1084,13 +1102,41 @@ ray1=0
 ray2=0
 date1=1764838800
 date2=1764841500
-value1=1.165668
-value2=1.166153
+value1=1.165664
+value2=1.166140
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Post_Box_1764547200
+name=SessPro_-1891943556_0_M2_Pre_Box_1764892800
+hidden=1
+color=5737262
+background=1
+selectable=0
+filling=0
+date1=1764925200
+date2=1764925200
+value1=1.166470
+value2=1.165870
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M2_Pre_Mean_1764892800
+hidden=1
+color=5737262
+selectable=0
+ray1=0
+ray2=0
+date1=1764925200
+date2=1764925200
+value1=1.166250
+value2=1.166250
+</object>
+
+<object>
+type=20
+name=SessPro_-1891943556_0_M2_Post_Box_1764547200
 hidden=1
 color=5737262
 background=1
@@ -1098,13 +1144,13 @@ selectable=0
 filling=0
 date1=1764613800
 date2=1764621900
-value1=1.162880
-value2=1.161180
+value1=1.162890
+value2=1.161160
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_Mean_1764547200
+name=SessPro_-1891943556_0_M2_Post_Mean_1764547200
 hidden=1
 color=5737262
 selectable=0
@@ -1112,13 +1158,13 @@ ray1=0
 ray2=0
 date1=1764613800
 date2=1764621900
-value1=1.162080
-value2=1.162080
+value1=1.162076
+value2=1.162076
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_LinReg_1764547200
+name=SessPro_-1891943556_0_M2_Post_LinReg_1764547200
 hidden=1
 color=5737262
 selectable=0
@@ -1126,13 +1172,13 @@ ray1=0
 ray2=0
 date1=1764613800
 date2=1764621900
-value1=1.162670
-value2=1.161490
+value1=1.162669
+value2=1.161482
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Post_Box_1764633600
+name=SessPro_-1891943556_0_M2_Post_Box_1764633600
 hidden=1
 color=5737262
 background=1
@@ -1140,13 +1186,13 @@ selectable=0
 filling=0
 date1=1764700200
 date2=1764708300
-value1=1.161330
-value2=1.159140
+value1=1.161340
+value2=1.159130
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_Mean_1764633600
+name=SessPro_-1891943556_0_M2_Post_Mean_1764633600
 hidden=1
 color=5737262
 selectable=0
@@ -1154,13 +1200,13 @@ ray1=0
 ray2=0
 date1=1764700200
 date2=1764708300
-value1=1.160464
-value2=1.160464
+value1=1.160465
+value2=1.160465
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_LinReg_1764633600
+name=SessPro_-1891943556_0_M2_Post_LinReg_1764633600
 hidden=1
 color=5737262
 selectable=0
@@ -1168,13 +1214,13 @@ ray1=0
 ray2=0
 date1=1764700200
 date2=1764708300
-value1=1.159881
-value2=1.161047
+value1=1.159874
+value2=1.161057
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Post_Box_1764720000
+name=SessPro_-1891943556_0_M2_Post_Box_1764720000
 hidden=1
 color=5737262
 background=1
@@ -1188,7 +1234,7 @@ value2=1.165760
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_Mean_1764720000
+name=SessPro_-1891943556_0_M2_Post_Mean_1764720000
 hidden=1
 color=5737262
 selectable=0
@@ -1196,13 +1242,13 @@ ray1=0
 ray2=0
 date1=1764786600
 date2=1764794700
-value1=1.166680
-value2=1.166680
+value1=1.166682
+value2=1.166682
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_LinReg_1764720000
+name=SessPro_-1891943556_0_M2_Post_LinReg_1764720000
 hidden=1
 color=5737262
 selectable=0
@@ -1210,13 +1256,13 @@ ray1=0
 ray2=0
 date1=1764786600
 date2=1764794700
-value1=1.165957
-value2=1.167402
+value1=1.165958
+value2=1.167406
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M2_Post_Box_1764806400
+name=SessPro_-1891943556_0_M2_Post_Box_1764806400
 hidden=1
 color=5737262
 background=1
@@ -1224,13 +1270,13 @@ selectable=0
 filling=0
 date1=1764873000
 date2=1764881100
-value1=1.166000
+value1=1.165980
 value2=1.165320
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_Mean_1764806400
+name=SessPro_-1891943556_0_M2_Post_Mean_1764806400
 hidden=1
 color=5737262
 selectable=0
@@ -1238,13 +1284,13 @@ ray1=0
 ray2=0
 date1=1764873000
 date2=1764881100
-value1=1.165672
-value2=1.165672
+value1=1.165661
+value2=1.165661
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M2_Post_LinReg_1764806400
+name=SessPro_-1891943556_0_M2_Post_LinReg_1764806400
 hidden=1
 color=5737262
 selectable=0
@@ -1252,13 +1298,13 @@ ray1=0
 ray2=0
 date1=1764873000
 date2=1764881100
-value1=1.165633
-value2=1.165711
+value1=1.165622
+value2=1.165700
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Pre_Box_1764547200
+name=SessPro_-1891943556_0_M3_Pre_Box_1764547200
 hidden=1
 color=13458026
 background=1
@@ -1266,13 +1312,13 @@ selectable=0
 filling=0
 date1=1764595800
 date2=1764605700
-value1=1.165200
-value2=1.162520
+value1=1.165220
+value2=1.162510
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Pre_Mean_1764547200
+name=SessPro_-1891943556_0_M3_Pre_Mean_1764547200
 hidden=1
 color=13458026
 selectable=0
@@ -1286,7 +1332,7 @@ value2=1.163791
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Pre_LinReg_1764547200
+name=SessPro_-1891943556_0_M3_Pre_LinReg_1764547200
 hidden=1
 color=13458026
 selectable=0
@@ -1295,12 +1341,12 @@ ray2=0
 date1=1764595800
 date2=1764605700
 value1=1.163079
-value2=1.164502
+value2=1.164503
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Pre_Box_1764633600
+name=SessPro_-1891943556_0_M3_Pre_Box_1764633600
 hidden=1
 color=13458026
 background=1
@@ -1308,139 +1354,139 @@ selectable=0
 filling=0
 date1=1764682200
 date2=1764692100
-value1=1.162350
+value1=1.162330
+value2=1.160680
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M3_Pre_Mean_1764633600
+hidden=1
+color=13458026
+selectable=0
+ray1=0
+ray2=0
+date1=1764682200
+date2=1764692100
+value1=1.161443
+value2=1.161443
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M3_Pre_LinReg_1764633600
+hidden=1
+color=13458026
+selectable=0
+ray1=0
+ray2=0
+date1=1764682200
+date2=1764692100
+value1=1.160999
+value2=1.161886
+</object>
+
+<object>
+type=20
+name=SessPro_-1891943556_0_M3_Pre_Box_1764720000
+hidden=1
+color=13458026
+background=1
+selectable=0
+filling=0
+date1=1764768600
+date2=1764778500
+value1=1.167540
+value2=1.165570
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M3_Pre_Mean_1764720000
+hidden=1
+color=13458026
+selectable=0
+ray1=0
+ray2=0
+date1=1764768600
+date2=1764778500
+value1=1.166614
+value2=1.166614
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M3_Pre_LinReg_1764720000
+hidden=1
+color=13458026
+selectable=0
+ray1=0
+ray2=0
+date1=1764768600
+date2=1764778500
+value1=1.166593
+value2=1.166636
+</object>
+
+<object>
+type=20
+name=SessPro_-1891943556_0_M3_Pre_Box_1764806400
+hidden=1
+color=13458026
+background=1
+selectable=0
+filling=0
+date1=1764855000
+date2=1764864900
+value1=1.168090
+value2=1.165190
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M3_Pre_Mean_1764806400
+hidden=1
+color=13458026
+selectable=0
+ray1=0
+ray2=0
+date1=1764855000
+date2=1764864900
+value1=1.167095
+value2=1.167095
+</object>
+
+<object>
+type=2
+name=SessPro_-1891943556_0_M3_Pre_LinReg_1764806400
+hidden=1
+color=13458026
+selectable=0
+ray1=0
+ray2=0
+date1=1764855000
+date2=1764864900
+value1=1.167756
+value2=1.166435
+</object>
+
+<object>
+type=20
+name=SessPro_-1891943556_0_M3_Core_Box_1764547200
+hidden=1
+color=13458026
+background=1
+selectable=0
+filling=0
+date1=1764606600
+date2=1764629100
+value1=1.164070
 value2=1.160660
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Pre_Mean_1764633600
-hidden=1
-color=13458026
-selectable=0
-ray1=0
-ray2=0
-date1=1764682200
-date2=1764692100
-value1=1.161440
-value2=1.161440
-</object>
-
-<object>
-type=2
-name=SessPro_-1752230152_0_M3_Pre_LinReg_1764633600
-hidden=1
-color=13458026
-selectable=0
-ray1=0
-ray2=0
-date1=1764682200
-date2=1764692100
-value1=1.160991
-value2=1.161889
-</object>
-
-<object>
-type=20
-name=SessPro_-1752230152_0_M3_Pre_Box_1764720000
-hidden=1
-color=13458026
-background=1
-selectable=0
-filling=0
-date1=1764768600
-date2=1764778500
-value1=1.167530
-value2=1.165590
-</object>
-
-<object>
-type=2
-name=SessPro_-1752230152_0_M3_Pre_Mean_1764720000
-hidden=1
-color=13458026
-selectable=0
-ray1=0
-ray2=0
-date1=1764768600
-date2=1764778500
-value1=1.166589
-value2=1.166589
-</object>
-
-<object>
-type=2
-name=SessPro_-1752230152_0_M3_Pre_LinReg_1764720000
-hidden=1
-color=13458026
-selectable=0
-ray1=0
-ray2=0
-date1=1764768600
-date2=1764778500
-value1=1.166571
-value2=1.166608
-</object>
-
-<object>
-type=20
-name=SessPro_-1752230152_0_M3_Pre_Box_1764806400
-hidden=1
-color=13458026
-background=1
-selectable=0
-filling=0
-date1=1764855000
-date2=1764864900
-value1=1.168100
-value2=1.165230
-</object>
-
-<object>
-type=2
-name=SessPro_-1752230152_0_M3_Pre_Mean_1764806400
-hidden=1
-color=13458026
-selectable=0
-ray1=0
-ray2=0
-date1=1764855000
-date2=1764864900
-value1=1.167112
-value2=1.167112
-</object>
-
-<object>
-type=2
-name=SessPro_-1752230152_0_M3_Pre_LinReg_1764806400
-hidden=1
-color=13458026
-selectable=0
-ray1=0
-ray2=0
-date1=1764855000
-date2=1764864900
-value1=1.167765
-value2=1.166458
-</object>
-
-<object>
-type=20
-name=SessPro_-1752230152_0_M3_Core_Box_1764547200
-hidden=1
-color=13458026
-background=1
-selectable=0
-filling=0
-date1=1764606600
-date2=1764629100
-value1=1.164050
-value2=1.160650
-</object>
-
-<object>
-type=2
-name=SessPro_-1752230152_0_M3_Core_Mean_1764547200
+name=SessPro_-1891943556_0_M3_Core_Mean_1764547200
 hidden=1
 color=13458026
 selectable=0
@@ -1448,13 +1494,13 @@ ray1=0
 ray2=0
 date1=1764606600
 date2=1764629100
-value1=1.162016
-value2=1.162016
+value1=1.162022
+value2=1.162022
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_LinReg_1764547200
+name=SessPro_-1891943556_0_M3_Core_LinReg_1764547200
 hidden=1
 color=13458026
 selectable=0
@@ -1462,13 +1508,13 @@ ray1=0
 ray2=0
 date1=1764606600
 date2=1764629100
-value1=1.163528
-value2=1.160503
+value1=1.163546
+value2=1.160498
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Core_Box_1764633600
+name=SessPro_-1891943556_0_M3_Core_Box_1764633600
 hidden=1
 color=13458026
 background=1
@@ -1476,13 +1522,13 @@ selectable=0
 filling=0
 date1=1764693000
 date2=1764715500
-value1=1.162590
-value2=1.159140
+value1=1.162600
+value2=1.159130
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_Mean_1764633600
+name=SessPro_-1891943556_0_M3_Core_Mean_1764633600
 hidden=1
 color=13458026
 selectable=0
@@ -1490,13 +1536,13 @@ ray1=0
 ray2=0
 date1=1764693000
 date2=1764715500
-value1=1.161034
-value2=1.161034
+value1=1.161041
+value2=1.161041
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_LinReg_1764633600
+name=SessPro_-1891943556_0_M3_Core_LinReg_1764633600
 hidden=1
 color=13458026
 selectable=0
@@ -1504,13 +1550,13 @@ ray1=0
 ray2=0
 date1=1764693000
 date2=1764715500
-value1=1.160292
-value2=1.161775
+value1=1.160283
+value2=1.161800
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Core_Box_1764720000
+name=SessPro_-1891943556_0_M3_Core_Box_1764720000
 hidden=1
 color=13458026
 background=1
@@ -1518,13 +1564,13 @@ selectable=0
 filling=0
 date1=1764779400
 date2=1764801900
-value1=1.167770
-value2=1.165460
+value1=1.167760
+value2=1.165450
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_Mean_1764720000
+name=SessPro_-1891943556_0_M3_Core_Mean_1764720000
 hidden=1
 color=13458026
 selectable=0
@@ -1532,13 +1578,13 @@ ray1=0
 ray2=0
 date1=1764779400
 date2=1764801900
-value1=1.166662
-value2=1.166662
+value1=1.166664
+value2=1.166664
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_LinReg_1764720000
+name=SessPro_-1891943556_0_M3_Core_LinReg_1764720000
 hidden=1
 color=13458026
 selectable=0
@@ -1546,13 +1592,13 @@ ray1=0
 ray2=0
 date1=1764779400
 date2=1764801900
-value1=1.165942
-value2=1.167383
+value1=1.165935
+value2=1.167393
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Core_Box_1764806400
+name=SessPro_-1891943556_0_M3_Core_Box_1764806400
 hidden=1
 color=13458026
 background=1
@@ -1561,12 +1607,12 @@ filling=0
 date1=1764865800
 date2=1764888300
 value1=1.167650
-value2=1.164110
+value2=1.164130
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_Mean_1764806400
+name=SessPro_-1891943556_0_M3_Core_Mean_1764806400
 hidden=1
 color=13458026
 selectable=0
@@ -1574,13 +1620,13 @@ ray1=0
 ray2=0
 date1=1764865800
 date2=1764888300
-value1=1.165820
-value2=1.165820
+value1=1.165813
+value2=1.165813
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Core_LinReg_1764806400
+name=SessPro_-1891943556_0_M3_Core_LinReg_1764806400
 hidden=1
 color=13458026
 selectable=0
@@ -1588,13 +1634,13 @@ ray1=0
 ray2=0
 date1=1764865800
 date2=1764888300
-value1=1.167008
-value2=1.164633
+value1=1.166990
+value2=1.164636
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Post_Box_1764288000
+name=SessPro_-1891943556_0_M3_Post_Box_1764288000
 hidden=1
 color=13458026
 background=1
@@ -1602,13 +1648,13 @@ selectable=0
 filling=0
 date1=1764370800
 date2=1764557100
-value1=1.160770
-value2=1.159090
+value1=1.160780
+value2=1.158980
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_Mean_1764288000
+name=SessPro_-1891943556_0_M3_Post_Mean_1764288000
 hidden=1
 color=13458026
 selectable=0
@@ -1616,13 +1662,13 @@ ray1=0
 ray2=0
 date1=1764370800
 date2=1764557100
-value1=1.159947
-value2=1.159947
+value1=1.159896
+value2=1.159896
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_LinReg_1764288000
+name=SessPro_-1891943556_0_M3_Post_LinReg_1764288000
 hidden=1
 color=13458026
 selectable=0
@@ -1630,13 +1676,13 @@ ray1=0
 ray2=0
 date1=1764370800
 date2=1764557100
-value1=1.159715
-value2=1.160180
+value1=1.159593
+value2=1.160199
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Post_Box_1764547200
+name=SessPro_-1891943556_0_M3_Post_Box_1764547200
 hidden=1
 color=13458026
 background=1
@@ -1644,13 +1690,13 @@ selectable=0
 filling=0
 date1=1764630000
 date2=1764643500
-value1=1.161090
-value2=1.160390
+value1=1.161100
+value2=1.160400
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_Mean_1764547200
+name=SessPro_-1891943556_0_M3_Post_Mean_1764547200
 hidden=1
 color=13458026
 selectable=0
@@ -1658,13 +1704,13 @@ ray1=0
 ray2=0
 date1=1764630000
 date2=1764643500
-value1=1.160808
-value2=1.160808
+value1=1.160812
+value2=1.160812
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_LinReg_1764547200
+name=SessPro_-1891943556_0_M3_Post_LinReg_1764547200
 hidden=1
 color=13458026
 selectable=0
@@ -1672,13 +1718,13 @@ ray1=0
 ray2=0
 date1=1764630000
 date2=1764643500
-value1=1.160974
-value2=1.160642
+value1=1.160985
+value2=1.160639
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Post_Box_1764633600
+name=SessPro_-1891943556_0_M3_Post_Box_1764633600
 hidden=1
 color=13458026
 background=1
@@ -1686,13 +1732,13 @@ selectable=0
 filling=0
 date1=1764716400
 date2=1764729900
-value1=1.163300
-value2=1.161950
+value1=1.163330
+value2=1.161470
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_Mean_1764633600
+name=SessPro_-1891943556_0_M3_Post_Mean_1764633600
 hidden=1
 color=13458026
 selectable=0
@@ -1700,13 +1746,13 @@ ray1=0
 ray2=0
 date1=1764716400
 date2=1764729900
-value1=1.162545
-value2=1.162545
+value1=1.162528
+value2=1.162528
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_LinReg_1764633600
+name=SessPro_-1891943556_0_M3_Post_LinReg_1764633600
 hidden=1
 color=13458026
 selectable=0
@@ -1714,13 +1760,13 @@ ray1=0
 ray2=0
 date1=1764716400
 date2=1764729900
-value1=1.162055
-value2=1.163034
+value1=1.162011
+value2=1.163045
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Post_Box_1764720000
+name=SessPro_-1891943556_0_M3_Post_Box_1764720000
 hidden=1
 color=13458026
 background=1
@@ -1728,13 +1774,13 @@ selectable=0
 filling=0
 date1=1764802800
 date2=1764816300
-value1=1.167380
-value2=1.165960
+value1=1.167390
+value2=1.165940
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_Mean_1764720000
+name=SessPro_-1891943556_0_M3_Post_Mean_1764720000
 hidden=1
 color=13458026
 selectable=0
@@ -1742,13 +1788,13 @@ ray1=0
 ray2=0
 date1=1764802800
 date2=1764816300
-value1=1.166743
-value2=1.166743
+value1=1.166739
+value2=1.166739
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_LinReg_1764720000
+name=SessPro_-1891943556_0_M3_Post_LinReg_1764720000
 hidden=1
 color=13458026
 selectable=0
@@ -1756,50 +1802,50 @@ ray1=0
 ray2=0
 date1=1764802800
 date2=1764816300
-value1=1.167007
-value2=1.166478
+value1=1.167011
+value2=1.166466
 </object>
 
 <object>
 type=20
-name=SessPro_-1752230152_0_M3_Post_Box_1764806400
+name=SessPro_-1891943556_0_M3_Post_Box_1764806400
 hidden=1
 color=13458026
 background=1
 selectable=0
 filling=0
 date1=1764889200
-date2=1764891000
-value1=1.164540
-value2=1.164110
+date2=1764902700
+value1=1.165030
+value2=1.163880
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_Mean_1764806400
+name=SessPro_-1891943556_0_M3_Post_Mean_1764806400
 hidden=1
 color=13458026
 selectable=0
 ray1=0
 ray2=0
 date1=1764889200
-date2=1764891000
-value1=1.164338
-value2=1.164338
+date2=1764902700
+value1=1.164431
+value2=1.164431
 </object>
 
 <object>
 type=2
-name=SessPro_-1752230152_0_M3_Post_LinReg_1764806400
+name=SessPro_-1891943556_0_M3_Post_LinReg_1764806400
 hidden=1
 color=13458026
 selectable=0
 ray1=0
 ray2=0
 date1=1764889200
-date2=1764891000
-value1=1.164363
-value2=1.164313
+date2=1764902700
+value1=1.164213
+value2=1.164650
 </object>
 
 </window>
@@ -1821,7 +1867,7 @@ scale_fix_min=1
 scale_fix_min_val=-10.000000
 scale_fix_max=1
 scale_fix_max_val=110.000000
-expertmode=0
+expertmode=4
 fixed_height=-1
 
 <graph>
@@ -1829,7 +1875,6 @@ name=%K
 draw=1
 style=0
 width=1
-arrow=251
 color=16748574
 </graph>
 
@@ -1838,7 +1883,6 @@ name=%D
 draw=1
 style=0
 width=1
-arrow=251
 color=5275647
 </graph>
 
@@ -1912,7 +1956,7 @@ scale_fix_min=0
 scale_fix_min_val=0.000000
 scale_fix_max=0
 scale_fix_max_val=0.000000
-expertmode=0
+expertmode=4
 fixed_height=-1
 
 <graph>
@@ -1920,7 +1964,6 @@ name=SMI
 draw=1
 style=0
 width=1
-arrow=251
 color=11829830
 </graph>
 
@@ -1929,7 +1972,6 @@ name=Signal
 draw=1
 style=0
 width=1
-arrow=251
 color=36095
 </graph>
 
