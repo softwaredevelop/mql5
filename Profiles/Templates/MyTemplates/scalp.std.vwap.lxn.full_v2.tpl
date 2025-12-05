@@ -61,7 +61,7 @@ windows_total=4
 
 <window>
 height=100.000000
-objects=125
+objects=0
 
 <indicator>
 name=Main
