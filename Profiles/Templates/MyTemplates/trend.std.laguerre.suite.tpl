@@ -35,7 +35,7 @@ window_left=52
 window_top=52
 window_right=851
 window_bottom=474
-window_type=1
+window_type=3
 floating=0
 floating_left=0
 floating_top=0
@@ -209,9 +209,9 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=-0.002381
+scale_fix_min_val=0.000000
 scale_fix_max=0
-scale_fix_max_val=0.002993
+scale_fix_max_val=0.000000
 expertmode=4
 fixed_height=-1
 
@@ -285,7 +285,7 @@ name=Laguerre RSI
 draw=1
 style=0
 width=1
-color=16748574
+color=13688896
 </graph>
 
 <graph>
@@ -293,7 +293,7 @@ name=Signal
 draw=1
 style=2
 width=1
-color=8421616
+color=17919
 </graph>
 
 <level>
