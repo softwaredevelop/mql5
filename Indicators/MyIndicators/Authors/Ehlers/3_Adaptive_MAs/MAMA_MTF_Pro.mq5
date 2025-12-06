@@ -1,12 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                                  MAMA_MTF_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // REFACTORED: Handles current timeframe correctly.
+#property version   "2.30" // Fully optimized incremental MTF calculation
 #property description "Multi-Timeframe (MTF) version of John Ehlers' MAMA and FAMA."
-#property description "Displays MAMA/FAMA from a higher or the current timeframe on the chart."
 
 #property indicator_chart_window
 #property indicator_buffers 2
@@ -38,6 +36,10 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 double    BufferMAMA_MTF[];
 double    BufferFAMA_MTF[];
 
+//--- Internal Buffers for HTF Calculation (Global to persist state)
+double    BufferMAMA_HTF_Internal[];
+double    BufferFAMA_HTF_Internal[];
+
 //--- Global variables ---
 CMAMACalculator  *g_calculator;
 bool              g_is_mtf_mode = false;
@@ -49,9 +51,7 @@ int OnInit()
 // --- Determine calculation mode (MTF or Current) ---
    g_calc_timeframe = InpUpperTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
-     {
       g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
-     }
 
    if(g_calc_timeframe < Period())
      {
@@ -61,7 +61,7 @@ int OnInit()
 
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
-// --- Standard buffer and calculator setup ---
+// --- Standard buffer setup ---
    SetIndexBuffer(0, BufferMAMA_MTF,  INDICATOR_DATA);
    SetIndexBuffer(1, BufferFAMA_MTF,  INDICATOR_DATA);
    ArraySetAsSeries(BufferMAMA_MTF,  false);
@@ -70,13 +70,9 @@ int OnInit()
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
       g_calculator = new CMAMACalculator_HA();
-     }
    else
-     {
       g_calculator = new CMAMACalculator();
-     }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastLimit, InpSlowLimit))
      {
@@ -101,10 +97,13 @@ void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
+
+   ArrayFree(BufferMAMA_HTF_Internal);
+   ArrayFree(BufferFAMA_HTF_Internal);
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
   {
    if(rates_total < 2 || CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -123,8 +122,16 @@ int OnCalculate(const int rates_total, const int, const datetime &time[], const 
       if(htf_rates_total < 50)
          return 0; // MAMA warmup period
 
+      // --- Manage HTF State (Incremental Logic) ---
+      static int htf_prev_calculated = 0;
+      if(prev_calculated == 0)
+         htf_prev_calculated = 0;
+
       datetime htf_time[];
       double htf_open[], htf_high[], htf_low[], htf_close[];
+
+      // Optimization: We could copy only new bars, but for safety with CopyTime/BarShift,
+      // copying full history on HTF is usually fast enough. The math is the bottleneck.
       if(CopyTime(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_time) <= 0 ||
          CopyOpen(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_open) <= 0 ||
          CopyHigh(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_high) <= 0 ||
@@ -134,26 +141,33 @@ int OnCalculate(const int rates_total, const int, const datetime &time[], const 
          return 0; // Data not fully ready
         }
 
-      double htf_mama_buffer[], htf_fama_buffer[];
-      ArrayResize(htf_mama_buffer, htf_rates_total);
-      ArrayResize(htf_fama_buffer, htf_rates_total);
+      if(ArraySize(BufferMAMA_HTF_Internal) != htf_rates_total)
+         ArrayResize(BufferMAMA_HTF_Internal, htf_rates_total);
+      if(ArraySize(BufferFAMA_HTF_Internal) != htf_rates_total)
+         ArrayResize(BufferFAMA_HTF_Internal, htf_rates_total);
 
-      g_calculator.Calculate(htf_rates_total, price_type, htf_open, htf_high, htf_low, htf_close, htf_mama_buffer, htf_fama_buffer);
+      // Incremental Calculation on HTF
+      // We pass htf_prev_calculated so the engine only computes new bars!
+      g_calculator.Calculate(htf_rates_total, htf_prev_calculated, price_type, htf_open, htf_high, htf_low, htf_close, BufferMAMA_HTF_Internal, BufferFAMA_HTF_Internal);
 
-      ArraySetAsSeries(htf_mama_buffer, true);
-      ArraySetAsSeries(htf_fama_buffer, true);
-      ArraySetAsSeries(htf_time, true);
+      htf_prev_calculated = htf_rates_total;
+
+      // Mapping (Optimized Loop)
+      ArraySetAsSeries(BufferMAMA_HTF_Internal, true);
+      ArraySetAsSeries(BufferFAMA_HTF_Internal, true);
       ArraySetAsSeries(time, true);
       ArraySetAsSeries(BufferMAMA_MTF, true);
       ArraySetAsSeries(BufferFAMA_MTF, true);
 
-      for(int i = 0; i < rates_total; i++)
+      int limit = (prev_calculated > 0) ? rates_total - prev_calculated : rates_total;
+
+      for(int i = 0; i < limit; i++)
         {
-         int htf_bar_shift = iBarShift(_Symbol, g_calc_timeframe, time[i]);
+         int htf_bar_shift = iBarShift(_Symbol, g_calc_timeframe, time[i], false);
          if(htf_bar_shift < htf_rates_total && htf_bar_shift >= 0)
            {
-            BufferMAMA_MTF[i] = htf_mama_buffer[htf_bar_shift];
-            BufferFAMA_MTF[i] = htf_fama_buffer[htf_bar_shift];
+            BufferMAMA_MTF[i] = BufferMAMA_HTF_Internal[htf_bar_shift];
+            BufferFAMA_MTF[i] = BufferFAMA_HTF_Internal[htf_bar_shift];
            }
          else
            {
@@ -165,14 +179,16 @@ int OnCalculate(const int rates_total, const int, const datetime &time[], const 
       ArraySetAsSeries(BufferMAMA_MTF, false);
       ArraySetAsSeries(BufferFAMA_MTF, false);
       ArraySetAsSeries(time, false);
+      ArraySetAsSeries(BufferMAMA_HTF_Internal, false);
+      ArraySetAsSeries(BufferFAMA_HTF_Internal, false);
      }
    else
      {
       // --- Current Timeframe Mode ---
-      g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferMAMA_MTF, BufferFAMA_MTF);
+      // Incremental Calculation
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferMAMA_MTF, BufferFAMA_MTF);
      }
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
