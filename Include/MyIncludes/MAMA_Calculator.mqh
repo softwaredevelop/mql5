@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                              MAMA_Calculator.mqh |
-//|      VERSION 1.20: Reverted to Full Recalc for consistency.      |
+//|      VERSION 1.30: Restored Incremental Calculation (Verified).  |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,16 +8,18 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
+//|             CLASS 1: CMAMACalculator (Base Class)                |
+//+==================================================================+
 class CMAMACalculator
   {
 protected:
    double            m_fast_limit;
    double            m_slow_limit;
 
-   //--- Buffers
+   //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
-   // We keep internal buffers as members to avoid reallocation,
-   // but we will overwrite them every time.
+
+   //--- Internal State Buffers
    double            m_smooth_buf[];
    double            m_detrender_buf[];
    double            m_I1_buf[], m_Q1_buf[];
@@ -30,7 +32,8 @@ protected:
    double            m_mama_buf[];
    double            m_fama_buf[];
 
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CMAMACalculator(void) {};
@@ -38,11 +41,13 @@ public:
 
    bool              Init(double fast_limit, double slow_limit);
 
-   //--- Reverted: No prev_calculated needed
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &mama_buffer[], double &fama_buffer[]);
   };
 
+//+------------------------------------------------------------------+
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CMAMACalculator::Init(double fast_limit, double slow_limit)
   {
@@ -52,15 +57,22 @@ bool CMAMACalculator::Init(double fast_limit, double slow_limit)
   }
 
 //+------------------------------------------------------------------+
-void CMAMACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+//| Main Calculation (Optimized)                                     |
+//+------------------------------------------------------------------+
+void CMAMACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                 double &mama_buffer[], double &fama_buffer[])
   {
    if(rates_total < 50)
       return;
 
-//--- Always Full Recalculation
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
 
-//--- Resize Internal Buffers
+//--- 2. Resize Internal Buffers
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
@@ -81,38 +93,43 @@ void CMAMACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, 
       ArrayResize(m_fama_buf, rates_total);
      }
 
-// Initialize buffers with 0 (important for full recalc)
-   ArrayInitialize(m_smooth_buf, 0);
-   ArrayInitialize(m_detrender_buf, 0);
-   ArrayInitialize(m_I1_buf, 0);
-   ArrayInitialize(m_Q1_buf, 0);
-   ArrayInitialize(m_jI_buf, 0);
-   ArrayInitialize(m_jQ_buf, 0);
-   ArrayInitialize(m_I2_buf, 0);
-   ArrayInitialize(m_Q2_buf, 0);
-   ArrayInitialize(m_Re_buf, 0);
-   ArrayInitialize(m_Im_buf, 0);
-   ArrayInitialize(m_period_buf, 0);
-   ArrayInitialize(m_smooth_period_buf, 0);
-   ArrayInitialize(m_phase_buf, 0);
-// MAMA/FAMA init with price later
-
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-//--- Main Loop (From 0 to Total)
-   for(int i = 0; i < rates_total; i++)
-     {
-      // Initialization for first few bars
-      if(i < 7)
-        {
-         m_mama_buf[i] = m_price[i];
-         m_fama_buf[i] = m_price[i];
-         mama_buffer[i] = m_price[i];
-         fama_buffer[i] = m_price[i];
-         continue;
-        }
+//--- 4. Main Loop (Incremental)
+   int i = start_index;
 
+// Initialization
+   if(i < 7)
+     {
+      for(int k=0; k<7; k++)
+        {
+         if(k >= rates_total)
+            break;
+         m_smooth_buf[k] = 0;
+         m_detrender_buf[k] = 0;
+         m_I1_buf[k] = 0;
+         m_Q1_buf[k] = 0;
+         m_jI_buf[k] = 0;
+         m_jQ_buf[k] = 0;
+         m_I2_buf[k] = 0;
+         m_Q2_buf[k] = 0;
+         m_Re_buf[k] = 0;
+         m_Im_buf[k] = 0;
+         m_period_buf[k] = 0;
+         m_smooth_period_buf[k] = 0;
+         m_phase_buf[k] = 0;
+         m_mama_buf[k] = m_price[k];
+         m_fama_buf[k] = m_price[k];
+         mama_buffer[k] = m_price[k];
+         fama_buffer[k] = m_price[k];
+        }
+      i = 7;
+     }
+
+   for(; i < rates_total; i++)
+     {
       // 1. Smoothing
       m_smooth_buf[i] = (4*m_price[i] + 3*m_price[i-1] + 2*m_price[i-2] + m_price[i-3]) / 10.0;
 
@@ -184,10 +201,12 @@ void CMAMACalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, 
   }
 
 //+------------------------------------------------------------------+
-bool CMAMACalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Standard - Optimized)                             |
+//+------------------------------------------------------------------+
+bool CMAMACalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Full copy
-   for(int i = 0; i < rates_total; i++)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
         {
@@ -210,7 +229,7 @@ bool CMAMACalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE pri
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
+            m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
             break;
          default:
             m_price[i] = close[i];
@@ -221,19 +240,25 @@ bool CMAMACalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE pri
   }
 
 //+==================================================================+
+//|             CLASS 2: CMAMACalculator_HA (Heikin Ashi)            |
+//+==================================================================+
 class CMAMACalculator_HA : public CMAMACalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-bool CMAMACalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Heikin Ashi - Optimized)                          |
+//+------------------------------------------------------------------+
+bool CMAMACalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
+// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -242,11 +267,12 @@ bool CMAMACalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE 
       ArrayResize(m_ha_close, rates_total);
      }
 
-// Full Recalc for HA
-   m_ha_calculator.Calculate(rates_total, 0, open, high, low, close,
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-   for(int i = 0; i < rates_total; i++)
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
         {
