@@ -34,8 +34,8 @@ The calculation is a complex, multi-stage digital signal processing pipeline:
 ## 3. MQL5 Implementation Details
 
 * **Self-Contained Calculator (`MAMA_Calculator.mqh`):** The entire complex, multi-stage, and highly state-dependent calculation is encapsulated within a dedicated, reusable calculator class.
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The MAMA algorithm is one of the most state-dependent filters in technical analysis. To ensure absolute stability and prevent desynchronization errors, the indicator employs a **full recalculation** on every `OnCalculate` call. This is the only robust method for this type of DSP filter.
+* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging our optimized `HeikinAshi_Tools` library.
+* **Stability via Full Recalculation:** The MAMA algorithm is one of the most state-dependent filters in technical analysis. To ensure absolute stability and prevent desynchronization errors (especially with the phase measurement), the indicator employs a **full recalculation** on every `OnCalculate` call. This is the only robust method for this type of complex DSP filter.
 
 ## 4. Parameters
 
