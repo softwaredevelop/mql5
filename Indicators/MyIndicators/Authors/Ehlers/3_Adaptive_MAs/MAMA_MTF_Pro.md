@@ -22,10 +22,15 @@ The underlying calculation is identical to the standard MAMA. It is an adaptive 
 
 * **Self-Contained and Robust:** This indicator is fully self-contained and does not depend on any external indicator files (`iCustom`). It directly fetches the required higher-timeframe price data and uses the included `MAMA_Calculator.mqh` engine for all calculations.
 * **Modular Calculation Engine (`MAMA_Calculator.mqh`):** The indicator reuses the exact same, proven calculation engine as the standard `MAMA_Pro`, ensuring mathematical consistency.
+* **Optimized Incremental Calculation:**
+    Unlike basic MTF indicators that download and recalculate the entire higher-timeframe history on every tick, this indicator employs a sophisticated incremental algorithm.
+  * **HTF State Tracking:** It tracks the calculation state of the higher timeframe separately (`htf_prev_calculated`).
+  * **Persistent Buffers:** The internal buffers for the higher timeframe (`BufferMAMA_HTF_Internal`) are maintained globally, preserving the complex recursive state of the MAMA algorithm between ticks.
+  * **Efficient Mapping:** The projection loop only updates the bars corresponding to the new data, drastically reducing CPU usage.
+  * This results in **O(1) complexity** per tick, ensuring the indicator remains lightweight even when running on multiple charts simultaneously.
 * **Dual-Mode Logic:** The `OnCalculate` function contains a smart branching logic.
-  * If a higher timeframe is selected, it performs the full MTF data fetching and projection process.
+  * If a higher timeframe is selected, it performs the optimized MTF data fetching and projection process.
   * If the current timeframe is selected, it bypasses the MTF logic and functions identically to the standard `MAMA_Pro`, calculating directly on the current chart's data for maximum efficiency.
-* **Stability via Full Recalculation:** The indicator employs a full recalculation for both modes, which is the only robust method for the highly state-dependent MAMA algorithm.
 
 ## 4. Parameters
 
