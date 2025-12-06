@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property version   "1.30" // Improved Short Name
 #property description "Full MACD with Laguerre base lines and a selectable signal line."
 
 #property indicator_separate_window
@@ -70,7 +70,17 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   string short_name = StringFormat("MACD Laguerre%s", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""));
+//--- Improved Short Name Logic ---
+   string signal_info;
+   if(InpSignalMAType == SMOOTH_Laguerre)
+      signal_info = StringFormat("%.2f", InpSignalGamma);
+   else
+      signal_info = StringFormat("%d", InpSignalPeriod);
+
+   string short_name = StringFormat("MACD Laguerre%s(%.2f,%.2f,%s)",
+                                    (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""),
+                                    InpGamma1, InpGamma2, signal_info);
+
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2 + InpSignalPeriod);
