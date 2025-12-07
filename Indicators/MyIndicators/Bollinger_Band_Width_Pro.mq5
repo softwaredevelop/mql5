@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     Bollinger_Band_Width_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10"
+#property version   "2.20" // Optimized for incremental calculation
 #property description "Professional Bollinger Band Width oscillator with selectable analysis modes."
 
 #property indicator_separate_window
@@ -72,11 +71,14 @@ double    BufferUpperChannel[];
 double    BufferLowerChannel[];
 double    BufferCenterline[];
 
+//--- Internal Buffers (Must be global for incremental calculation) ---
+double    BufferUpper_Internal[];
+double    BufferLower_Internal[];
+double    BufferMA_Internal[];
+
 //--- Global calculator object ---
 CBollingerBandsCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -114,32 +116,36 @@ int OnInit()
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, draw_begin + InpBandsOnWidth_Period);
 
-   IndicatorSetInteger(INDICATOR_DIGITS, 5);
+//--- UPDATED: Use 4 digits for precision (like ATR Percent)
+   IndicatorSetInteger(INDICATOR_DIGITS, 4);
 
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
+
+   ArrayFree(BufferUpper_Internal);
+   ArrayFree(BufferLower_Internal);
+   ArrayFree(BufferMA_Internal);
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   double upper_band[], lower_band[], ma_line[];
-   ArrayResize(upper_band, rates_total);
-   ArrayResize(lower_band, rates_total);
-   ArrayResize(ma_line, rates_total);
+//--- Resize internal buffers
+   if(ArraySize(BufferUpper_Internal) != rates_total)
+     {
+      ArrayResize(BufferUpper_Internal, rates_total);
+      ArrayResize(BufferLower_Internal, rates_total);
+      ArrayResize(BufferMA_Internal, rates_total);
+     }
 
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -147,30 +153,39 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close,
-                          ma_line, upper_band, lower_band);
+//--- Step 1: Run the main calculation (Incremental)
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                          BufferMA_Internal, BufferUpper_Internal, BufferLower_Internal);
 
+//--- Step 2: Calculate BandWidth (Optimized Loop)
    int start_pos = InpPeriod - 1;
-   for(int i = start_pos; i < rates_total; i++)
+   int loop_start = MathMax(start_pos, (prev_calculated > 0 ? prev_calculated - 1 : 0));
+
+   for(int i = loop_start; i < rates_total; i++)
      {
-      if(ma_line[i] != 0)
-         BufferBandWidth[i] = ((upper_band[i] - lower_band[i]) / ma_line[i]) * 100.0;
+      if(BufferMA_Internal[i] != 0)
+         BufferBandWidth[i] = ((BufferUpper_Internal[i] - BufferLower_Internal[i]) / BufferMA_Internal[i]) * 100.0;
       else
          BufferBandWidth[i] = 0;
      }
 
-//--- Initialize all overlay buffers to empty
-   ArrayInitialize(BufferUpperChannel, EMPTY_VALUE);
-   ArrayInitialize(BufferLowerChannel, EMPTY_VALUE);
-   ArrayInitialize(BufferCenterline,   EMPTY_VALUE);
+//--- Step 3: Calculate Overlays (Optimized Loop)
+// Initialize unused buffers on full recalc
+   if(prev_calculated == 0)
+     {
+      ArrayInitialize(BufferUpperChannel, EMPTY_VALUE);
+      ArrayInitialize(BufferLowerChannel, EMPTY_VALUE);
+      ArrayInitialize(BufferCenterline,   EMPTY_VALUE);
+     }
 
    switch(InpDisplayMode)
      {
       case MODE_BANDS_ON_WIDTH:
         {
          int bands_start_pos = start_pos + InpBandsOnWidth_Period - 1;
+         int loop_start_bands = MathMax(bands_start_pos, loop_start);
 
-         for(int i = bands_start_pos; i < rates_total; i++)
+         for(int i = loop_start_bands; i < rates_total; i++)
            {
             double sum = 0;
             for(int j = 0; j < InpBandsOnWidth_Period; j++)
@@ -178,7 +193,7 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
             BufferCenterline[i] = sum / InpBandsOnWidth_Period;
            }
 
-         for(int i = bands_start_pos; i < rates_total; i++)
+         for(int i = loop_start_bands; i < rates_total; i++)
            {
             double std_dev_val = 0, sum_sq = 0;
             for(int j = 0; j < InpBandsOnWidth_Period; j++)
@@ -194,7 +209,9 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
       case MODE_EXTREMES_CHANNEL:
         {
          int extremes_start_pos = start_pos + InpExtremesLength - 1;
-         for(int i = extremes_start_pos; i < rates_total; i++)
+         int loop_start_extremes = MathMax(extremes_start_pos, loop_start);
+
+         for(int i = loop_start_extremes; i < rates_total; i++)
            {
             int start = i - InpExtremesLength + 1;
             int highest_idx = ArrayMaximum(BufferBandWidth, start, InpExtremesLength);
@@ -209,5 +226,4 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
