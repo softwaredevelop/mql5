@@ -1,4 +1,4 @@
-# Arnaud Legoux Moving Average (ALMA) Professional
+# Arnaud Legoux Moving Average (ALMA) Pro
 
 ## 1. Summary (Introduction)
 
@@ -45,17 +45,15 @@ Our MQL5 implementation follows a modern, object-oriented design pattern to ensu
 * **Modular Calculator Engine (`ALMA_Calculator.mqh`):**
     All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management.
 
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal price buffer (`m_price`) persists its state between ticks. This allows the calculation to efficiently access historical price data for the weighted sum without re-copying the entire series.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Object-Oriented Design (Inheritance):**
   * A base class, `CALMACalculator`, handles the core ALMA algorithm and the preparation of all **standard price types** (Close, Open, Median, etc.).
   * A derived class, `CALMACalculator_HA`, inherits from the base class and **overrides** only one specific function: the price preparation. Its sole responsibility is to calculate Heikin Ashi candles and provide the selected HA price to the base class's ALMA algorithm. This is a clean and efficient use of polymorphism.
-
-* **Simplified Main Indicator (`ALMA_Pro.mq5`):**
-    The main indicator file is now extremely clean. Its primary roles are:
-    1. Handling user inputs (`input` variables).
-    2. Instantiating the correct calculator object (`CALMACalculator` or `CALMACalculator_HA`) in `OnInit()` based on the user's choice.
-    3. Delegating the entire calculation process to the calculator object with a single call in `OnCalculate()`.
-
-* **Stability via Full Recalculation:** We continue to use a full recalculation on every tick. This "brute-force" approach is the most robust method for state-dependent or multi-stage calculations, eliminating potential errors from `prev_calculated` logic during history loading or timeframe changes.
 
 ## 4. Parameters (`ALMA_Pro.mq5`)
 
