@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       AMA_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.00"
+#property version   "2.10" // Optimized for incremental calculation
 #property description "Professional Adaptive Moving Average (AMA) by Perry Kaufman with"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -80,10 +78,10 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
+//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated,
+                const int prev_calculated, // <--- Now used!
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -93,21 +91,18 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Convert our custom enum to the standard ENUM_APPLIED_PRICE
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice); // Convert e.g. -1 to 1 (PRICE_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferAMA);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferAMA);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
