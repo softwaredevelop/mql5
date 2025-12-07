@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                   Bollinger_Bands_Calculator.mqh |
-//|   Calculation engine for Standard and Heikin Ashi Bollinger Bands|
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,9 +8,7 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|          CLASS 1: CBollingerBandsCalculator (Standard)           |
-//|                                                                  |
 //+==================================================================+
 class CBollingerBandsCalculator
   {
@@ -19,22 +17,28 @@ protected:
    double            m_deviation;
    ENUM_MA_METHOD    m_ma_method;
 
+   //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
    double            m_ma_buffer[];
 
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CBollingerBandsCalculator(void) {};
    virtual          ~CBollingerBandsCalculator(void) {};
 
    bool              Init(int period, double deviation, ENUM_MA_METHOD ma_method);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &ma_out[], double &upper_out[], double &lower_out[]);
+   //--- NEW: Accessor for internal price buffer (needed for %B)
+   void              GetPriceBuffer(double &dest_array[]);
   };
 
 //+------------------------------------------------------------------+
-//| CBollingerBandsCalculator: Initialization                        |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CBollingerBandsCalculator::Init(int period, double deviation, ENUM_MA_METHOD ma_method)
   {
@@ -45,23 +49,37 @@ bool CBollingerBandsCalculator::Init(int period, double deviation, ENUM_MA_METHO
   }
 
 //+------------------------------------------------------------------+
-//| CBollingerBandsCalculator: Main Calculation Method               |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CBollingerBandsCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+void CBollingerBandsCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &ma_out[], double &upper_out[], double &lower_out[])
   {
    if(rates_total < m_period)
       return;
 
-   ArrayResize(m_price, rates_total);
-   ArrayResize(m_ma_buffer, rates_total);
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
 
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
+//--- 2. Resize Buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_ma_buffer, rates_total);
+     }
+
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-//--- Step 1: Calculate the centerline (Moving Average)
+//--- 4. Calculate Centerline (MA) - Incremental
    int ma_start_pos = m_period - 1;
-   for(int i = ma_start_pos; i < rates_total; i++)
+   int loop_start = MathMax(ma_start_pos, start_index);
+
+   for(int i = loop_start; i < rates_total; i++)
      {
       switch(m_ma_method)
         {
@@ -109,8 +127,8 @@ void CBollingerBandsCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
         }
      }
 
-//--- Step 2: Calculate the Standard Deviation and the Bands
-   for(int i = ma_start_pos; i < rates_total; i++)
+//--- 5. Calculate Bands (Incremental)
+   for(int i = loop_start; i < rates_total; i++)
      {
       double std_dev_val = 0, sum_sq = 0;
       for(int j = 0; j < m_period; j++)
@@ -125,99 +143,120 @@ void CBollingerBandsCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pr
   }
 
 //+------------------------------------------------------------------+
-//| CBollingerBandsCalculator: Prepares the source price series.     |
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
-bool CBollingerBandsCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CBollingerBandsCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   switch(price_type)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
-      case PRICE_CLOSE:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(m_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
             m_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_TYPICAL:
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_WEIGHTED:
             m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
-         break;
-      default:
-         return false;
+            break;
+         default:
+            m_price[i] = close[i];
+            break;
+        }
      }
    return true;
   }
 
 //+==================================================================+
-//|                                                                  |
-//|        CLASS 2: CBollingerBandsCalculator_HA (Heikin Ashi)       |
-//|                                                                  |
+//|             CLASS 2: CBollingerBandsCalculator_HA                |
 //+==================================================================+
 class CBollingerBandsCalculator_HA : public CBollingerBandsCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| CBollingerBandsCalculator_HA: Prepares the source price series.  |
+//| Prepare Price (Heikin Ashi - Optimized)                          |
 //+------------------------------------------------------------------+
-bool CBollingerBandsCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CBollingerBandsCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-//--- The HA version uses the selected price type from the HA candles
-   switch(price_type)
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      case PRICE_CLOSE:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-         break;
-      case PRICE_OPEN:
-         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i]+ha_close[i])/4.0;
-         break;
-      default:
-         return false;
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+     {
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = m_ha_close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = m_ha_open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = m_ha_high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = m_ha_low[i];
+            break;
+         case PRICE_MEDIAN:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_price[i] = m_ha_close[i];
+            break;
+        }
      }
    return true;
   }
+
 //+------------------------------------------------------------------+
+//| Get Internal Price Buffer                                        |
+//+------------------------------------------------------------------+
+void CBollingerBandsCalculator::GetPriceBuffer(double &dest_array[])
+  {
+   int size = ArraySize(m_price);
+   if(size > 0)
+     {
+      ArrayResize(dest_array, size);
+      ArrayCopy(dest_array, m_price, 0, 0, size);
+     }
+  }
 //+------------------------------------------------------------------+
