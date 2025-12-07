@@ -1,4 +1,4 @@
-# Adaptive Moving Average (AMA) Professional
+# Adaptive Moving Average (AMA) Pro
 
 ## 1. Summary (Introduction)
 
@@ -43,17 +43,15 @@ Our MQL5 implementation follows a modern, object-oriented design pattern to ensu
 * **Modular Calculator Engine (`AMA_Calculator.mqh`):**
     All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management.
 
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal price buffer (`m_price`) persists its state between ticks. This allows the calculation to efficiently access historical price data for the Efficiency Ratio without re-copying the entire series.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Object-Oriented Design (Inheritance):**
   * A base class, `CAMACalculator`, handles the core AMA algorithm, including the ER, SSC, and the final recursive calculation.
   * A derived class, `CAMACalculator_HA`, inherits from the base class and **overrides** only one specific function: the price series preparation. Its sole responsibility is to calculate Heikin Ashi candles and provide the selected HA price to the base class's AMA algorithm. This is a clean and efficient use of polymorphism.
-
-* **Simplified Main Indicator (`AMA_Pro.mq5`):**
-    The main indicator file is now extremely clean. Its primary roles are:
-    1. Handling user inputs (`input` variables).
-    2. Instantiating the correct calculator object (`CAMACalculator` or `CAMACalculator_HA`) in `OnInit()` based on the user's choice.
-    3. Delegating the entire calculation process to the calculator object with a single call in `OnCalculate()`.
-
-* **Stability via Full Recalculation:** We use a full recalculation on every tick. For a recursive indicator like AMA, this "brute-force" approach is the most robust method, eliminating potential errors from `prev_calculated` logic. The recursive calculation is carefully initialized with the current price to provide a stable starting point.
 
 ## 4. Parameters (`AMA_Pro.mq5`)
 
