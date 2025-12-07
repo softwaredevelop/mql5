@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     Bollinger_Bands_PercentB.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Optimized for incremental calculation
 #property description "Bollinger Bands %B. Shows the position of price relative to the bands."
 #property description "Includes a selectable price source with Heikin Ashi options."
 
@@ -35,6 +34,12 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 double    BufferPercentB[];
 double    BufferPrice[];
 
+//--- Internal Buffers (Must be global for incremental calculation) ---
+double    BufferUpper_Internal[];
+double    BufferLower_Internal[];
+double    BufferMA_Internal[];
+double    BufferPrice_Internal[]; // To store the price from calculator
+
 //--- Global calculator object ---
 CBollingerBandsCalculator *g_calculator;
 
@@ -46,7 +51,6 @@ int OnInit()
    SetIndexBuffer(0, BufferPercentB, INDICATOR_DATA);
    ArraySetAsSeries(BufferPercentB, false);
 
-//--- Dynamic Calculator Instantiation ---
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CBollingerBandsCalculator_HA();
@@ -78,21 +82,28 @@ void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
+
+   ArrayFree(BufferUpper_Internal);
+   ArrayFree(BufferLower_Internal);
+   ArrayFree(BufferMA_Internal);
+   ArrayFree(BufferPrice_Internal);
   }
 
 //+------------------------------------------------------------------+
 //| Custom indicator iteration function.                             |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Step 1: Run the main calculation to get the band components
-   double upper_band[], lower_band[], ma_line[];
-   ArrayResize(upper_band, rates_total);
-   ArrayResize(lower_band, rates_total);
-   ArrayResize(ma_line, rates_total);
+//--- Resize internal buffers
+   if(ArraySize(BufferUpper_Internal) != rates_total)
+     {
+      ArrayResize(BufferUpper_Internal, rates_total);
+      ArrayResize(BufferLower_Internal, rates_total);
+      ArrayResize(BufferMA_Internal, rates_total);
+     }
 
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -100,93 +111,30 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close,
-                          ma_line, upper_band, lower_band);
+//--- Step 1: Run the main calculation (Incremental)
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                          BufferMA_Internal, BufferUpper_Internal, BufferLower_Internal);
 
-//--- Step 2: Calculate the source price array that was used by the calculator
-   ArrayResize(BufferPrice, rates_total);
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
-      // For HA, we need to recalculate the HA prices to get the correct source
-      CHeikinAshi_Calculator ha_calc;
-      double ha_open[], ha_high[], ha_low[], ha_close[];
-      ArrayResize(ha_open, rates_total);
-      ArrayResize(ha_high, rates_total);
-      ArrayResize(ha_low, rates_total);
-      ArrayResize(ha_close, rates_total);
-      ha_calc.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+//--- Step 2: Get the source price array from the calculator
+// This is already calculated incrementally inside the calculator
+   g_calculator.GetPriceBuffer(BufferPrice_Internal);
 
-      switch(price_type)
-        {
-         case PRICE_CLOSE:
-            ArrayCopy(BufferPrice, ha_close, 0, 0, rates_total);
-            break;
-         case PRICE_OPEN:
-            ArrayCopy(BufferPrice, ha_open, 0, 0, rates_total);
-            break;
-         case PRICE_HIGH:
-            ArrayCopy(BufferPrice, ha_high, 0, 0, rates_total);
-            break;
-         case PRICE_LOW:
-            ArrayCopy(BufferPrice, ha_low, 0, 0, rates_total);
-            break;
-         case PRICE_MEDIAN:
-            for(int i=0; i<rates_total; i++)
-               BufferPrice[i] = (ha_high[i]+ha_low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            for(int i=0; i<rates_total; i++)
-               BufferPrice[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            for(int i=0; i<rates_total; i++)
-               BufferPrice[i] = (ha_high[i]+ha_low[i]+ha_close[i]+ha_close[i])/4.0;
-            break;
-        }
-     }
-   else
-     {
-      // For standard prices, we can just copy the relevant array
-      switch(price_type)
-        {
-         case PRICE_CLOSE:
-            ArrayCopy(BufferPrice, close, 0, 0, rates_total);
-            break;
-         case PRICE_OPEN:
-            ArrayCopy(BufferPrice, open, 0, 0, rates_total);
-            break;
-         case PRICE_HIGH:
-            ArrayCopy(BufferPrice, high, 0, 0, rates_total);
-            break;
-         case PRICE_LOW:
-            ArrayCopy(BufferPrice, low, 0, 0, rates_total);
-            break;
-         case PRICE_MEDIAN:
-            for(int i=0; i<rates_total; i++)
-               BufferPrice[i] = (high[i]+low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            for(int i=0; i<rates_total; i++)
-               BufferPrice[i] = (high[i]+low[i]+close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            for(int i=0; i<rates_total; i++)
-               BufferPrice[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
-            break;
-        }
-     }
+//--- Step 3: Calculate the final %B value (Optimized Loop)
+   int start_pos = InpPeriod - 1;
+   int loop_start = MathMax(start_pos, (prev_calculated > 0 ? prev_calculated - 1 : 0));
 
-//--- Step 3: Calculate the final %B value
-   for(int i = InpPeriod - 1; i < rates_total; i++)
+   for(int i = loop_start; i < rates_total; i++)
      {
-      double band_width = upper_band[i] - lower_band[i];
+      double band_width = BufferUpper_Internal[i] - BufferLower_Internal[i];
+
       if(band_width != 0)
         {
-         BufferPercentB[i] = (BufferPrice[i] - lower_band[i]) / band_width;
+         // Use the internal price buffer which matches the calculator's source
+         BufferPercentB[i] = (BufferPrice_Internal[i] - BufferLower_Internal[i]) / band_width;
         }
       else
         {
-         BufferPercentB[i] = 0.5; // If width is zero, price is at the centerline
+         BufferPercentB[i] = 0.5;
         }
      }
 
