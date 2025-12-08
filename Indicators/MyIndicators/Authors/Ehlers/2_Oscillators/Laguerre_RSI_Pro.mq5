@@ -22,7 +22,7 @@
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrLightCoral
-#property indicator_style2  STYLE_DOT
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 //--- Scale and Level Properties ---
