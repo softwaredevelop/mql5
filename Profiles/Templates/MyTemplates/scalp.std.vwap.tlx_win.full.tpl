@@ -396,7 +396,7 @@ InpM3_FullDay_LinReg=false
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -485,7 +485,7 @@ InpDMAType=0
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
