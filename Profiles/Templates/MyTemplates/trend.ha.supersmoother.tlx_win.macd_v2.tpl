@@ -581,7 +581,7 @@ InpM3_FullDay_LinReg=false
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -639,7 +639,7 @@ InpSignalMAType=0
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -686,7 +686,7 @@ color=4678655
 </graph>
 
 <level>
-level=25.000000
+level=30.000000
 style=2
 color=12632256
 width=1
