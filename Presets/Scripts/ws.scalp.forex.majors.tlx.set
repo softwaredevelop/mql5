@@ -1,0 +1,26 @@
+InpUseMarketWatch=false
+InpSymbols=EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD
+; Chart Configuration 1
+InpPeriod_1=3
+InpTemplate_1=MyTemplates\scalp.std.vwap.tlx_win.full_v1.tpl
+; Chart Configuration 2
+InpPeriod_2=3
+InpTemplate_2=MyTemplates\scalp.ha.vwap.tlx_win.full_v2.tpl
+; Chart Configuration 3
+InpPeriod_3=3
+InpTemplate_3=MyTemplates\trend.ha.laguerre.tlx_win.suite_v1_vwap.tpl
+; Chart Configuration 4
+InpPeriod_4=0
+InpTemplate_4=
+; Chart Configuration 5
+InpPeriod_5=0
+InpTemplate_5=
+; Chart Configuration 6
+InpPeriod_6=0
+InpTemplate_6=
+; Chart Configuration 7
+InpPeriod_7=0
+InpTemplate_7=
+; Chart Configuration 8
+InpPeriod_8=0
+InpTemplate_8=
