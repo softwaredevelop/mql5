@@ -9,6 +9,8 @@
 #property indicator_separate_window
 #property indicator_buffers 8
 #property indicator_plots   8
+#property indicator_level1  0.0
+#property indicator_levelstyle STYLE_DOT
 
 //--- Plot Settings
 #property indicator_label1  "USD"
