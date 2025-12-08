@@ -43,11 +43,15 @@ Our MQL5 suite is built on a shared, modular, and robust calculation engine to e
 
 - **Modular, Reusable Calculation Engine (`Bollinger_Bands_Calculator.mqh`):** The entire calculation logic for both standard and Heikin Ashi versions is encapsulated within a single, powerful include file. This object-oriented, polymorphic design allows all indicators in the family to dynamically choose the correct calculation engine at runtime based on user input.
 
+- **Optimized Incremental Calculation:**
+    All indicators employ an intelligent incremental algorithm.
+  - They utilize the `prev_calculated` state to determine the exact starting point for updates.
+  - **Persistent State:** The internal buffers (like `m_price` and `m_ma_buffer`) persist their state between ticks. This allows recursive smoothing methods (like EMA and SMMA for the centerline) and the standard deviation calculation to continue seamlessly from the last known value without re-processing the entire history.
+  - This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 - **Unified "Pro" Indicators:** Instead of creating numerous separate files, we have consolidated functionality into powerful "Pro" versions.
   - **`Bollinger_Bands_Pro.mq5`**: The main indicator. A custom `enum` allows the user to select the source price, including a full range of **Heikin Ashi price types**.
   - **`Bollinger_Band_Width_Pro.mq5`**: This advanced oscillator not only displays the Band Width but also includes two additional, selectable analysis modes: **Bands on BandWidth** (for dynamic Squeeze detection) and **Extremes Channel** (for historical Squeeze/Bulge levels).
-
-- **Stability via Full Recalculation:** All indicators in the family employ a "brute-force" **full recalculation** on every tick. This is our core principle to ensure perfect accuracy and prevent any risk of calculation errors or visual glitches.
 
 ## 4. Parameters
 
@@ -92,4 +96,5 @@ Our MQL5 suite is built on a shared, modular, and robust calculation engine to e
 - **Concept:** This is a unique oscillator, described by Jon Anderson, that measures the **ratio between two different types of volatility**: the Average True Range (ATR) and the Bollinger Bandwidth.
 - **Calculation:**
   - $\text{Oscillator Value}_t = \frac{\text{ATR}_t}{\text{Bollinger Bandwidth}_t} = \frac{\text{ATR}_t}{(\text{Upper Band}_t - \text{Lower Band}_t)}$
+- **Advanced Configuration:** This indicator allows for independent source selection for the ATR component. You can choose to calculate the ATR from **Standard** candles (for a hybrid view) or from **Heikin Ashi** candles (for a fully smoothed view), regardless of the source used for the Bollinger Bands.
 - **Interpretation:** It is a **volatility ratio oscillator**. A high value suggests that the short-term, absolute volatility (ATR) is large relative to the longer-term, mean-reverting volatility (Bandwidth), which can be characteristic of a strong, trending market. A low value may indicate a choppy, ranging market. It is a tool for analyzing the **character** of the market's volatility.
