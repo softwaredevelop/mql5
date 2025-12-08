@@ -503,7 +503,7 @@ InpWdth_p2_8=1
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -592,7 +592,7 @@ InpDMAType=0
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -692,7 +692,7 @@ InpCandleSource=0
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
