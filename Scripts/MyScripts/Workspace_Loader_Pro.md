@@ -15,10 +15,9 @@ It is the ultimate time-saver for traders who monitor multiple assets using a st
 
 ## 3. Parameters
 
-* **`InpSymbols`:** A comma-separated list of the symbols you want to load.
+* **`InpUseMarketWatch`:** If `true`, loads all symbols from the Market Watch window.
+* **`InpSymbols`:** A comma-separated list of the symbols you want to load (ignored if `Use Market Watch` is true).
   * Example: `EURUSD, GBPUSD, XAUUSD, US500`
-  * *Note: The script automatically handles spaces and checks if the symbols exist in your Market Watch.*
-
 * **Chart Configuration 1 - 8:**
   * **`InpPeriod_X`:** The timeframe for the chart (e.g., `PERIOD_M15`, `PERIOD_H1`).
   * **`InpTemplate_X`:** The exact name of the template file (`.tpl`) to apply.
@@ -26,7 +25,21 @@ It is the ultimate time-saver for traders who monitor multiple assets using a st
     * If it is in a subfolder, include the path (e.g., `MyTemplates\trend.ha.base.tpl`).
     * **Leave this field empty to disable the slot.**
 
-## 4. Usage and Workflow
+## 4. Configuration & Presets
+
+To organize your workspace layouts, we recommend saving your configurations as `.set` files using the following naming convention:
+
+`ws.[Strategy].[Market].[Timeframe].set`
+
+### Recommended Presets
+
+| Preset Name | Purpose | Configuration Example |
+| :--- | :--- | :--- |
+| **`ws.scalp.forex.m5.set`** | **Intraday Forex Scalping.** | Symbols: `EURUSD,GBPUSD`<br>Slot 1: `M15` + Trend Template<br>Slot 2: `M5` + Scalp Template |
+| **`ws.trend.indices.h1.set`** | **Swing Trading Indices.** | Symbols: `US500,DE40`<br>Slot 1: `H4` + Market Structure<br>Slot 2: `H1` + Trend Suite |
+| **`ws.analysis.mixed.daily.set`** | **Daily Market Review.** | Symbols: `EURUSD,Gold,US500`<br>Slot 1: `D1` + Session Analysis (Full Day) |
+
+## 5. Usage and Workflow
 
 The power of this script lies in using **Presets (.set files)**.
 
@@ -36,21 +49,13 @@ The power of this script lies in using **Presets (.set files)**.
 2. Set `InpSymbols` to your favorite pairs: `EURUSD, GBPUSD, USDJPY`.
 3. **Config 1:** Set Period to `M15` and Template to `MyTemplates\trend.ha.base.tpl` (for trend context).
 4. **Config 2:** Set Period to `M5` and Template to `MyTemplates\scalp.std.vwap.tln_sum.full.tpl` (for entry).
-5. Click **"Save"** and name the file `workspace_scalp.set`.
-
-### Creating a "Weekly Overview" Workspace
-
-1. Open the script properties.
-2. Set `InpSymbols` to a broader list: `EURUSD, Gold, US500, Bitcoin`.
-3. **Config 1:** Set Period to `H4` and Template to `MyTemplates\trend.ha.laguerre.lxn.suite.v1.tpl`.
-4. **Config 2:** Set Period to `D1` and Template to `Default.tpl`.
-5. Click **"Save"** and name the file `workspace_weekly.set`.
+5. Click **"Save"** and name the file `ws.scalp.forex.morning.set`.
 
 ### Execution
 
 When you start your trading day:
 
 1. Drag the script onto any chart.
-2. Click **"Load"** and select your desired workflow (e.g., `workspace_scalp.set`).
+2. Click **"Load"** and select your desired workflow (e.g., `ws.scalp.forex.morning.set`).
 3. Click **OK**. The script will instantly open and configure all the requested charts.
 4. Use the terminal's "Tile Windows" command (Alt+R) to arrange them neatly.
