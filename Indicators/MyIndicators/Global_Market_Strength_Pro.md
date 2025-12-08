@@ -41,7 +41,23 @@ By using percentage change, the indicator allows for a direct "apples-to-apples"
   * **`InpShow1` - `InpShow8`:** Toggles the visibility of each symbol's line and label.
   * **`InpColor1` - `InpColor8`:** The color for each symbol's line and label.
 
-## 5. Usage and Interpretation
+## 5. Configuration & Presets
+
+To maximize efficiency, we recommend saving different symbol configurations as `.set` files. Use the following naming convention to keep your presets organized:
+
+`gms.[Category].[Detail].set`
+
+### Recommended Presets
+
+| Preset Name | Purpose | Suggested Symbols |
+| :--- | :--- | :--- |
+| **`gms.mixed.risk_on_off.set`** | **Global Macro Overview.** Tracks capital flow between risk assets and safe havens. | `US500`, `USTEC`, `DE40`, `JP225`, `Gold`, `Oil`, `BTCUSD`, `USDJPY` |
+| **`gms.indices.global.set`** | **Global Equity Rotation.** Compares major regional indices. | `US500`, `US30`, `USTEC`, `DE40`, `UK100`, `JP225`, `HK50`, `AU200` |
+| **`gms.indices.us.set`** | **US Sector Rotation.** Focuses on US market internal dynamics. | `US500` (Broad), `USTEC` (Tech), `US30` (Value), `US2000` (Small Cap) |
+| **`gms.crypto.majors.set`** | **Crypto Market Health.** Compares top cryptocurrencies. | `BTCUSD`, `ETHUSD`, `SOLUSD`, `XRPUSD`, `ADAUSD`, `BNBUSD` |
+| **`gms.stocks.tech.set`** | **Tech Giants.** Tracks the "Magnificent 7" or similar leaders. | `AAPL`, `MSFT`, `GOOG`, `AMZN`, `NVDA`, `TSLA`, `META` |
+
+## 6. Usage and Interpretation
 
 This indicator is the "Strategic Compass" for multi-asset traders.
 
@@ -64,7 +80,7 @@ This indicator is the "Strategic Compass" for multi-asset traders.
 4. **Commodity Correlations:**
     * Rising **Oil (WTI)** often supports energy-heavy indices (like UK100) but can weigh on consumer/tech sectors due to inflation fears.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 If a line appears flat at 0.000% or shows "N/A":
 
