@@ -8,7 +8,7 @@ InpPeriod_2=3
 InpTemplate_2=MyTemplates\scalp.ha.vwap.lxn.full_v2.tpl
 ; Chart Configuration 3
 InpPeriod_3=3
-InpTemplate_3=MyTemplates\trend.ha.laguerre.lxn.suite_v1_vwap.tpl
+InpTemplate_3=MyTemplates\trend.ha.laguerre.lxn.suite_v1_vwp.tpl
 ; Chart Configuration 4
 InpPeriod_4=0
 InpTemplate_4=
