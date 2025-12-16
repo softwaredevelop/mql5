@@ -1,4 +1,4 @@
-# McGinley Dynamic Professional
+# McGinley Dynamic Pro
 
 ## 1. Summary (Introduction)
 
@@ -29,15 +29,18 @@ Our MQL5 implementation is a highly robust and definition-true representation, s
 
 * **Modular Calculation Engine (`McGinleyDynamic_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
-  * **`CMcGinleyDynamicCalculator`**: The base class that handles price preparation.
+  * **`CMcGinleyDynamicCalculator`**: The base class that handles price preparation and the core algorithm.
   * **`CMcGinleyDynamicCalculator_HA`**: A child class that overrides the data preparation step to use smoothed Heikin Ashi prices.
-  * **`CMcGinleyFilter`**: A dedicated internal class that manages the stateful, recursive calculation, ensuring stability.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`m_price`, `mcginley_buffer`) persist their state between ticks. This allows the recursive calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
 
 * **Robust Initialization and Overflow Protection:**
   * **SMA Initialization:** The recursive calculation is properly "primed" by using an `N`-period Simple Moving Average for its first value, as suggested by modern, robust implementations.
   * **Overflow Protection:** To prevent floating-point overflows on highly volatile instruments (like cryptocurrencies), the `(Price / Previous_Value)` ratio is "clamped" within a reasonable range before the `^4` power is applied. This makes the indicator stable under all market conditions.
-
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
 
 ## 4. Parameters
 
