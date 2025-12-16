@@ -41,13 +41,17 @@ Our MQL5 implementation is built on a highly efficient and reusable object-orien
 * **Universal Calculation Engine (`VIDYA_Calculator.mqh`):**
     A single, powerful engine file contains all the core calculation logic. This eliminates code duplication and ensures that both `VIDYA_Pro` and `VIDYA_Color_Pro` produce identical average values.
 
+* **Composition with CMO Engine:** The VIDYA calculator does not re-implement the CMO logic. Instead, it internally instantiates our robust `CMO_Calculator` class. This ensures that the momentum measurement is mathematically identical to the standalone CMO indicator.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`m_price`, `m_cmo_buffer`) persist their state between ticks. This allows the recursive VIDYA calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
+
 * **Method Overloading:** The `CVIDYACalculator` class features two versions of the `Calculate` method:
     1. `Calculate(..., double &vidya_buffer[])`: A version that accepts a single output buffer. This is automatically called by `VIDYA_Pro`.
     2. `Calculate(..., double &vidya_up_buffer[], double &vidya_down_buffer[])`: A version that accepts two output buffers. This is automatically called by `VIDYA_Color_Pro`.
-    The MQL5 compiler intelligently selects the correct method based on the number of buffer arguments passed from the main indicator file.
-
-* **Advanced Multi-Color Drawing (`VIDYA_Color_Pro`):**
-    The color-changing version uses the professional "double buffer" technique. To ensure a perfectly continuous line without visual gaps at color change points, a "gap bridging" logic is implemented. When the CMO's sign changes, the previous bar's VIDYA value is written to *both* color buffers, creating a seamless connection point.
 
 * **Object-Oriented Design (Inheritance):**
     The engine uses a `CVIDYACalculator` base class and a `CVIDYACalculator_HA` derived class. The child class only overrides the `PreparePriceSeries` method to supply Heikin Ashi data, inheriting the entire complex calculation logic from its parent.
