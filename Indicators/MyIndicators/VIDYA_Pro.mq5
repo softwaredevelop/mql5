@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                    VIDYA_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.00"
+#property version   "3.10" // Optimized for incremental calculation
 #property description "Professional Variable Index Dynamic Average (VIDYA) with selectable"
 #property description "price source (Standard and Heikin Ashi)."
 
@@ -55,16 +53,31 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- This call automatically resolves to the single-buffer version ---
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferVIDYA);
+   ENUM_APPLIED_PRICE price_type;
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+   else
+      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferVIDYA);
+
    return(rates_total);
   }
 //+------------------------------------------------------------------+
