@@ -1,11 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                             VIDYA_Calculator.mqh |
-//|      VERSION 3.11: Fixed override signature mismatch.            |
+//|      VERSION 4.00: Integrated with CMO Calculator engine.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\CMO_Calculator.mqh> // Include CMO Engine
 
 //+==================================================================+
 //|             CLASS 1: CVIDYACalculator (Base Class)               |
@@ -15,17 +16,22 @@ class CVIDYACalculator
 protected:
    int               m_cmo_period, m_ema_period;
 
-   //--- Persistent Buffer for Incremental Calculation
-   double            m_price[];
+   //--- Composition: Use dedicated CMO engine
+   CCMOCalculator    *m_cmo_engine;
 
-   double            CalculateCMO(int position, int period, const double &price_array[]);
+   //--- Persistent Buffers
+   double            m_price[];
+   double            m_cmo_buffer[]; // Internal buffer for CMO values
 
    //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
+   //--- Factory Method for CMO Engine (to allow HA override if needed, though standard is fine)
+   virtual void      CreateCMOEngine(void);
+
 public:
-                     CVIDYACalculator(void) {};
-   virtual          ~CVIDYACalculator(void) {};
+                     CVIDYACalculator(void);
+   virtual          ~CVIDYACalculator(void);
 
    bool              Init(int cmo_p, int ema_p);
 
@@ -41,12 +47,42 @@ public:
   };
 
 //+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CVIDYACalculator::CVIDYACalculator(void)
+  {
+   m_cmo_engine = NULL;
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CVIDYACalculator::~CVIDYACalculator(void)
+  {
+   if(CheckPointer(m_cmo_engine) != POINTER_INVALID)
+      delete m_cmo_engine;
+  }
+
+//+------------------------------------------------------------------+
+//| Factory Method                                                   |
+//+------------------------------------------------------------------+
+void CVIDYACalculator::CreateCMOEngine(void)
+  {
+   m_cmo_engine = new CCMOCalculator();
+  }
+
+//+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
 bool CVIDYACalculator::Init(int cmo_p, int ema_p)
   {
    m_cmo_period = (cmo_p < 1) ? 1 : cmo_p;
    m_ema_period = (ema_p < 1) ? 1 : ema_p;
+
+   CreateCMOEngine();
+   if(CheckPointer(m_cmo_engine) == POINTER_INVALID || !m_cmo_engine.Init(m_cmo_period))
+      return false;
+
    return true;
   }
 
@@ -66,18 +102,28 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
    else
       start_index = prev_calculated - 1;
 
+// Resize Buffers
    if(ArraySize(m_price) != rates_total)
       ArrayResize(m_price, rates_total);
+   if(ArraySize(m_cmo_buffer) != rates_total)
+      ArrayResize(m_cmo_buffer, rates_total);
 
+// 1. Prepare Price (for VIDYA calculation)
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
+// 2. Calculate CMO (Delegated)
+// Note: CMO engine handles its own price preparation internally!
+// We pass the raw OHLC arrays and price_type.
+   m_cmo_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_cmo_buffer);
+
+// 3. Calculate VIDYA (Incremental Loop)
    double alpha = 2.0 / (m_ema_period + 1.0);
    int loop_start = MathMax(start_pos, start_index);
 
    for(int i = loop_start; i < rates_total; i++)
      {
-      if(i == start_pos)
+      if(i == start_pos) // Initialization
         {
          double sum=0;
          for(int j=0; j<m_ema_period; j++)
@@ -86,7 +132,10 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
          continue;
         }
 
-      double cmo_abs = MathAbs(CalculateCMO(i, m_cmo_period, m_price));
+      // Use pre-calculated CMO from buffer
+      double cmo_abs = MathAbs(m_cmo_buffer[i] / 100.0); // CMO is 0-100, we need 0-1 ratio
+
+      // Recursive calculation uses vidya_buffer[i-1] which is persistent
       vidya_buffer[i] = m_price[i] * alpha * cmo_abs + vidya_buffer[i-1] * (1 - alpha * cmo_abs);
      }
   }
@@ -109,8 +158,14 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
 
    if(ArraySize(m_price) != rates_total)
       ArrayResize(m_price, rates_total);
+   if(ArraySize(m_cmo_buffer) != rates_total)
+      ArrayResize(m_cmo_buffer, rates_total);
+
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
+
+// Calculate CMO
+   m_cmo_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_cmo_buffer);
 
    double alpha = 2.0 / (m_ema_period + 1.0);
    int loop_start = MathMax(start_pos, start_index);
@@ -137,7 +192,7 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
             sum+=m_price[i-j];
          prev_vidya = sum/m_ema_period;
 
-         double cmo_raw = CalculateCMO(i, m_cmo_period, m_price);
+         double cmo_raw = m_cmo_buffer[i];
          if(cmo_raw > 0)
             vidya_up_buffer[i] = prev_vidya;
          else
@@ -145,8 +200,8 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
         }
       else
         {
-         double cmo_raw = CalculateCMO(i, m_cmo_period, m_price);
-         double cmo_abs = MathAbs(cmo_raw);
+         double cmo_raw = m_cmo_buffer[i];
+         double cmo_abs = MathAbs(cmo_raw / 100.0);
          double current_vidya = m_price[i] * alpha * cmo_abs + prev_vidya * (1 - alpha * cmo_abs);
 
          if(cmo_raw > 0)
@@ -154,7 +209,8 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
          else
             vidya_down_buffer[i] = current_vidya;
 
-         double cmo_raw_prev = CalculateCMO(i-1, m_cmo_period, m_price);
+         // Connect lines
+         double cmo_raw_prev = m_cmo_buffer[i-1];
          if((cmo_raw > 0) != (cmo_raw_prev > 0))
            {
             vidya_up_buffer[i-1] = prev_vidya;
@@ -162,29 +218,6 @@ void CVIDYACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPL
            }
         }
      }
-  }
-
-//+------------------------------------------------------------------+
-//| Helper: Calculate CMO                                            |
-//+------------------------------------------------------------------+
-double CVIDYACalculator::CalculateCMO(int position, int period, const double &price_array[])
-  {
-   if(position < period)
-      return 0.0;
-   double sum_up = 0.0, sum_down = 0.0;
-
-   for(int i = 0; i < period; i++)
-     {
-      double diff = price_array[position - i] - price_array[position - i - 1];
-      if(diff > 0.0)
-         sum_up += diff;
-      else
-         sum_down += (-diff);
-     }
-
-   if(sum_up + sum_down == 0.0)
-      return 0.0;
-   return (sum_up - sum_down) / (sum_up + sum_down);
   }
 
 //+------------------------------------------------------------------+
@@ -237,7 +270,16 @@ private:
 
 protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual void      CreateCMOEngine(void) override;
   };
+
+//+------------------------------------------------------------------+
+//| Factory Method for HA CMO Engine                                 |
+//+------------------------------------------------------------------+
+void CVIDYACalculator_HA::CreateCMOEngine(void)
+  {
+   m_cmo_engine = new CCMOCalculator_HA();
+  }
 
 //+------------------------------------------------------------------+
 //| Prepare Price (Heikin Ashi - Optimized)                          |
