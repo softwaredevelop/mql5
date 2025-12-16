@@ -1,4 +1,4 @@
-# Gann HiLo Activator Professional
+# Gann HiLo Activator Pro
 
 ## 1. Summary (Introduction)
 
@@ -44,7 +44,11 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
   * **`CGannHiLoCalculator`**: The base class that performs the full, state-dependent calculation on a given set of High, Low, and Close prices.
   * **`CGannHiLoCalculator_HA`**: A child class that inherits from the base class and overrides only the data preparation step. Its sole responsibility is to calculate Heikin Ashi candles and provide the `HA_High`, `HA_Low`, and `HA_Close` prices to the base class's shared calculation algorithm. This object-oriented approach eliminates code duplication.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate`. For a state-dependent indicator like the Gann HiLo, this is the most reliable method to prevent calculation errors.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`m_hi_avg`, `m_lo_avg`, `m_trend`) persist their state between ticks. This allows recursive smoothing methods (like EMA) and the trend state logic to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 * **Fully Manual MA Calculations:** To guarantee 100% accuracy and consistency, all moving average types (**SMA, EMA, SMMA, LWMA**) are implemented **manually** within the calculator engine.
 
