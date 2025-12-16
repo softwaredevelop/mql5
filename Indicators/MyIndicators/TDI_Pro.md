@@ -1,4 +1,4 @@
-# Trader's Dynamic Index (TDI) Professional
+# Trader's Dynamic Index (TDI) Pro
 
 ## 1. Summary (Introduction)
 
@@ -40,11 +40,15 @@ Our MQL5 implementation is a robust, definition-true representation of the TDI, 
 * **Self-Contained Calculation Engine (`TDI_Calculator.mqh`):**
     The entire multi-stage calculation logic is encapsulated within a single, dedicated include file. The calculator first computes the base Wilder's RSI and then sequentially calculates all TDI components (Price Line, Signal Line, Base Line, and Volatility Bands) in an efficient, single-pass process.
 
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_rsi_buffer`) persist their state between ticks. This allows the multi-stage smoothing and band calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Object-Oriented Design (Inheritance):**
   * A base class, `CTDICalculator`, performs the full TDI calculation on a given source price.
   * A derived class, `CTDICalculator_HA`, inherits all the complex logic and only overrides the initial data preparation step (`PreparePriceSeries`) to use smoothed Heikin Ashi prices as its input. This object-oriented approach eliminates code duplication.
-
-* **Stability via Full Recalculation:** The TDI's calculation is highly state-dependent. To ensure perfect accuracy, our implementation employs a "brute-force" **full recalculation** on every tick.
 
 ## 4. Parameters
 
