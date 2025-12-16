@@ -1,4 +1,4 @@
-# Fisher Transform Professional
+# Fisher Transform Pro
 
 ## 1. Summary (Introduction)
 
@@ -42,7 +42,11 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
   * **`CFisherTransformCalculator`**: The base class that performs the full, multi-stage calculation on a given source price `(High+Low)/2`.
   * **`CFisherTransformCalculator_HA`**: A child class that inherits from the base class and overrides only the data preparation step. Its sole responsibility is to calculate Heikin Ashi candles and provide the `(HA_High + HA_Low) / 2` price to the base class's shared calculation algorithm. This object-oriented approach eliminates code duplication.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate`. This is our standard practice for indicators with recursive logic to ensure maximum stability.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_hl2_price` and `m_value_buffer`) persist their state between ticks. This allows the recursive Fisher Transform algorithm to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 * **Robust Initialization:** The final, recursive calculation of the Fisher line is highly susceptible to floating-point overflows. Our code explicitly handles this by calculating the **first valid value** of the Fisher line **without** the recursive component, providing a stable starting point for the calculation chain.
 
