@@ -1,4 +1,4 @@
-# Kaufman's Adaptive Moving Average (KAMA) Professional
+# Kaufman's Adaptive Moving Average (KAMA) Pro
 
 ## 1. Summary (Introduction)
 
@@ -42,15 +42,22 @@ The core of KAMA is the **Efficiency Ratio (ER)**, which quantifies the "trendin
 
 ## 3. MQL5 Implementation Details
 
-* **Modular Calculation Engine (`KAMA_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file.
+Our MQL5 implementation follows a modern, object-oriented design pattern to ensure stability, reusability, and maintainability. The logic is separated into a main indicator file and a dedicated calculator engine.
 
-* **Robust State Management:** KAMA is a recursive filter, meaning its current value depends on its previous value. Our `CKamaCalculator` class implements **correct state management** by storing the previous KAMA value in a member variable (`m_prev_kama`). This is critical for ensuring a stable and accurate calculation that is resilient to chart reloads and timeframe changes.
+* **Modular Calculator Engine (`KAMA_Calculator.mqh`):**
+    All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management.
 
-* **Object-Oriented Design (Inheritance):** A `CKamaCalculator` base class and a `CKamaCalculator_HA` derived class are used to cleanly separate the logic for standard and Heikin Ashi price sources without code duplication.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal price buffer (`m_price`) persists its state between ticks. This allows the calculation to efficiently access historical price data for the Efficiency Ratio without re-copying the entire series.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Stability via Full Recalculation:** The indicator performs a full recalculation on every tick, which is the most robust approach for a state-dependent, recursive filter like KAMA.
+* **Object-Oriented Design (Inheritance):**
+  * A base class, `CKamaCalculator`, handles the core AMA algorithm, including the ER, SSC, and the final recursive calculation.
+  * A derived class, `CKamaCalculator_HA`, inherits from the base class and **overrides** only one specific function: the price series preparation. Its sole responsibility is to calculate Heikin Ashi candles and provide the selected HA price to the base class's AMA algorithm. This is a clean and efficient use of polymorphism.
 
-## 4. Parameters
+## 4. Parameters (`KAMA_Pro.mq5`)
 
 * **ER Period (`InpErPeriod`):** The lookback period for the Efficiency Ratio calculation. Kaufman's standard value is `10`.
 * **Fast EMA Period (`InpFastEmaPeriod`):** The period for the fastest EMA speed. Kaufman's standard value is `2`.
