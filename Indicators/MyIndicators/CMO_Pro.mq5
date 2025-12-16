@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                      CMO_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "1.00"
+#property version   "2.00" // Optimized for incremental calculation
 #property description "Chande Momentum Oscillator (CMO) with selectable"
 #property description "price source (Standard and Heikin Ashi)."
 
@@ -79,21 +77,30 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
+//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated, // <--- Now used!
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Determine the price type from the unified enum ---
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferCMO);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferCMO);
 
    return(rates_total);
   }
