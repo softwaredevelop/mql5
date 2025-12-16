@@ -1,4 +1,4 @@
-# Hull Moving Average (HMA) Professional
+# Hull Moving Average (HMA) Pro
 
 ## 1. Summary (Introduction)
 
@@ -33,14 +33,18 @@ The HMA's formula combines three separate Weighted Moving Averages (WMAs) to nea
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability.
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability. The logic is separated into a main indicator file and a dedicated calculator engine.
 
-* **Modular Calculation Engine (`HMA_Calculator.mqh`):**
+* **Modular Calculator Engine (`HMA_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
   * **`CHMACalculator`**: The base class that performs the full, multi-stage HMA calculation on a given source price.
   * **`CHMACalculator_HA`**: A child class that inherits from the base class and overrides only the data preparation step. Its sole responsibility is to use Heikin Ashi prices as the input for the base class's shared calculation algorithm. This object-oriented approach eliminates code duplication.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (like `m_price` and `m_raw_hma`) persist their state between ticks. This allows the multi-stage WMA calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 * **Fully Manual WMA Calculation:** To guarantee 100% accuracy and consistency, the Weighted Moving Average calculation is implemented **manually** within a helper function inside the calculator engine. This provides full control over the calculation logic.
 
