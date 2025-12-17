@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                 LinearRegression_Calculator.mqh  |
-//| Calculation engine for Standard and Heikin Ashi LinReg Channels. |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -15,9 +15,7 @@ enum ENUM_CHANNEL_MODE
   };
 
 //+==================================================================+
-//|                                                                  |
 //|         CLASS 1: CLinearRegressionCalculator (Base Class)        |
-//|                                                                  |
 //+==================================================================+
 class CLinearRegressionCalculator
   {
@@ -25,21 +23,26 @@ protected:
    int               m_period;
    ENUM_CHANNEL_MODE m_channel_mode;
    double            m_deviations;
+
+   //--- Persistent Buffer for Incremental Calculation
    double            m_price[];
 
-   virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CLinearRegressionCalculator(void) {};
    virtual          ~CLinearRegressionCalculator(void) {};
 
    bool              Init(int period, ENUM_CHANNEL_MODE mode, double deviations);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &middle_buffer[], double &upper_buffer[], double &lower_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//| CLinearRegressionCalculator: Initialization                      |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CLinearRegressionCalculator::Init(int period, ENUM_CHANNEL_MODE mode, double deviations)
   {
@@ -50,21 +53,36 @@ bool CLinearRegressionCalculator::Init(int period, ENUM_CHANNEL_MODE mode, doubl
   }
 
 //+------------------------------------------------------------------+
-//| CLinearRegressionCalculator: Main Calculation Method             |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CLinearRegressionCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CLinearRegressionCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
   {
    if(rates_total < m_period)
       return;
-   if(!PreparePriceSeries(rates_total, open, high, low, close, price_type))
+
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+//--- 2. Resize Buffer
+   if(ArraySize(m_price) != rates_total)
+      ArrayResize(m_price, rates_total);
+
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-   int start_index = rates_total - m_period;
+//--- 4. Calculate Linear Regression (Always recalculate for the window)
+   int regression_start_index = rates_total - m_period;
+// Calculate Sums
    double sum_x = 0, sum_y = 0, sum_xy = 0, sum_x2 = 0;
    for(int i = 0; i < m_period; i++)
      {
-      double y = m_price[start_index + i];
+      double y = m_price[regression_start_index + i];
       double x = i;
       sum_x += x;
       sum_y += y;
@@ -85,7 +103,7 @@ void CLinearRegressionCalculator::Calculate(int rates_total, const double &open[
       for(int i = 0; i < m_period; i++)
         {
          regression_values[i] = a + b * i;
-         dev_sum_sq += MathPow(m_price[start_index + i] - regression_values[i], 2);
+         dev_sum_sq += MathPow(m_price[regression_start_index + i] - regression_values[i], 2);
         }
       deviation_offset = m_deviations * MathSqrt(dev_sum_sq / m_period);
      }
@@ -95,114 +113,129 @@ void CLinearRegressionCalculator::Calculate(int rates_total, const double &open[
       for(int i = 0; i < m_period; i++)
         {
          regression_values[i] = a + b * i;
-         max_dev = MathMax(max_dev, MathAbs(m_price[start_index + i] - regression_values[i]));
+         max_dev = MathMax(max_dev, MathAbs(m_price[regression_start_index + i] - regression_values[i]));
         }
       deviation_offset = max_dev;
      }
 
+// Fill Buffers
    for(int i = 0; i < m_period; i++)
      {
-      int buffer_index = start_index + i;
+      int buffer_index = regression_start_index + i;
       middle_buffer[buffer_index] = regression_values[i];
       upper_buffer[buffer_index]  = regression_values[i] + deviation_offset;
       lower_buffer[buffer_index]  = regression_values[i] - deviation_offset;
      }
-
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, start_index);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, start_index);
-   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, start_index);
+   if(regression_start_index > 0)
+     {
+      middle_buffer[regression_start_index-1] = EMPTY_VALUE;
+      upper_buffer[regression_start_index-1] = EMPTY_VALUE;
+      lower_buffer[regression_start_index-1] = EMPTY_VALUE;
+     }
   }
 
 //+------------------------------------------------------------------+
-//| CLinearRegressionCalculator: Prepares the standard source price. |
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
-bool CLinearRegressionCalculator::PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+bool CLinearRegressionCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_price, rates_total);
-   switch(price_type)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_price, open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = low[i];
+            break;
+         case PRICE_MEDIAN:
             m_price[i] = (high[i]+low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_TYPICAL:
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
+            break;
+         case PRICE_WEIGHTED:
             m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_price, close, 0, 0, rates_total);
-         break;
+            break;
+         default:
+            m_price[i] = close[i];
+            break;
+        }
      }
    return true;
   }
 
 //+==================================================================+
-//|                                                                  |
-//|       CLASS 2: CLinearRegressionCalculator_HA (Heikin Ashi)      |
-//|                                                                  |
+//|             CLASS 2: CLinearRegressionCalculator_HA              |
 //+==================================================================+
 class CLinearRegressionCalculator_HA : public CLinearRegressionCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| CLinearRegressionCalculator_HA: Prepares the HA source price.    |
+//| Prepare Price (Heikin Ashi - Optimized)                          |
 //+------------------------------------------------------------------+
-bool CLinearRegressionCalculator_HA::PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+bool CLinearRegressionCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_price, rates_total);
-   switch(price_type)
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      case PRICE_OPEN:
-         ArrayCopy(m_price, ha_open, 0, 0, rates_total);
-         break;
-      case PRICE_HIGH:
-         ArrayCopy(m_price, ha_high, 0, 0, rates_total);
-         break;
-      case PRICE_LOW:
-         ArrayCopy(m_price, ha_low, 0, 0, rates_total);
-         break;
-      case PRICE_MEDIAN:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i])/2.0;
-         break;
-      case PRICE_TYPICAL:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+ha_close[i])/3.0;
-         break;
-      case PRICE_WEIGHTED:
-         for(int i=0; i<rates_total; i++)
-            m_price[i] = (ha_high[i]+ha_low[i]+2*ha_close[i])/4.0;
-         break;
-      default:
-         ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-         break;
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+     {
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = m_ha_close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = m_ha_open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = m_ha_high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = m_ha_low[i];
+            break;
+         case PRICE_MEDIAN:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_price[i] = m_ha_close[i];
+            break;
+        }
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
