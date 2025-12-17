@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                  PVI_NVI_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Added signal lines and display modes
+#property version   "2.00" // Optimized for incremental calculation
 #property description "Positive Volume Index (PVI) and Negative Volume Index (NVI)."
 
 #property indicator_separate_window
@@ -38,7 +37,7 @@
 
 #include <MyIncludes\PVI_NVI_Calculator.mqh>
 
-enum ENUM_PVINVI_DISPLAY { DISPLAY_PVI_ONLY, DISPLAY_NVI_ONLY, DISPLAY_BOTH };
+enum ENUM_PVINVI_DISPLAY { DISPLAY_PVI_ONLY, DISPLAY_NVI_ONLY }; // Removed DISPLAY_BOTH
 
 //--- Input Parameters ---
 input group "Display & Signal Line"
@@ -104,27 +103,34 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
+//--- Delegate calculation with prev_calculated optimization
    if(InpVolumeType == VOLUME_REAL)
-      g_calculator.Calculate(rates_total, open, high, low, close, volume, BufferPVI, BufferNVI, BufferPVISignal, BufferNVISignal);
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, volume, BufferPVI, BufferNVI, BufferPVISignal, BufferNVISignal);
    else
-      g_calculator.Calculate(rates_total, open, high, low, close, tick_volume, BufferPVI, BufferNVI, BufferPVISignal, BufferNVISignal);
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, BufferPVI, BufferNVI, BufferPVISignal, BufferNVISignal);
 
-   if(InpDisplayMode == DISPLAY_PVI_ONLY)
+//--- Hide unused buffers (Optimized loop)
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = start_index; i < rates_total; i++)
      {
-      ArrayInitialize(BufferNVI, EMPTY_VALUE);
-      ArrayInitialize(BufferNVISignal, EMPTY_VALUE);
-     }
-   else
-      if(InpDisplayMode == DISPLAY_NVI_ONLY)
+      if(InpDisplayMode == DISPLAY_PVI_ONLY)
         {
-         ArrayInitialize(BufferPVI, EMPTY_VALUE);
-         ArrayInitialize(BufferPVISignal, EMPTY_VALUE);
+         BufferNVI[i] = EMPTY_VALUE;
+         BufferNVISignal[i] = EMPTY_VALUE;
         }
+      else
+         if(InpDisplayMode == DISPLAY_NVI_ONLY)
+           {
+            BufferPVI[i] = EMPTY_VALUE;
+            BufferPVISignal[i] = EMPTY_VALUE;
+           }
+     }
 
    return(rates_total);
   }
