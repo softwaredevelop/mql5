@@ -1,4 +1,4 @@
-# Positive/Negative Volume Index (PVI/NVI) Professional
+# Positive/Negative Volume Index (PVI/NVI) Pro
 
 ## 1. Summary (Introduction)
 
@@ -37,7 +37,13 @@ Both indicators are cumulative, starting from a base value (e.g., 1000 or 0). Fo
 
 ## 3. MQL5 Implementation Details
 
-* **Modular Calculation Engine (`PVI_NVI_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file. The calculator uses a full recalculation loop to ensure the cumulative lines are always accurate.
+* **Modular Calculation Engine (`PVI_NVI_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file.
+
+* **Optimized Incremental Calculation:**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
+  * **Persistent State:** The internal buffers (`pvi_buffer`, `nvi_buffer`) persist their state between ticks. This allows the cumulative calculation to continue seamlessly from the last known value without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
 
 * **Display Mode for Clarity:** Because the PVI and NVI lines can diverge significantly over time, compressing the vertical scale, the indicator includes a `Display Mode` input. This allows the user to focus on either the PVI or the NVI individually, which automatically adjusts the chart scale for optimal visibility.
 
@@ -45,7 +51,7 @@ Both indicators are cumulative, starting from a base value (e.g., 1000 or 0). Fo
 
 ## 4. Parameters
 
-* **Display Mode (`InpDisplayMode`):** Allows the user to show only the PVI, only the NVI, or both. Default is `DISPLAY_NVI_ONLY` for focusing on the "smart money" signal.
+* **Display Mode (`InpDisplayMode`):** Allows the user to show only the PVI or only the NVI. Default is `DISPLAY_NVI_ONLY` for focusing on the "smart money" signal.
 * **Signal Period (`InpSignalPeriod`):** The period for the long-term moving average applied to both lines. The traditional value is `255`.
 * **Signal MA Type (`InpSignalMAType`):** The type of moving average for the signal lines.
 * **Volume Type (`InpVolumeType`):** The volume source for the calculation.
