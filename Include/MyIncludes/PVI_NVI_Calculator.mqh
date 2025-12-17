@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                             PVI_NVI_Calculator.mqh |
-//|      VERSION 1.20: Added signal lines & corrected calculation.   |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,8 +8,11 @@
 #include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
+//--- Moved enum here to be accessible by other calculators
 enum ENUM_CANDLE_SOURCE { CANDLE_STANDARD, CANDLE_HEIKIN_ASHI };
 
+//+==================================================================+
+//|             CLASS 1: CPVINVICalculator (Base Class)              |
 //+==================================================================+
 class CPVINVICalculator
   {
@@ -17,62 +20,109 @@ protected:
    ENUM_APPLIED_VOLUME m_volume_type;
    int                 m_signal_period;
    ENUM_MA_TYPE        m_signal_ma_type;
+
+   //--- Persistent Buffer for Incremental Calculation
    double              m_price[];
 
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
-   void              CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_MA_TYPE method, int start_pos);
+   //--- Engines for Signal Lines
+   CMovingAverageCalculator *m_pvi_signal_engine;
+   CMovingAverageCalculator *m_nvi_signal_engine;
+
+   //--- Updated: Accepts start_index
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CPVINVICalculator(void) {};
-   virtual          ~CPVINVICalculator(void) {};
+                     CPVINVICalculator(void);
+   virtual          ~CPVINVICalculator(void);
 
    bool              Init(ENUM_APPLIED_VOLUME vol_type, int signal_p, ENUM_MA_TYPE signal_ma);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[],
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[],
                                double &pvi_buffer[], double &nvi_buffer[], double &pvi_signal[], double &nvi_signal[]);
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
-class CPVINVICalculator_HA : public CPVINVICalculator
+CPVINVICalculator::CPVINVICalculator(void)
   {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-protected:
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
-
-//+==================================================================+
-//|                 METHOD IMPLEMENTATIONS                           |
-//+==================================================================+
+   m_pvi_signal_engine = new CMovingAverageCalculator();
+   m_nvi_signal_engine = new CMovingAverageCalculator();
+  }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CPVINVICalculator::~CPVINVICalculator(void)
+  {
+   if(CheckPointer(m_pvi_signal_engine) != POINTER_INVALID)
+      delete m_pvi_signal_engine;
+   if(CheckPointer(m_nvi_signal_engine) != POINTER_INVALID)
+      delete m_nvi_signal_engine;
+  }
+
+//+------------------------------------------------------------------+
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CPVINVICalculator::Init(ENUM_APPLIED_VOLUME vol_type, int signal_p, ENUM_MA_TYPE signal_ma)
   {
    m_volume_type = vol_type;
    m_signal_period = (signal_p < 1) ? 1 : signal_p;
    m_signal_ma_type = signal_ma;
+
+   if(!m_pvi_signal_engine.Init(m_signal_period, m_signal_ma_type))
+      return false;
+   if(!m_nvi_signal_engine.Init(m_signal_period, m_signal_ma_type))
+      return false;
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CPVINVICalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[],
+void CPVINVICalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[],
                                   double &pvi_buffer[], double &nvi_buffer[], double &pvi_signal[], double &nvi_signal[])
   {
    if(rates_total < 2)
       return;
-   if(!PrepareSourceData(rates_total, open, high, low, close))
+
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+//--- 2. Resize Buffer
+   if(ArraySize(m_price) != rates_total)
+      ArrayResize(m_price, rates_total);
+
+//--- 3. Prepare Price (Optimized)
+   if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
       return;
 
-   pvi_buffer[0] = 1000;
-   nvi_buffer[0] = 1000;
+//--- 4. Calculate PVI/NVI (Incremental Loop)
+   int loop_start = (start_index < 1) ? 1 : start_index;
 
-   for(int i = 1; i < rates_total; i++)
+// Initialization
+   if(loop_start == 1)
      {
+      pvi_buffer[0] = 1000;
+      nvi_buffer[0] = 1000;
+     }
+
+   for(int i = loop_start; i < rates_total; i++)
+     {
+      // Calculate percentage change of price
+      // Note: Original code used absolute change (price[i] - price[i-1]).
+      // Standard PVI/NVI uses percentage change: (price[i] - price[i-1]) / price[i-1]
+      // Let's stick to the original code logic if that's what was intended,
+      // but usually PVI = PVI[i-1] * (1 + ROC).
+      // The provided code was: pvi_buffer[i] = pvi_buffer[i-1] + price_change;
+      // This is an absolute change accumulation. I will keep it as is to preserve logic.
+
       double price_change = m_price[i] - m_price[i-1];
 
       if(volume[i] > volume[i-1])
@@ -93,108 +143,63 @@ void CPVINVICalculator::Calculate(int rates_total, const double &open[], const d
            }
      }
 
-   int signal_start = m_signal_period;
-   CalculateMA(pvi_buffer, pvi_signal, m_signal_period, m_signal_ma_type, signal_start);
-   CalculateMA(nvi_buffer, nvi_signal, m_signal_period, m_signal_ma_type, signal_start);
+//--- 5. Calculate Signal Lines (Using Engines)
+// We pass PVI/NVI buffers as 'close' price.
+   m_pvi_signal_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                                 pvi_buffer, pvi_buffer, pvi_buffer, pvi_buffer,
+                                 pvi_signal);
+
+   m_nvi_signal_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                                 nvi_buffer, nvi_buffer, nvi_buffer, nvi_buffer,
+                                 nvi_signal);
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
-void CPVINVICalculator::CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_MA_TYPE method, int start_pos)
+bool CPVINVICalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   for(int i = start_pos; i < ArraySize(source_array); i++)
+// Optimized copy loop
+   for(int i = start_index; i < rates_total; i++)
+      m_price[i] = close[i];
+   return true;
+  }
+
+//+==================================================================+
+//|             CLASS 2: CPVINVICalculator_HA (Heikin Ashi)          |
+//+==================================================================+
+class CPVINVICalculator_HA : public CPVINVICalculator
+  {
+private:
+   CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
+protected:
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+  };
+
+//+------------------------------------------------------------------+
+//| Prepare Price (Heikin Ashi - Optimized)                          |
+//+------------------------------------------------------------------+
+bool CPVINVICalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
+  {
+// Resize internal HA buffers
+   if(ArraySize(m_ha_open) != rates_total)
      {
-      switch(method)
-        {
-         case EMA:
-         case SMMA:
-            if(i == start_pos)
-              {
-               double sum=0;
-               int count=0;
-               for(int j=0; j<period; j++)
-                 {
-                  if(source_array[i-j] != EMPTY_VALUE)
-                    {
-                     sum+=source_array[i-j];
-                     count++;
-                    }
-                 }
-               if(count > 0)
-                  dest_array[i]=sum/count;
-              }
-            else
-              {
-               if(method==EMA)
-                 {
-                  double pr=2.0/(period+1.0);
-                  dest_array[i]=source_array[i]*pr+dest_array[i-1]*(1.0-pr);
-                 }
-               else
-                  dest_array[i]=(dest_array[i-1]*(period-1)+source_array[i])/period;
-              }
-            break;
-         case LWMA:
-           {
-            double sum=0, w_sum=0;
-            for(int j=0; j<period; j++)
-              {
-               if(source_array[i-j] == EMPTY_VALUE)
-                  continue;
-               int w=period-j;
-               sum+=source_array[i-j]*w;
-               w_sum+=w;
-              }
-            if(w_sum>0)
-               dest_array[i]=sum/w_sum;
-           }
-         break;
-         default: // SMA
-           {
-            double sum=0;
-            int count=0;
-            for(int j=0; j<period; j++)
-              {
-               if(source_array[i-j] != EMPTY_VALUE)
-                 {
-                  sum+=source_array[i-j];
-                  count++;
-                 }
-              }
-            if(count > 0)
-               dest_array[i]=sum/count;
-           }
-         break;
-        }
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
      }
-  }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool CPVINVICalculator::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   ArrayResize(m_price, rates_total);
-   ArrayCopy(m_price, close, 0, 0, rates_total);
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+//--- Copy to m_price (Optimized loop)
+   for(int i = start_index; i < rates_total; i++)
+      m_price[i] = m_ha_close[i];
    return true;
   }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool CPVINVICalculator_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_price, rates_total);
-   ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-   return true;
-  }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
