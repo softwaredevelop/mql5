@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                         LinearRegression_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.00"
+#property version   "2.10" // Optimized for incremental calculation
 #property description "Professional, manually calculated Linear Regression Channel with"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -98,7 +96,7 @@ void OnDeinit(const int reason)
 //| Linear Regression Channel calculation function.                  |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated,
+                const int prev_calculated, // <--- Now used!
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -108,25 +106,17 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < InpRegressionPeriod || CheckPointer(g_calculator) == POINTER_INVALID)
-      return(0);
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return 0;
 
-   if(time[rates_total - 1] > g_last_update_time)
-     {
-      ArrayInitialize(BufferUpper, EMPTY_VALUE);
-      ArrayInitialize(BufferLower, EMPTY_VALUE);
-      ArrayInitialize(BufferMiddle, EMPTY_VALUE);
+   ENUM_APPLIED_PRICE price_type;
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+   else
+      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-      ENUM_APPLIED_PRICE price_type;
-      if(InpSourcePrice <= PRICE_HA_CLOSE)
-         price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-      else
-         price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
-
-      g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferMiddle, BufferUpper, BufferLower);
-
-      g_last_update_time = time[rates_total - 1];
-     }
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferMiddle, BufferUpper, BufferLower);
 
    return(rates_total);
   }
