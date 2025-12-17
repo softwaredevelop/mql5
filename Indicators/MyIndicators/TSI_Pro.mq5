@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                                       TSI_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 #property link      ""
-#property version   "2.01" // Corrected to use the final unified architecture
+#property version   "2.10" // Optimized for incremental calculation
 #property description "Professional True Strength Index (TSI) with a signal line and"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -49,7 +48,7 @@ double    BufferTSI[];
 double    BufferSignal[];
 
 //--- Global calculator object (as a base class pointer) ---
-CTSICalculatorBase *g_calculator; // Use the abstract base class for the pointer
+CTSICalculator *g_calculator; // Use the base class for the pointer
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
@@ -61,15 +60,15 @@ int OnInit()
    ArraySetAsSeries(BufferTSI,    false);
    ArraySetAsSeries(BufferSignal, false);
 
-//--- CORRECTED: Instantiate the correct concrete wrapper classes ---
+//--- Instantiate the correct concrete wrapper classes ---
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
-      g_calculator = new CTSICalculator_HA_Wrapper(); // Use the wrapper class
+      g_calculator = new CTSICalculator_HA(); // Use the HA class
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI HA(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
    else
      {
-      g_calculator = new CTSICalculator_Std(); // Use the wrapper class
+      g_calculator = new CTSICalculator(); // Use the Standard class
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
 
@@ -99,7 +98,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 //| Custom indicator iteration function.                             |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -110,7 +109,8 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferTSI, BufferSignal);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferTSI, BufferSignal);
 
    return(rates_total);
   }
