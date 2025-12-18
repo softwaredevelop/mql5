@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                        AMA_TrendActivity_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.00"
+#property version   "2.10" // Optimized for incremental calculation
 #property description "Measures the trend activity (slope) of an AMA line using Arctan normalization."
 #property description "Selectable price source (Standard or Heikin Ashi) for both AMA and ATR calculations."
 
@@ -101,21 +99,18 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Convert our custom enum to the standard ENUM_APPLIED_PRICE
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferActivity);
+//--- Delegate calculation with prev_calculated optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferActivity);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
