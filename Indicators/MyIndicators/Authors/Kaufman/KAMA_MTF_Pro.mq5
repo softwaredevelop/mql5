@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                  KAMA_MTF_Pro.mq5|
-//|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
+//|                                     Copyright 2025, xxxxxxxx     |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.10" // Fixed MTF Indexing Bug
 #property description "Multi-Timeframe (MTF) version of Kaufman's Adaptive Moving Average (KAMA)."
 
 #property indicator_chart_window
@@ -14,16 +13,19 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrCrimson
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  1
+#property indicator_width1  2
 
 #include <MyIncludes\KAMA_Calculator.mqh>
 
 //--- Input Parameters ---
-input ENUM_TIMEFRAMES           InpUpperTimeframe = PERIOD_H1;
-input int                       InpErPeriod       = 10;    // Efficiency Ratio Period
-input int                       InpFastEmaPeriod  = 2;     // Fastest EMA Period
-input int                       InpSlowEmaPeriod  = 30;    // Slowest EMA Period
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD;
+input group "Timeframe Settings"
+input ENUM_TIMEFRAMES           InpUpperTimeframe = PERIOD_H1; // Target Timeframe
+
+input group "KAMA Settings"
+input int                       InpErPeriod       = 10;        // Efficiency Ratio Period
+input int                       InpFastEmaPeriod  = 2;         // Fastest EMA Period
+input int                       InpSlowEmaPeriod  = 30;        // Slowest EMA Period
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD; // Price Source
 
 //--- Indicator Buffers ---
 double    BufferKAMA_MTF[];
@@ -33,96 +35,163 @@ CKamaCalculator *g_calculator;
 bool             g_is_mtf_mode = false;
 ENUM_TIMEFRAMES  g_calc_timeframe;
 
+//--- MTF Specific Globals ---
+double           g_htf_buffer[];       // Stores the calculated KAMA on HTF
+int              g_htf_prev_calculated = 0; // Tracks HTF calculation state
+double           g_buf_open[], g_buf_high[], g_buf_low[], g_buf_close[]; // HTF Price Data
+
+//+------------------------------------------------------------------+
+//| OnInit                                                           |
 //+------------------------------------------------------------------+
 int OnInit()
   {
+//--- 1. Validate Timeframe
    g_calc_timeframe = InpUpperTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
       g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
 
    if(g_calc_timeframe < Period())
      {
-      Print("Error: The selected timeframe must be higher than or equal to the current chart timeframe.");
+      PrintFormat("Error: Target timeframe (%s) must be >= current timeframe (%s).",
+                  EnumToString(g_calc_timeframe), EnumToString(Period()));
       return(INIT_FAILED);
      }
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
-   SetIndexBuffer(0, BufferKAMA_MTF,  INDICATOR_DATA);
-   ArraySetAsSeries(BufferKAMA_MTF,  false);
+//--- 2. Setup Buffers
+   SetIndexBuffer(0, BufferKAMA_MTF, INDICATOR_DATA);
+   ArraySetAsSeries(BufferKAMA_MTF, false); // Standard indexing for main buffer
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
+//--- 3. Initialize Calculator
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       g_calculator = new CKamaCalculator_HA();
    else
       g_calculator = new CKamaCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpErPeriod, InpFastEmaPeriod, InpSlowEmaPeriod))
-     {
-      Print("Failed to initialize KAMA Calculator.");
+   if(!g_calculator.Init(InpErPeriod, InpFastEmaPeriod, InpSlowEmaPeriod))
       return(INIT_FAILED);
-     }
 
-   if(g_is_mtf_mode)
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KAMA MTF%s(%s)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), EnumToString(g_calc_timeframe)));
-   else
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KAMA%s(%d,%d,%d)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpErPeriod, InpFastEmaPeriod, InpSlowEmaPeriod));
-
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpErPeriod);
+//--- 4. Set Shortname
+   string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KAMA%s%s(%d,%d,%d)", type, tf_str, InpErPeriod, InpFastEmaPeriod, InpSlowEmaPeriod));
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
+//| OnDeinit                                                         |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   if(CheckPointer(g_calculator) != POINTER_INVALID)
+      delete g_calculator;
+  }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+//| OnCalculate                                                      |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
-   if(rates_total < 2 || CheckPointer(g_calculator) == POINTER_INVALID)
-      return 0;
+   if(rates_total < InpErPeriod)
+      return(0);
 
-   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   if(g_is_mtf_mode)
+//================================================================
+// MODE 1: Current Timeframe (Standard)
+//================================================================
+   if(!g_is_mtf_mode)
      {
-      // --- MTF Mode ---
-      int htf_rates_total = (int)SeriesInfoInteger(_Symbol, g_calc_timeframe, SERIES_BARS_COUNT);
-      if(htf_rates_total < InpErPeriod)
-         return 0;
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferKAMA_MTF);
+      return(rates_total);
+     }
 
-      datetime htf_time[];
-      double htf_open[], htf_high[], htf_low[], htf_close[];
-      if(CopyTime(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_time) <= 0 || CopyOpen(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_open) <= 0 ||
-         CopyHigh(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_high) <= 0 || CopyLow(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_low) <= 0 ||
-         CopyClose(_Symbol, g_calc_timeframe, 0, htf_rates_total, htf_close) <= 0)
-         return 0;
+//================================================================
+// MODE 2: Multi-Timeframe (MTF)
+//================================================================
 
-      double htf_kama_buffer[];
-      ArrayResize(htf_kama_buffer, htf_rates_total);
-      g_calculator.Calculate(htf_rates_total, price_type, htf_open, htf_high, htf_low, htf_close, htf_kama_buffer);
+//--- A. Get HTF Data Count
+   int htf_rates_total = iBars(_Symbol, g_calc_timeframe);
+   if(htf_rates_total < InpErPeriod)
+      return(0);
 
-      ArraySetAsSeries(htf_kama_buffer, true);
-      ArraySetAsSeries(time, true);
-      ArraySetAsSeries(BufferKAMA_MTF, true);
+//--- B. Reset HTF State if Full Recalculation needed
+   if(prev_calculated == 0)
+     {
+      g_htf_prev_calculated = 0;
+      ArrayInitialize(BufferKAMA_MTF, EMPTY_VALUE);
+     }
 
-      for(int i = 0; i < rates_total; i++)
+//--- C. Fetch HTF Price Data
+// We use a relaxed check (< 0) to handle slight sync delays,
+// but generally we want as much data as possible.
+   if(CopyOpen(_Symbol, g_calc_timeframe, 0, htf_rates_total, g_buf_open) < 0 ||
+      CopyHigh(_Symbol, g_calc_timeframe, 0, htf_rates_total, g_buf_high) < 0 ||
+      CopyLow(_Symbol, g_calc_timeframe, 0, htf_rates_total, g_buf_low) < 0 ||
+      CopyClose(_Symbol, g_calc_timeframe, 0, htf_rates_total, g_buf_close) < 0)
+     {
+      return(0); // Data not ready
+     }
+
+//--- D. Resize HTF Buffer
+   if(ArraySize(g_htf_buffer) != htf_rates_total)
+      ArrayResize(g_htf_buffer, htf_rates_total);
+
+//--- E. Calculate HTF KAMA (Chronological Order)
+// Step back 1 bar to update the open candle
+   int htf_calc_start = (g_htf_prev_calculated > 0) ? g_htf_prev_calculated - 1 : 0;
+
+   g_calculator.Calculate(htf_rates_total, htf_calc_start, price_type,
+                          g_buf_open, g_buf_high, g_buf_low, g_buf_close,
+                          g_htf_buffer);
+
+   g_htf_prev_calculated = htf_rates_total;
+
+//--- F. Map HTF Values to Current Chart (The "Staircase")
+
+// CRITICAL FIX: Set HTF buffer as SERIES for mapping
+// This aligns index 0 with the newest bar, matching iBarShift behavior.
+   ArraySetAsSeries(g_htf_buffer, true);
+
+// Ensure 'time' array is NOT series for our loop (0 = Oldest)
+   ArraySetAsSeries(time, false);
+
+   int limit = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = limit; i < rates_total; i++)
+     {
+      datetime current_time = time[i];
+
+      // iBarShift returns the index relative to the newest bar (0 = Newest)
+      int htf_index = iBarShift(_Symbol, g_calc_timeframe, current_time, false);
+
+      if(htf_index >= 0 && htf_index < htf_rates_total)
         {
-         int htf_bar_shift = iBarShift(_Symbol, g_calc_timeframe, time[i]);
-         if(htf_bar_shift < htf_rates_total && htf_bar_shift >= 0)
-            BufferKAMA_MTF[i] = htf_kama_buffer[htf_bar_shift];
-         else
-            BufferKAMA_MTF[i] = EMPTY_VALUE;
+         // Now g_htf_buffer[htf_index] correctly points to the value at that time
+         BufferKAMA_MTF[i] = g_htf_buffer[htf_index];
         }
+      else
+        {
+         BufferKAMA_MTF[i] = EMPTY_VALUE;
+        }
+     }
 
-      ArraySetAsSeries(BufferKAMA_MTF, false);
-      ArraySetAsSeries(time, false);
-     }
-   else
-     {
-      // --- Current Timeframe Mode ---
-      g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferKAMA_MTF);
-     }
+// CRITICAL FIX: Restore HTF buffer to non-series for next calculation cycle
+   ArraySetAsSeries(g_htf_buffer, false);
 
    return(rates_total);
   }
