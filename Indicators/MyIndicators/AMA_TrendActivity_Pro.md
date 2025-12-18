@@ -35,22 +35,19 @@ This indicator analyzes the behavior of two underlying indicators, AMA and ATR, 
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation follows a modern, object-oriented design pattern to ensure stability, reusability, and maintainability. The logic is separated into a main indicator file and a dedicated calculator engine.
+Our MQL5 implementation follows a modern, object-oriented design pattern to ensure stability, reusability, and maintainability.
 
 * **Modular Calculator Engine (`AMA_TrendActivity_Calculator.mqh`):**
-    All core calculation logic is encapsulated within a reusable include file. This separates the complex, five-step mathematical process from the indicator's user interface and buffer management.
+    All core calculation logic is encapsulated within a reusable include file.
 
-* **Object-Oriented Design (Inheritance):**
-  * A base class, `CActivityCalculator`, handles the **entire shared calculation chain** (AMA, ATR, Raw Activity, Arctan, and SMA smoothing).
-  * A derived class, `CActivityCalculator_HA`, inherits from the base class and **overrides** only one specific function: the preparation of all source data. Its sole responsibility is to calculate Heikin Ashi candles and provide the resulting HA data to the base class's calculation pipeline for both the AMA and ATR components. This is a clean and efficient use of polymorphism.
+* **Composition Pattern:**
+    Instead of complex inheritance trees, the `CActivityCalculator` class uses **composition**. It internally owns and manages instances of the standard `CAMACalculator` and `CATRCalculator`. This ensures that the Activity indicator uses exactly the same mathematical logic as the standalone AMA and ATR indicators, guaranteeing consistency.
 
-* **Simplified Main Indicator (`AMA_TrendActivity_Pro.mq5`):**
-    The main indicator file is now extremely clean. Its primary roles are:
-    1. Handling user inputs (`input` variables).
-    2. Instantiating the correct calculator object (`CActivityCalculator` or `CActivityCalculator_HA`) in `OnInit()` based on the user's choice.
-    3. Delegating the entire calculation process to the calculator object with a single call in `OnCalculate()`.
-
-* **Stability via Full Recalculation:** We use a full recalculation on every tick. For a complex, multi-stage, and recursive indicator like this, the "brute-force" approach is the most robust method.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs a sophisticated incremental algorithm.
+  * **Persistent State:** The calculator maintains internal buffers (`m_buffer_ama`, `m_buffer_atr`, `m_scaled_activity`) that persist their state between ticks.
+  * **Smart Updates:** The calculation logic (AMA -> ATR -> Activity -> Smoothing) is broken down into steps, each capable of resuming from the last calculated bar (`prev_calculated`).
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 ## 4. Parameters (`AMA_TrendActivity_Pro.mq5`)
 
