@@ -95,6 +95,7 @@ void CSingleMAMTFCalculator::Calculate(int rates_total, int prev_calculated, con
       datetime htf_time[];
       double htf_open[], htf_high[], htf_low[], htf_close[];
 
+      // Fetch Data (Full history copy for safety, optimized math follows)
       if(CopyTime(_Symbol, m_timeframe, 0, htf_rates, htf_time) <= 0 ||
          CopyOpen(_Symbol, m_timeframe, 0, htf_rates, htf_open) <= 0 ||
          CopyHigh(_Symbol, m_timeframe, 0, htf_rates, htf_high) <= 0 ||
@@ -106,29 +107,34 @@ void CSingleMAMTFCalculator::Calculate(int rates_total, int prev_calculated, con
          ArrayResize(m_htf_buffer, htf_rates);
 
       // Incremental HTF Calculation
-      m_calculator.Calculate(htf_rates, m_htf_prev_calc, price_type, htf_open, htf_high, htf_low, htf_close, m_htf_buffer);
+      // Step back 1 bar to ensure open candle updates
+      int htf_calc_start = (m_htf_prev_calc > 0) ? m_htf_prev_calc - 1 : 0;
+
+      m_calculator.Calculate(htf_rates, htf_calc_start, price_type, htf_open, htf_high, htf_low, htf_close, m_htf_buffer);
       m_htf_prev_calc = htf_rates;
 
-      // Mapping
+      // Mapping Logic (The Staircase)
+      // CRITICAL: Set HTF buffer as SERIES to match iBarShift (0 = Newest)
       ArraySetAsSeries(htf_time, true);
       ArraySetAsSeries(m_htf_buffer, true);
-      ArraySetAsSeries(time, true);
-      ArraySetAsSeries(output_buffer, true);
+      ArraySetAsSeries(time, false);          // Ensure standard indexing
+      ArraySetAsSeries(output_buffer, false); // Ensure standard indexing
 
-      int limit = (prev_calculated > 0) ? rates_total - prev_calculated : rates_total;
+      int limit = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
-      for(int i = 0; i < limit; i++)
+      for(int i = limit; i < rates_total; i++)
         {
          int htf_shift = iBarShift(_Symbol, m_timeframe, time[i], false);
+
          if(htf_shift >= 0 && htf_shift < htf_rates)
             output_buffer[i] = m_htf_buffer[htf_shift];
          else
             output_buffer[i] = EMPTY_VALUE;
         }
 
+      // Restore HTF buffer to non-series for next calculation cycle
       ArraySetAsSeries(m_htf_buffer, false);
-      ArraySetAsSeries(time, false);
-      ArraySetAsSeries(output_buffer, false);
+      ArraySetAsSeries(htf_time, false);
      }
 //--- CURRENT TF MODE ---
    else
@@ -228,4 +234,5 @@ void CMovingAverageRibbonMTFCalculator::Calculate(int rates_total, int prev_calc
    m_ma3.Calculate(rates_total, prev_calculated, time, price_type, open, high, low, close, ma3_buffer);
    m_ma4.Calculate(rates_total, prev_calculated, time, price_type, open, high, low, close, ma4_buffer);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
