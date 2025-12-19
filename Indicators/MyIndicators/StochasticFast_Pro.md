@@ -17,12 +17,6 @@ Our `StochasticFast_Pro` implementation is a unified, professional version that 
 
 The Fast Stochastic's %K line is the raw calculation, and the %D line is its direct moving average.
 
-### Required Components
-
-* **%K Period:** The main lookback period for the Stochastic calculation.
-* **%D Period & MA Method:** The period and type of moving average for the signal line.
-* **Price Data:** The `High`, `Low`, and `Close` of each bar.
-
 ### Calculation Steps (Algorithm)
 
 1. **Calculate the %K Line (Fast %K):** This is the core of the Stochastic calculation. It measures where the current close is relative to the price range over the `%K Period`.
@@ -36,22 +30,26 @@ The Fast Stochastic's %K line is the raw calculation, and the %D line is its dir
 Our MQL5 implementation is a robust, unified indicator built on a modular, object-oriented framework.
 
 * **Modular Calculation Engine (`StochasticFast_Calculator.mqh`):**
-    The entire calculation logic for both standard and Heikin Ashi versions is encapsulated within a single, powerful include file.
-  * An elegant, object-oriented inheritance model (`CStochasticFastCalculator` and `CStochasticFastCalculator_HA`) allows the main indicator file to dynamically choose the correct calculation engine at runtime based on user input, eliminating code duplication.
+    The entire calculation logic is encapsulated within a reusable include file.
+  * **Composition Pattern:** Instead of re-implementing moving average logic, the Stochastic calculator internally uses our powerful `MovingAverage_Engine`. This ensures that the %D line smoothing is mathematically identical to our standalone Moving Average indicator.
 
-* **Optimized Incremental Calculation:**
+* **Advanced Smoothing Options:**
+    Thanks to the integration with the `MovingAverage_Engine`, the %D signal line supports **seven** different smoothing methods (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA), giving traders unprecedented control over signal generation.
+
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal price buffers (`m_src_high`, etc.) persist their state between ticks. This allows the calculation to efficiently access historical data for the High/Low range search without re-copying the entire series.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks, ensuring seamless updates.
+  * **Robust Offset Handling:** The engine correctly handles the initialization period of the %K line (where data is insufficient), ensuring that the %D calculation starts only when valid data is available. This prevents artifacts and "INF" errors at the beginning of the chart.
 
-* **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for the "%D" signal line smoothing.
+* **Object-Oriented Design:**
+  * An elegant inheritance model (`CStochasticFastCalculator` and `CStochasticFastCalculator_HA`) allows the main indicator file to dynamically choose the correct calculation engine (Standard or Heikin Ashi) at runtime.
 
 ## 4. Parameters
 
-* **%K Period (`InpKPeriod`):** The lookback period for the initial Stochastic calculation. Default is `14`.
-* **%D Period (`InpDPeriod`):** The smoothing period for the final signal line (%D). Default is `3`.
-* **%D MA Type (`InpDMAType`):** The type of moving average used for the "%D" step. Default is `MODE_SMA`.
+* **%K Period (`InpKPeriod`):** The lookback period for the initial Stochastic calculation. (Default: `14`).
+* **%D Period (`InpDPeriod`):** The smoothing period for the final signal line (%D). (Default: `3`).
+* **%D MA Type (`InpDMAType`):** The type of moving average used for the "%D" step. Now supports extended types: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
 * **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the calculation (`Standard` or `Heikin Ashi`).
 
 ## 5. Usage and Interpretation
@@ -60,4 +58,3 @@ Our MQL5 implementation is a robust, unified indicator built on a modular, objec
 * **Crossovers:** The crossover of the %K line and the %D signal line is a common trade signal. Due to the indicator's sensitivity, these signals will be more frequent than with the Slow Stochastic.
 * **Divergence:** Look for divergences between the Stochastic and the price action.
 * **Using Heikin Ashi:** Selecting the Heikin Ashi option results in a smoother oscillator, which can help mitigate some of the inherent "choppiness" of the Fast Stochastic.
-* **Caution:** The Fast Stochastic is a very sensitive, range-bound oscillator. It generates many signals and is highly susceptible to market noise. It is often used by short-term traders or as a component in a larger system rather than as a standalone signal generator. Many traders prefer the smoother signals of the Slow Stochastic.
