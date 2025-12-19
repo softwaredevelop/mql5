@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // Optimized for incremental calculation
+#property version   "3.00" // Refactored to use MovingAverage_Engine
 #property description "Professional Fast Stochastic with selectable MA type and"
 #property description "candle source (Standard or Heikin Ashi)."
 
@@ -44,14 +44,15 @@ enum ENUM_CANDLE_SOURCE
 //--- Input Parameters ---
 input int                InpKPeriod      = 14;
 input int                InpDPeriod      = 3;
-input ENUM_MA_METHOD     InpDMAType      = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE from Engine to support all 7 types
+input ENUM_MA_TYPE       InpDMAType      = SMA;
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
 
 //--- Indicator Buffers ---
 double    BufferK[];
 double    BufferD[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CStochasticFastCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -59,33 +60,29 @@ CStochasticFastCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferK, INDICATOR_DATA);
    SetIndexBuffer(1, BufferD, INDICATOR_DATA);
    ArraySetAsSeries(BufferK, false);
    ArraySetAsSeries(BufferD, false);
 
-//--- Dynamically create the appropriate calculator instance
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
          g_calculator = new CStochasticFastCalculator_HA();
-         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("FastStoch HA(%d,%d)", InpKPeriod, InpDPeriod));
+         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("FastStoch HA(%d,%d,%s)", InpKPeriod, InpDPeriod, EnumToString(InpDMAType)));
          break;
-      default: // CANDLE_STANDARD
+      default:
          g_calculator = new CStochasticFastCalculator();
-         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("FastStoch(%d,%d)", InpKPeriod, InpDPeriod));
+         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("FastStoch(%d,%d,%s)", InpKPeriod, InpDPeriod, EnumToString(InpDMAType)));
          break;
      }
 
-//--- Check if creation was successful and initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpKPeriod, InpDPeriod, InpDMAType))
      {
       Print("Failed to create or initialize Fast Stochastic Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpKPeriod - 1);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpKPeriod + InpDPeriod - 2);
@@ -98,7 +95,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
@@ -107,7 +103,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -120,7 +116,6 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
 
    return(rates_total);
