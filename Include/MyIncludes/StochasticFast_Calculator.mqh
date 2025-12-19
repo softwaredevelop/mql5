@@ -1,37 +1,38 @@
 //+------------------------------------------------------------------+
 //|                                     StochasticFast_Calculator.mqh|
-//|      VERSION 1.20: Optimized for incremental calculation.        |
+//|      VERSION 2.10: Fixed %D smoothing offset.                    |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
-//|           CLASS 1: CStochasticFastCalculator (Base Class)        |
+//|           CLASS: CStochasticFastCalculator                       |
 //+==================================================================+
 class CStochasticFastCalculator
   {
 protected:
-   int               m_k_period, m_d_period;
-   ENUM_MA_METHOD    m_d_ma_type;
+   int               m_k_period;
 
-   //--- Persistent Buffers for Incremental Calculation
+   //--- Composition: Use MA Engine for %D smoothing
+   CMovingAverageCalculator m_ma_engine;
+
+   //--- Persistent Buffers
    double            m_src_high[], m_src_low[], m_src_close[];
 
    double            Highest(int period, int current_pos);
    double            Lowest(int period, int current_pos);
 
-   //--- Updated: Accepts start_index
    virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CStochasticFastCalculator(void) {};
    virtual          ~CStochasticFastCalculator(void) {};
 
-   bool              Init(int k_p, int d_p, ENUM_MA_METHOD d_ma);
+   //--- Init now takes ENUM_MA_TYPE (extended types)
+   bool              Init(int k_p, int d_p, ENUM_MA_TYPE d_ma);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &k_buffer[], double &d_buffer[]);
   };
@@ -39,31 +40,26 @@ public:
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CStochasticFastCalculator::Init(int k_p, int d_p, ENUM_MA_METHOD d_ma)
+bool CStochasticFastCalculator::Init(int k_p, int d_p, ENUM_MA_TYPE d_ma)
   {
    m_k_period  = (k_p < 1) ? 1 : k_p;
-   m_d_period  = (d_p < 1) ? 1 : d_p;
-   m_d_ma_type = d_ma;
-   return true;
+
+// Initialize the MA Engine for %D
+   return m_ma_engine.Init(d_p, d_ma);
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Main Calculation                                                 |
 //+------------------------------------------------------------------+
 void CStochasticFastCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
       double &k_buffer[], double &d_buffer[])
   {
-   if(rates_total <= m_k_period + m_d_period)
+// Ensure we have enough bars for K + D calculation
+   if(rates_total <= m_k_period + m_ma_engine.GetPeriod())
       return;
 
-//--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Buffers
    if(ArraySize(m_src_high) != rates_total)
      {
       ArrayResize(m_src_high, rates_total);
@@ -71,11 +67,10 @@ void CStochasticFastCalculator::Calculate(int rates_total, int prev_calculated, 
       ArrayResize(m_src_close, rates_total);
      }
 
-//--- 3. Prepare Source Data (Optimized)
    if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
       return;
 
-//--- 4. Calculate %K (Fast %K)
+//--- 1. Calculate %K (Fast %K)
    int loop_start_k = MathMax(m_k_period - 1, start_index);
 
    for(int i = loop_start_k; i < rates_total; i++)
@@ -90,50 +85,17 @@ void CStochasticFastCalculator::Calculate(int rates_total, int prev_calculated, 
          k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
      }
 
-//--- 5. Calculate %D (Signal Line) by smoothing %K
-   int d_start = m_k_period + m_d_period - 2;
-   int loop_start_d = MathMax(d_start, start_index);
-
-   for(int i = loop_start_d; i < rates_total; i++)
-     {
-      switch(m_d_ma_type)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == d_start)
-              {
-               double sum=0;
-               for(int j=0; j<m_d_period; j++)
-                  sum+=k_buffer[i-j];
-               d_buffer[i]=sum/m_d_period;
-              }
-            else
-              {
-               if(m_d_ma_type==MODE_EMA)
-                 {
-                  double pr=2.0/(m_d_period+1.0);
-                  d_buffer[i]=k_buffer[i]*pr+d_buffer[i-1]*(1.0-pr);
-                 }
-               else
-                  d_buffer[i]=(d_buffer[i-1]*(m_d_period-1)+k_buffer[i])/m_d_period;
-              }
-            break;
-         case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_d_period; j++) {int w=m_d_period-j; sum+=k_buffer[i-j]*w; w_sum+=w;} if(w_sum>0) d_buffer[i]=sum/w_sum;}
-         break;
-         default:
-           {double sum=0; for(int j=0; j<m_d_period; j++) sum+=k_buffer[i-j]; d_buffer[i]=sum/m_d_period;}
-         break;
-        }
-     }
+//--- 2. Calculate %D using the MA Engine (CalculateOnArray)
+// CRITICAL: Pass 'm_k_period - 1' as the offset.
+// This tells the MA Engine that valid data in k_buffer starts at index (K-1).
+   m_ma_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, m_k_period - 1);
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Source Data (Standard - Optimized)                       |
+//| Prepare Source Data (Standard)                                   |
 //+------------------------------------------------------------------+
 bool CStochasticFastCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       m_src_high[i]  = high[i];
@@ -144,7 +106,7 @@ bool CStochasticFastCalculator::PrepareSourceData(int rates_total, int start_ind
   }
 
 //+------------------------------------------------------------------+
-//| Highest                                                          |
+//| Helpers (Highest/Lowest)                                         |
 //+------------------------------------------------------------------+
 double CStochasticFastCalculator::Highest(int period, int current_pos)
   {
@@ -161,7 +123,7 @@ double CStochasticFastCalculator::Highest(int period, int current_pos)
   }
 
 //+------------------------------------------------------------------+
-//| Lowest                                                           |
+//|                                                                  |
 //+------------------------------------------------------------------+
 double CStochasticFastCalculator::Lowest(int period, int current_pos)
   {
@@ -184,19 +146,16 @@ class CStochasticFastCalculator_HA : public CStochasticFastCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high_temp[], m_ha_low_temp[], m_ha_close_temp[];
-
 protected:
    virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Source Data (Heikin Ashi - Optimized)                    |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CStochasticFastCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -204,12 +163,7 @@ bool CStochasticFastCalculator_HA::PrepareSourceData(int rates_total, int start_
       ArrayResize(m_ha_low_temp, rates_total);
       ArrayResize(m_ha_close_temp, rates_total);
      }
-
-//--- STRICT CALL: Use the optimized 10-param HA calculation
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high_temp, m_ha_low_temp, m_ha_close_temp);
-
-//--- Copy to source buffers (Optimized loop)
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high_temp, m_ha_low_temp, m_ha_close_temp);
    for(int i = start_index; i < rates_total; i++)
      {
       m_src_high[i]  = m_ha_high_temp[i];
