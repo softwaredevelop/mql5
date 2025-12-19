@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       WPR_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "3.00"
+#property version   "3.10" // Simplified Price Source Selection
 #property description "Professional Williams' Percent Range (WPR) with optional signal line"
 #property description "and selectable candle source (Standard or Heikin Ashi)."
 
@@ -53,17 +51,19 @@ enum ENUM_CANDLE_SOURCE
 
 //--- Input Parameters ---
 input int                InpWPRPeriod    = 14;
+// UPDATED: Use simplified candle source selection
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
+
 input group              "Signal Line Settings"
 input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_WPR_AND_SIGNAL;
 input int                InpSignalPeriod = 3;
-input ENUM_MA_METHOD     InpSignalMAType = MODE_SMA;
+input ENUM_MA_TYPE       InpSignalMAType = SMA;
 
 //--- Indicator Buffers ---
 double    BufferWPR[];
 double    BufferSignal[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CWPRCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -76,22 +76,20 @@ int OnInit()
    ArraySetAsSeries(BufferWPR,    false);
    ArraySetAsSeries(BufferSignal, false);
 
-   if(InpCandleSource == CANDLE_HEIKIN_ASHI)
-     {
-      g_calculator = new CWPRCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("WPR HA(%d,%d)", InpWPRPeriod, InpSignalPeriod));
-     }
-   else
-     {
-      g_calculator = new CWPRCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("WPR(%d,%d)", InpWPRPeriod, InpSignalPeriod));
-     }
+   g_calculator = new CWPRCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpWPRPeriod, InpSignalPeriod, InpSignalMAType))
+// Determine HA usage based on simplified enum
+   bool use_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpWPRPeriod, InpSignalPeriod, InpSignalMAType, use_ha))
      {
       Print("Failed to create or initialize WPR Calculator object.");
       return(INIT_FAILED);
      }
+
+   string type = use_ha ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("WPR%s(%d,%d,%s)", type, InpWPRPeriod, InpSignalPeriod, EnumToString(InpSignalMAType)));
 
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpWPRPeriod - 1);
@@ -112,16 +110,28 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 //| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferWPR, BufferSignal);
+// We pass PRICE_CLOSE as a dummy because WPR/Stoch logic inside uses H/L/C directly
+// The calculator handles HA switching internally based on Init()
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, PRICE_CLOSE, BufferWPR, BufferSignal);
 
    if(InpDisplayMode == DISPLAY_WPR_ONLY)
      {
-      for(int i=0; i<rates_total; i++)
+      int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start; i < rates_total; i++)
          BufferSignal[i] = EMPTY_VALUE;
      }
 
