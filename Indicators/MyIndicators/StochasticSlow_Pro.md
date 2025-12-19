@@ -6,7 +6,7 @@ The Stochastic Oscillator, developed by George C. Lane, is a momentum indicator 
 
 Our **Stochastic Slow Pro** is a highly flexible and professional implementation that elevates the classic indicator into a fully customizable tool. It allows the user to select the **Moving Average type** for both smoothing steps (%K Slowing and %D Signal Line) independently. Furthermore, it features a seamless, built-in option to calculate the oscillator based on either **standard price data or smoothed Heikin Ashi data**.
 
-This provides traders with a powerful tool to replicate classic definitions, match platform-specific behaviors (like MetaTrader's default SMMA for the %D line), or create entirely new, custom-smoothed Stochastic oscillators.
+This provides traders with a powerful tool to replicate classic definitions, match platform-specific behaviors (like MetaTrader's default SMMA for the %D line), or create entirely new, custom-smoothed Stochastic oscillators (e.g., using DEMA for faster reaction).
 
 ## 2. Mathematical Foundations and Calculation Logic
 
@@ -35,37 +35,41 @@ The Slow Stochastic is derived from the Fast Stochastic by adding two layers of 
 Our MQL5 implementation is a robust, unified indicator built on a modular, object-oriented framework.
 
 * **Modular Calculation Engine (`StochasticSlow_Calculator.mqh`):**
-    The entire calculation logic for both standard and Heikin Ashi versions, including the flexible MA smoothing, is encapsulated within a single, powerful include file.
-  * An elegant, object-oriented inheritance model (`CStochasticSlowCalculator` and `CStochasticSlowCalculator_HA`) allows the main indicator file to dynamically choose the correct calculation engine at runtime based on user input, eliminating code duplication.
+    The entire calculation logic is encapsulated within a reusable include file.
+  * **Composition Pattern:** The calculator internally uses **two instances** of our powerful `MovingAverage_Engine`. One handles the "Slowing" step, and the other handles the "%D" signal line. This ensures mathematical consistency and allows for advanced smoothing combinations.
 
-* **Optimized Incremental Calculation:**
+* **Advanced Smoothing Options:**
+    Thanks to the integration with the `MovingAverage_Engine`, both smoothing steps support **seven** different methods (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA). This allows for highly specialized configurations, such as a double-smoothed TEMA Stochastic.
+
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (like `m_raw_k`) persist their state between ticks. This allows recursive smoothing methods (like EMA and SMMA) to continue seamlessly from the last known value without re-processing the entire history.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks, ensuring seamless updates.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (Raw %K -> Slow %K -> %D), ensuring that each step starts only when valid data is available. This prevents artifacts and "INF" errors at the beginning of the chart.
 
-* **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for both the "Slowing" and the "%D" smoothing steps.
+* **Object-Oriented Design:**
+  * An elegant inheritance model (`CStochasticSlowCalculator` and `CStochasticSlowCalculator_HA`) allows the main indicator file to dynamically choose the correct calculation engine (Standard or Heikin Ashi) at runtime.
 
 ## 4. Parameters
 
-* **%K Period (`InpKPeriod`):** The lookback period for the initial Stochastic calculation. Default is `5`.
-* **Slowing Period (`InpSlowingPeriod`):** The smoothing period for the main Slow %K line. Default is `3`.
-* **Slowing MA Type (`InpSlowingMAType`):** The MA type for the "Slowing" step. Default is `MODE_SMA`.
-* **%D Period (`InpDPeriod`):** The smoothing period for the final signal line (%D). Default is `3`.
-* **%D MA Type (`InpDMAType`):** The MA type for the "%D" step. Default is `MODE_SMA`.
+* **%K Period (`InpKPeriod`):** The lookback period for the initial Stochastic calculation. (Default: `5`).
+* **Slowing Period (`InpSlowingPeriod`):** The smoothing period for the main Slow %K line. (Default: `3`).
+* **Slowing MA Type (`InpSlowingMAType`):** The MA type for the "Slowing" step. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
+* **%D Period (`InpDPeriod`):** The smoothing period for the final signal line (%D). (Default: `3`).
+* **%D MA Type (`InpDMAType`):** The MA type for the "%D" step. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
 * **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the calculation (`Standard` or `Heikin Ashi`).
 
 ### Configuration Examples
 
 * **Classic Slow Stochastic:**
-  * `Slowing MA Type`: `MODE_SMA`
-  * `%D MA Type`: `MODE_SMA`
+  * `Slowing MA Type`: `SMA`
+  * `%D MA Type`: `SMA`
 * **MetaTrader Default Stochastic:**
-  * `Slowing MA Type`: `MODE_SMA`
-  * `%D MA Type`: `MODE_SMMA`
-* **Fast Stochastic:**
-  * `Slowing Period`: `1`
-  * `Slowing MA Type`: `MODE_SMA`
+  * `Slowing MA Type`: `SMA`
+  * `%D MA Type`: `SMMA`
+* **Ultra-Smooth Stochastic:**
+  * `Slowing MA Type`: `TMA`
+  * `%D MA Type`: `TMA`
 
 ## 5. Usage and Interpretation
 
@@ -73,4 +77,3 @@ Our MQL5 implementation is a robust, unified indicator built on a modular, objec
 * **Crossovers:** The crossover of the %K line and the %D signal line is a common trade signal.
 * **Divergence:** Look for divergences between the Stochastic and the price action.
 * **Using Heikin Ashi:** Selecting the Heikin Ashi option results in a significantly smoother oscillator, which can be useful for filtering out market noise.
-* **Caution:** The Stochastic is a range-bound oscillator and performs best in sideways markets. In a strong trend, it can remain in overbought or oversold territory for extended periods.
