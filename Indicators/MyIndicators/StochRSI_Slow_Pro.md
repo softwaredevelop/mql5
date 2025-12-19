@@ -31,29 +31,34 @@ The StochRSI builds upon the standard RSI and Stochastic formulas.
 
 Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Component-Based Design:** The StochRSI calculator (`StochRSI_Slow_Calculator.mqh`) does not recalculate the RSI internally. Instead, it **reuses** our existing, standalone `RSI_Pro_Calculator.mqh` module. This eliminates code duplication and ensures that both the RSI and StochRSI indicators are always based on the exact same, robust RSI calculation logic.
+* **Component-Based Design (Composition):**
+    The StochRSI calculator (`StochRSI_Slow_Calculator.mqh`) is a powerful orchestrator that reuses three of our core engines:
+    1. **RSI Engine:** It delegates the RSI calculation to the robust `RSI_Pro_Calculator.mqh`.
+    2. **Slowing Engine:** It uses a `MovingAverage_Engine.mqh` instance to smooth the Raw %K.
+    3. **Signal Engine:** It uses another `MovingAverage_Engine.mqh` instance to calculate the %D line.
+    This ensures mathematical consistency across the entire suite and eliminates code duplication.
 
-* **Optimized Incremental Calculation:**
+* **Advanced Smoothing Options:**
+    Thanks to the integration with the `MovingAverage_Engine`, both smoothing steps support **seven** different methods (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA).
+
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (like `m_rsi_buffer` and `m_raw_k`) persist their state between ticks. This allows recursive smoothing methods (like EMA and SMMA) to continue seamlessly from the last known value without re-processing the entire history.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> Raw %K -> Slow %K -> %D), ensuring that each step starts only when valid data is available. This prevents artifacts and "INF" errors at the beginning of the chart.
 
 * **Object-Oriented Logic:**
-  * The `CStochRSI_Slow_Calculator` contains a pointer to an `CRSIProCalculator` object.
-  * The Heikin Ashi version (`CStochRSI_Slow_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module (`CRSIProCalculator_HA`).
-
-* **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for both the "Slowing" and the "%D" smoothing steps.
+  * The Heikin Ashi version (`CStochRSI_Slow_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module.
 
 ## 4. Parameters
 
-* **RSI Period (`InpRSIPeriod`):** The lookback period for the underlying RSI.
-* **Stochastic %K Period (`InpKPeriod`):** The lookback period for the Stochastic calculation on the RSI.
-* **Slowing Period (`InpSlowingPeriod`):** The smoothing period for the main Slow %K line.
-* **%D Period (`InpDPeriod`):** The smoothing period for the signal line.
-* **Applied Price (`InpSourcePrice`):** The source price for the underlying RSI. This unified dropdown allows you to select from all standard and Heikin Ashi price types.
-* **Slowing MA Type (`InpSlowingMAType`):** The MA type for the "Slowing" step.
-* **%D MA Type (`InpDMAType`):** The MA type for the "%D" signal line.
+* **RSI Period (`InpRSIPeriod`):** The lookback period for the underlying RSI. (Default: `14`).
+* **Stochastic %K Period (`InpKPeriod`):** The lookback period for the Stochastic calculation on the RSI. (Default: `14`).
+* **Slowing Period (`InpSlowingPeriod`):** The smoothing period for the main Slow %K line. (Default: `3`).
+* **%D Period (`InpDPeriod`):** The smoothing period for the signal line. (Default: `3`).
+* **Applied Price (`InpSourcePrice`):** The source price for the underlying RSI. (Standard or Heikin Ashi).
+* **Slowing MA Type (`InpSlowingMAType`):** The MA type for the "Slowing" step. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
+* **%D MA Type (`InpDMAType`):** The MA type for the "%D" signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
 
 ## 5. Usage and Interpretation
 
