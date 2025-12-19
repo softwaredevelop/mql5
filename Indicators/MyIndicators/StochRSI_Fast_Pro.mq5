@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.10" // Optimized for incremental calculation
+#property version   "3.20" // Refactored to use MovingAverage_Engine
 #property description "Professional Fast Stochastic RSI with selectable MA type and"
 #property description "price source (Standard or Heikin Ashi)."
 
@@ -41,13 +41,14 @@ input int                       InpKPeriod       = 14;
 input int                       InpDPeriod       = 3;
 input group                     "MA & Price Settings"
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD;
-input ENUM_MA_METHOD            InpDMAType       = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpDMAType       = SMA;
 
 //--- Indicator Buffers ---
 double    BufferK[];
 double    BufferD[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CStochRSI_Fast_Calculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -63,12 +64,12 @@ int OnInit()
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CStochRSI_Fast_Calculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("StochRSI Fast HA(%d,%d)", InpRSIPeriod, InpKPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("StochRSI Fast HA(%d,%d,%s)", InpRSIPeriod, InpKPeriod, EnumToString(InpDMAType)));
      }
    else
      {
       g_calculator = new CStochRSI_Fast_Calculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("StochRSI Fast(%d,%d)", InpRSIPeriod, InpKPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("StochRSI Fast(%d,%d,%s)", InpRSIPeriod, InpKPeriod, EnumToString(InpDMAType)));
      }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpRSIPeriod, InpKPeriod, InpDPeriod, InpDMAType))
@@ -99,7 +100,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -118,7 +119,6 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferK, BufferD);
 
    return(rates_total);
