@@ -25,27 +25,29 @@ This is mathematically equivalent to: $\text{\%R}_i = \text{Fast \%K}_i - 100$.
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation is a prime example of our "Pragmatic Reusability" principle, built as an intelligent "adapter" on top of our existing Stochastic engine.
+Our MQL5 implementation is a prime example of our "Pragmatic Reusability" principle, built as an intelligent "adapter" on top of our existing engines.
 
-* **Adapter Design Pattern:** The `WPR_Calculator` does not contain any WPR calculation logic itself. Instead, it **reuses** our existing, standalone `StochasticFast_Calculator.mqh` module.
-  * It calls the Fast Stochastic engine to get the %K and %D lines.
-  * It then performs a simple transformation (`value - 100`) on the results to convert them to the WPR's -100 to 0 scale.
-  * This approach eliminates code duplication and guarantees that our WPR and Fast Stochastic indicators are always perfectly in sync.
+* **Composition Pattern:** The `WPR_Calculator` orchestrates two powerful engines:
+  1. **Stochastic Engine:** It reuses the `StochasticFast_Calculator.mqh` to compute the raw %K value, which is then transformed into %R. This eliminates code duplication and guarantees consistency.
+  2. **MA Engine:** It uses the `MovingAverage_Engine.mqh` to calculate the optional signal line. This allows for advanced smoothing methods beyond standard MAs.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Efficiency:** By reusing the optimized engines, the WPR inherits their high performance and zero-lag updates.
 
 * **Object-Oriented Logic:**
-  * The `CWPRCalculator` base class contains a pointer to a `CStochasticFastCalculator` object.
-  * The Heikin Ashi version (`CWPRCalculator_HA`) is achieved simply by instantiating the Heikin Ashi version of the Stochastic module (`CStochasticFastCalculator_HA`).
-
-* **Optional Signal Line:** The indicator includes a fully customizable moving average signal line, inherited directly from the underlying Fast Stochastic's %D calculation.
+  * The Heikin Ashi version is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the Stochastic module.
 
 ## 4. Parameters
 
-* **WPR Period (`InpWPRPeriod`):** The lookback period for the indicator. Default is `14`.
+* **WPR Period (`InpWPRPeriod`):** The lookback period for the indicator. (Default: `14`).
 * **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the calculation (`Standard` or `Heikin Ashi`).
 * **Display Mode (`InpDisplayMode`):** Toggles the visibility of the signal line.
 * **Signal Line Settings:**
   * `InpSignalPeriod`: The lookback period for the signal line.
-  * `InpSignalMAType`: The type of moving average for the signal line.
+  * `InpSignalMAType`: The type of moving average for the signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
 
 ## 5. Usage and Interpretation
 
