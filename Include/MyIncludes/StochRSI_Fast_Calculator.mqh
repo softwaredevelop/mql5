@@ -1,23 +1,26 @@
 //+------------------------------------------------------------------+
 //|                                      StochRSI_Fast_Calculator.mqh|
-//|  VERSION 1.20: Optimized for incremental calculation.            |
+//|  VERSION 2.00: Uses MovingAverage_Engine for smoothing.          |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\RSI_Pro_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
-//|           CLASS 1: CStochRSI_Fast_Calculator (Base Class)        |
+//|           CLASS: CStochRSI_Fast_Calculator                       |
 //+==================================================================+
 class CStochRSI_Fast_Calculator
   {
 protected:
-   int               m_rsi_period, m_k_period, m_d_period;
-   ENUM_MA_METHOD    m_d_ma_type;
-   CRSIProCalculator *m_rsi_calculator;
+   int               m_rsi_period, m_k_period;
 
-   //--- Persistent Buffers for Incremental Calculation
+   //--- Composition: RSI Engine + MA Engine
+   CRSIProCalculator *m_rsi_calculator;
+   CMovingAverageCalculator m_ma_engine; // For %D smoothing
+
+   //--- Persistent Buffers
    double            m_rsi_buffer[];
 
    double            Highest(const double &array[], int period, int current_pos);
@@ -27,9 +30,9 @@ public:
                      CStochRSI_Fast_Calculator(void);
    virtual          ~CStochRSI_Fast_Calculator(void);
 
-   bool              Init(int rsi_p, int k_p, int d_p, ENUM_MA_METHOD d_ma);
+   //--- Init now takes ENUM_MA_TYPE for %D
+   bool              Init(int rsi_p, int k_p, int d_p, ENUM_MA_TYPE d_ma);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &k_buffer[], double &d_buffer[]);
   };
@@ -54,48 +57,53 @@ CStochRSI_Fast_Calculator::~CStochRSI_Fast_Calculator(void)
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_METHOD d_ma)
+bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_TYPE d_ma)
   {
    m_rsi_period = (rsi_p < 1) ? 1 : rsi_p;
    m_k_period   = (k_p < 1) ? 1 : k_p;
-   m_d_period   = (d_p < 1) ? 1 : d_p;
-   m_d_ma_type  = d_ma;
 
    if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
       return false;
-   return m_rsi_calculator.Init(m_rsi_period, 1, MODE_SMA, 2.0); // Other params are not used
+
+// Init RSI calculator (MA params for RSI bands are dummy here as we only need RSI line)
+   if(!m_rsi_calculator.Init(m_rsi_period, 1, MODE_SMA, 2.0))
+      return false;
+
+// Init MA Engine for %D
+   return m_ma_engine.Init(d_p, d_ma);
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Main Calculation                                                 |
 //+------------------------------------------------------------------+
 void CStochRSI_Fast_Calculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
   {
-   if(rates_total <= m_rsi_period + m_k_period + m_d_period)
+// Minimum bars check
+   int min_bars = m_rsi_period + m_k_period + m_ma_engine.GetPeriod();
+   if(rates_total <= min_bars)
       return;
+
    if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
       return;
 
-//--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Internal Buffers
    if(ArraySize(m_rsi_buffer) != rates_total)
       ArrayResize(m_rsi_buffer, rates_total);
 
-//--- 3. Calculate RSI (Incremental)
+//--- 1. Calculate RSI (Incremental)
    double dummy1[], dummy2[], dummy3[];
+// Note: RSI Calculator handles its own incremental logic
    m_rsi_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
                               m_rsi_buffer, dummy1, dummy2, dummy3);
 
-//--- 4. Calculate %K (Fast %K)
-   int k_start = m_rsi_period + m_k_period - 2;
-   int loop_start_k = MathMax(k_start, start_index);
+//--- 2. Calculate %K (StochRSI)
+// RSI is valid from index: m_rsi_period
+// StochRSI needs 'm_k_period' of RSI data.
+// So StochRSI starts at: m_rsi_period + m_k_period - 1
+   int k_start_offset = m_rsi_period + m_k_period - 1;
+   int loop_start_k = MathMax(k_start_offset, start_index);
 
    for(int i = loop_start_k; i < rates_total; i++)
      {
@@ -109,42 +117,9 @@ void CStochRSI_Fast_Calculator::Calculate(int rates_total, int prev_calculated, 
          k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
      }
 
-//--- 5. Calculate %D (Signal Line) by smoothing %K
-   int d_start = k_start + m_d_period - 1;
-   int loop_start_d = MathMax(d_start, start_index);
-
-   for(int i = loop_start_d; i < rates_total; i++)
-     {
-      switch(m_d_ma_type)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == d_start)
-              {
-               double sum=0;
-               for(int j=0; j<m_d_period; j++)
-                  sum+=k_buffer[i-j];
-               d_buffer[i]=sum/m_d_period;
-              }
-            else
-              {
-               if(m_d_ma_type==MODE_EMA)
-                 {
-                  double pr=2.0/(m_d_period+1.0);
-                  d_buffer[i]=k_buffer[i]*pr+d_buffer[i-1]*(1.0-pr);
-                 }
-               else
-                  d_buffer[i]=(d_buffer[i-1]*(m_d_period-1)+k_buffer[i])/m_d_period;
-              }
-            break;
-         case MODE_LWMA:
-           {double sum=0,w_sum=0; for(int j=0; j<m_d_period; j++) {int w=m_d_period-j; sum+=k_buffer[i-j]*w; w_sum+=w;} if(w_sum>0) d_buffer[i]=sum/w_sum;}
-         break;
-         default:
-           {double sum=0; for(int j=0; j<m_d_period; j++) sum+=k_buffer[i-j]; d_buffer[i]=sum/m_d_period;}
-         break;
-        }
-     }
+//--- 3. Calculate %D (Signal Line) using MA Engine
+// Pass the correct offset to avoid smoothing invalid data
+   m_ma_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, k_start_offset);
   }
 
 //+------------------------------------------------------------------+
@@ -191,12 +166,13 @@ public:
   };
 
 //+------------------------------------------------------------------+
-//| Constructor                                                      |
+//|                                                                  |
 //+------------------------------------------------------------------+
 CStochRSI_Fast_Calculator_HA::CStochRSI_Fast_Calculator_HA(void)
   {
    if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
       delete m_rsi_calculator;
+// Use HA version of RSI calculator
    m_rsi_calculator = new CRSIProCalculator_HA();
   }
 //+------------------------------------------------------------------+
