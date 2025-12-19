@@ -1,7 +1,6 @@
 //+------------------------------------------------------------------+
 //|                           MovingAverage_Ribbon_MTF_Calculator.mqh|
-//|      Engine for the fully customizable MTF MA Ribbon.            |
-//|      Contains both the Line Helper and the Ribbon Manager.       |
+//|      VERSION 2.20: Fixed uninitialized buffer bug on W1.         |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -82,8 +81,12 @@ void CSingleMAMTFCalculator::Calculate(int rates_total, int prev_calculated, con
    if(CheckPointer(m_calculator) == POINTER_INVALID)
       return;
 
+// CRITICAL FIX: Initialize buffer with EMPTY_VALUE on full recalc.
    if(prev_calculated == 0)
+     {
+      ArrayInitialize(output_buffer, EMPTY_VALUE);
       m_htf_prev_calc = 0;
+     }
 
 //--- MTF MODE ---
    if(m_is_mtf)
