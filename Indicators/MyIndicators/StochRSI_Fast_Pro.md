@@ -28,27 +28,31 @@ The Fast StochRSI is a direct application of the Stochastic formula to an RSI da
 
 Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Component-Based Design:** The StochRSI calculator (`StochRSI_Fast_Calculator.mqh`) **reuses** our existing, standalone `RSI_Pro_Calculator.mqh` module. This eliminates code duplication and ensures consistency.
+* **Component-Based Design (Composition):**
+    The StochRSI calculator (`StochRSI_Fast_Calculator.mqh`) is a powerful orchestrator that reuses two of our core engines:
+    1. **RSI Engine:** It delegates the RSI calculation to the robust `RSI_Pro_Calculator.mqh`.
+    2. **MA Engine:** It delegates the %D signal line smoothing to the universal `MovingAverage_Engine.mqh`.
+    This ensures mathematical consistency across the entire suite and eliminates code duplication.
 
-* **Optimized Incremental Calculation:**
+* **Advanced Smoothing Options:**
+    Thanks to the integration with the `MovingAverage_Engine`, the %D signal line supports **seven** different smoothing methods (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA).
+
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (like `m_rsi_buffer`) persist their state between ticks. This allows the calculation to efficiently access historical RSI data for the High/Low range search without re-copying or re-calculating the entire series.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> StochRSI -> %D), ensuring that each step starts only when valid data is available. This prevents artifacts and "INF" errors at the beginning of the chart.
 
 * **Object-Oriented Logic:**
-  * The `CStochRSI_Fast_Calculator` contains a pointer to an `CRSIProCalculator` object.
-  * The Heikin Ashi version (`CStochRSI_Fast_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module (`CRSIProCalculator_HA`).
-
-* **Full MA Type Support:** The calculator contains a complete, robust implementation for all standard MQL5 MA types (SMA, EMA, SMMA, LWMA) for the "%D" signal line smoothing.
+  * The Heikin Ashi version (`CStochRSI_Fast_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module.
 
 ## 4. Parameters
 
-* **RSI Period (`InpRSIPeriod`):** The lookback period for the underlying RSI.
-* **Stochastic %K Period (`InpKPeriod`):** The lookback period for the Stochastic calculation on the RSI.
-* **%D Period (`InpDPeriod`):** The smoothing period for the signal line.
-* **Applied Price (`InpSourcePrice`):** The source price for the underlying RSI. This unified dropdown allows you to select from all standard and Heikin Ashi price types.
-* **%D MA Type (`InpDMAType`):** The MA type for the "%D" signal line.
+* **RSI Period (`InpRSIPeriod`):** The lookback period for the underlying RSI. (Default: `14`).
+* **Stochastic %K Period (`InpKPeriod`):** The lookback period for the Stochastic calculation on the RSI. (Default: `14`).
+* **%D Period (`InpDPeriod`):** The smoothing period for the signal line. (Default: `3`).
+* **Applied Price (`InpSourcePrice`):** The source price for the underlying RSI. (Standard or Heikin Ashi).
+* **%D MA Type (`InpDMAType`):** The MA type for the "%D" signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
 
 ## 5. Usage and Interpretation
 
