@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.10" // Optimized for incremental calculation
+#property version   "3.20" // Refactored to use MovingAverage_Engine
 #property description "Professional Slow Stochastic RSI with selectable MA types and"
 #property description "price source (Standard or Heikin Ashi)."
 
@@ -44,14 +44,15 @@ input int                       InpSlowingPeriod = 3;
 input int                       InpDPeriod       = 3;
 input group                     "MA & Price Settings"
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD;
-input ENUM_MA_METHOD            InpSlowingMAType = MODE_SMA;
-input ENUM_MA_METHOD            InpDMAType       = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSlowingMAType = SMA;
+input ENUM_MA_TYPE              InpDMAType       = SMA;
 
 //--- Indicator Buffers ---
 double    BufferK[];
 double    BufferD[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CStochRSI_Slow_Calculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -103,7 +104,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -122,7 +123,6 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferK, BufferD);
 
    return(rates_total);
