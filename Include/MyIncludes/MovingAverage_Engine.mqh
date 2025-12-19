@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 1.40: Optimized for incremental calculation.        |
+//|      VERSION 2.10: Fixed CalculateOnArray offset logic.          |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -20,25 +20,26 @@ enum ENUM_MA_TYPE
   };
 
 //+==================================================================+
+//|             CLASS: CMovingAverageCalculator                      |
+//+==================================================================+
 class CMovingAverageCalculator
   {
 protected:
    int               m_period;
    ENUM_MA_TYPE      m_ma_type;
 
-   //--- Persistent Buffers for Incremental Calculation
+   //--- Persistent Buffers
    double            m_price[];
+   double            m_temp_buffer1[];
+   double            m_temp_buffer2[];
+   double            m_temp_buffer3[];
 
-   //--- Buffers for complex MAs (TMA, DEMA, TEMA)
-   double            m_temp_buffer1[]; // Used for TMA(sma1), DEMA(ema1), TEMA(ema1)
-   double            m_temp_buffer2[]; // Used for DEMA(ema2), TEMA(ema2)
-   double            m_temp_buffer3[]; // Used for TEMA(ema3)
-
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
-
-   //--- Updated: Accepts start_index
    void              CalculateEMA(int rates_total, int start_index, int period, const double &source[], double &dest[]);
+
+   //--- Internal Core Calculation that works on m_price
+   //--- data_offset: The index where valid data starts in m_price
+   void              RunCalculation(int rates_total, int start_index, double &output_buffer[], int data_offset = 0);
 
 public:
                      CMovingAverageCalculator(void) {};
@@ -46,29 +47,15 @@ public:
 
    bool              Init(int period, ENUM_MA_TYPE ma_type);
 
-   //--- Updated: Accepts prev_calculated
+   //--- Standard Calculation (OHLC input)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &ma_buffer[]);
+
+   //--- Calculation on Custom Array (e.g. for smoothing other indicators)
+   //--- src_start_index: The index where valid data starts in src_buffer (default 0)
+   void              CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &output_buffer[], int src_start_index = 0);
 
    int               GetPeriod(void) const { return m_period; }
   };
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-class CMovingAverageCalculator_HA : public CMovingAverageCalculator
-  {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers (Persistent)
-   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
-protected:
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
-
-//+==================================================================+
-//|                 METHOD IMPLEMENTATIONS                           |
-//+==================================================================+
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
@@ -81,25 +68,19 @@ bool CMovingAverageCalculator::Init(int period, ENUM_MA_TYPE ma_type)
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Calculate (Standard OHLC)                                        |
 //+------------------------------------------------------------------+
 void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &ma_buffer[])
   {
    if(rates_total < m_period)
       return;
 
-//--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Buffers
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
-      // Resize temp buffers only if needed by type
+      // Resize temp buffers if needed
       if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
          ArrayResize(m_temp_buffer1, rates_total);
       if(m_ma_type == DEMA || m_ma_type == TEMA)
@@ -108,18 +89,62 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
          ArrayResize(m_temp_buffer3, rates_total);
      }
 
-//--- 3. Prepare Price (Optimized)
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-   int start_pos = m_period - 1;
+// Standard OHLC data is valid from index 0
+   RunCalculation(rates_total, start_index, ma_buffer, 0);
+  }
+
+//+------------------------------------------------------------------+
+//| CalculateOnArray (Custom Input)                                  |
+//+------------------------------------------------------------------+
+void CMovingAverageCalculator::CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &output_buffer[], int src_start_index = 0)
+  {
+// We need at least (offset + period) bars to calculate one value
+   if(rates_total < src_start_index + m_period)
+      return;
+
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+// Resize internal buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer1, rates_total);
+      if(m_ma_type == DEMA || m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer2, rates_total);
+      if(m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer3, rates_total);
+     }
+
+// Copy source array to internal m_price buffer
+// Optimization: We can start copying from src_start_index, but to be safe with incremental updates,
+// we copy from start_index (or src_start_index if we are at the beginning).
+   int copy_start = MathMax(start_index, src_start_index);
+
+   for(int i = copy_start; i < rates_total; i++)
+      m_price[i] = src_buffer[i];
+
+   RunCalculation(rates_total, start_index, output_buffer, src_start_index);
+  }
+
+//+------------------------------------------------------------------+
+//| RunCalculation (Core Logic)                                      |
+//+------------------------------------------------------------------+
+void CMovingAverageCalculator::RunCalculation(int rates_total, int start_index, double &output_buffer[], int data_offset)
+  {
+// The first valid MA value can be calculated at (offset + period - 1)
+   int start_pos = data_offset + m_period - 1;
+
+// Ensure loop starts at valid position
    int loop_start = MathMax(start_pos, start_index);
 
-//--- 4. Calculate MA based on type
    switch(m_ma_type)
      {
       case EMA:
-         CalculateEMA(rates_total, start_index, m_period, m_price, ma_buffer);
+         CalculateEMA(rates_total, loop_start, m_period, m_price, output_buffer);
          break;
 
       case SMMA:
@@ -130,11 +155,11 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
                double sum=0;
                for(int j=0; j<m_period; j++)
                   sum+=m_price[i-j];
-               ma_buffer[i]=sum/m_period;
+               output_buffer[i]=sum/m_period;
               }
             else
-               // Recursive SMMA works incrementally because ma_buffer[i-1] is preserved
-               ma_buffer[i]=(ma_buffer[i-1]*(m_period-1)+m_price[i])/m_period;
+               // Recursive SMMA relies on valid previous value [i-1]
+               output_buffer[i]=(output_buffer[i-1]*(m_period-1)+m_price[i])/m_period;
            }
          break;
 
@@ -149,16 +174,18 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
                w_sum+=w;
               }
             if(w_sum>0)
-               ma_buffer[i]=sum/w_sum;
+               output_buffer[i]=sum/w_sum;
            }
          break;
 
       case TMA:
         {
          int period1 = (int)ceil((m_period + 1.0) / 2.0);
-         int loop_start_tma = MathMax(period1 - 1, start_index);
+         // TMA logic is complex with offsets.
+         // First MA starts at: data_offset + period1 - 1
+         int start_pos1 = data_offset + period1 - 1;
+         int loop_start_tma = MathMax(start_pos1, start_index);
 
-         // Step 1: Simple MA into temp buffer
          for(int i = loop_start_tma; i < rates_total; i++)
            {
             double sum = 0;
@@ -167,47 +194,41 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
             m_temp_buffer1[i] = sum / period1;
            }
 
-         // Step 2: Simple MA of the first MA
+         // Second MA starts at: start_pos1 + period2 - 1
          int period2 = m_period - period1 + 1;
-         int loop_start_final = MathMax(period1 + period2 - 2, start_index);
+         int start_pos2 = start_pos1 + period2 - 1;
+         int loop_start_final = MathMax(start_pos2, start_index);
 
          for(int i = loop_start_final; i < rates_total; i++)
            {
             double sum = 0;
             for(int j = 0; j < period2; j++)
                sum += m_temp_buffer1[i-j];
-            ma_buffer[i] = sum / period2;
+            output_buffer[i] = sum / period2;
            }
         }
       break;
 
       case DEMA:
-        {
-         // EMA1 of Price
-         CalculateEMA(rates_total, start_index, m_period, m_price, m_temp_buffer1);
-         // EMA2 of EMA1
-         CalculateEMA(rates_total, start_index, m_period, m_temp_buffer1, m_temp_buffer2);
+         // DEMA/TEMA use EMA internally. We trust CalculateEMA to handle start_index correctly.
+         // However, DEMA needs 2x lag, TEMA 3x lag.
+         // CalculateEMA handles initialization if passed correct start index.
+         CalculateEMA(rates_total, loop_start, m_period, m_price, m_temp_buffer1);
+         CalculateEMA(rates_total, loop_start, m_period, m_temp_buffer1, m_temp_buffer2);
 
-         int loop_start_dema = MathMax((m_period - 1) * 2, start_index);
-         for(int i = loop_start_dema; i < rates_total; i++)
-            ma_buffer[i] = 2 * m_temp_buffer1[i] - m_temp_buffer2[i];
+         // Final loop
+         for(int i = loop_start; i < rates_total; i++)
+            output_buffer[i] = 2 * m_temp_buffer1[i] - m_temp_buffer2[i];
          break;
-        }
 
       case TEMA:
-        {
-         // EMA1 of Price
-         CalculateEMA(rates_total, start_index, m_period, m_price, m_temp_buffer1);
-         // EMA2 of EMA1
-         CalculateEMA(rates_total, start_index, m_period, m_temp_buffer1, m_temp_buffer2);
-         // EMA3 of EMA2
-         CalculateEMA(rates_total, start_index, m_period, m_temp_buffer2, m_temp_buffer3);
+         CalculateEMA(rates_total, loop_start, m_period, m_price, m_temp_buffer1);
+         CalculateEMA(rates_total, loop_start, m_period, m_temp_buffer1, m_temp_buffer2);
+         CalculateEMA(rates_total, loop_start, m_period, m_temp_buffer2, m_temp_buffer3);
 
-         int loop_start_tema = MathMax((m_period - 1) * 3, start_index);
-         for(int i = loop_start_tema; i < rates_total; i++)
-            ma_buffer[i] = 3 * m_temp_buffer1[i] - 3 * m_temp_buffer2[i] + m_temp_buffer3[i];
+         for(int i = loop_start; i < rates_total; i++)
+            output_buffer[i] = 3 * m_temp_buffer1[i] - 3 * m_temp_buffer2[i] + m_temp_buffer3[i];
          break;
-        }
 
       default: // SMA
          for(int i = loop_start; i < rates_total; i++)
@@ -215,7 +236,7 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
             double sum=0;
             for(int j=0; j<m_period; j++)
                sum+=m_price[i-j];
-            ma_buffer[i]=sum/m_period;
+            output_buffer[i]=sum/m_period;
            }
          break;
      }
@@ -226,33 +247,49 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
 //+------------------------------------------------------------------+
 void CMovingAverageCalculator::CalculateEMA(int rates_total, int start_index, int period, const double &source[], double &dest[])
   {
+// Note: start_index passed here is already adjusted for offset in RunCalculation
    if(rates_total < period)
       return;
 
-   int start_pos = period - 1;
    double pr = 2.0 / (double)(period + 1.0);
 
-// Determine where to start loop
-   int i = MathMax(start_pos, start_index);
+// Robust initialization check:
+// If the previous value is empty or 0 (and we are not at index 0), we might need to re-initialize.
+// But for strict incremental logic, we trust start_index.
+// The only edge case is the very first calculation.
 
-// If starting from the very beginning (or before valid data), initialize first value
-   if(i == start_pos)
+   for(int i = start_index; i < rates_total; i++)
      {
-      double sum=0;
-      for(int j=0; j<period; j++)
-         if(source[start_pos-j] != EMPTY_VALUE)
-            sum += source[start_pos-j];
-      dest[start_pos] = sum / period;
-      i++; // Move to next
-     }
+      // Check if we have a valid previous value to recurse on
+      bool has_prev = (i > 0 && dest[i-1] != 0.0 && dest[i-1] != EMPTY_VALUE);
 
-   for(; i < rates_total; i++)
-     {
-      if(source[i] != EMPTY_VALUE)
-         // Recursive calculation uses dest[i-1] which is safe due to persistence
-         dest[i] = source[i] * pr + dest[i-1] * (1.0 - pr);
+      if(has_prev)
+        {
+         if(source[i] != EMPTY_VALUE)
+            dest[i] = source[i]*pr + dest[i-1]*(1.0-pr);
+         else
+            dest[i] = dest[i-1];
+        }
       else
-         dest[i] = dest[i-1];
+        {
+         // Initialization (SMA)
+         // We need 'period' valid bars ending at i.
+         // source[i], source[i-1] ... source[i-period+1]
+         double sum=0;
+         int count=0;
+         for(int j=0; j<period; j++)
+           {
+            if(source[i-j]!=EMPTY_VALUE)
+              {
+               sum+=source[i-j];
+               count++;
+              }
+           }
+         if(count > 0)
+            dest[i] = sum/count;
+         else
+            dest[i] = 0; // Should not happen if start_index is correct
+        }
      }
   }
 
@@ -261,7 +298,6 @@ void CMovingAverageCalculator::CalculateEMA(int rates_total, int start_index, in
 //+------------------------------------------------------------------+
 bool CMovingAverageCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -285,19 +321,34 @@ bool CMovingAverageCalculator::PreparePriceSeries(int rates_total, int start_ind
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
+            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
+            break;
+         default:
+            m_price[i] = close[i];
             break;
         }
      }
    return true;
   }
 
+//+==================================================================+
+//|             CLASS 2: CMovingAverageCalculator_HA                 |
+//+==================================================================+
+class CMovingAverageCalculator_HA : public CMovingAverageCalculator
+  {
+private:
+   CHeikinAshi_Calculator m_ha_calculator;
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
+protected:
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+  };
+
 //+------------------------------------------------------------------+
 //| Prepare Price (Heikin Ashi - Optimized)                          |
 //+------------------------------------------------------------------+
 bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -306,11 +357,9 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, int start_
       ArrayResize(m_ha_close, rates_total);
      }
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-//--- Copy to m_price (Optimized loop)
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -334,7 +383,10 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, int start_
             m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i]+m_ha_close[i])/4.0;
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_price[i] = m_ha_close[i];
             break;
         }
      }
