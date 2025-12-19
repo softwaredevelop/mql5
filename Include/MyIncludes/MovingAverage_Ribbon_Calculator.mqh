@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                               MovingAverage_Ribbon_Calculator.mqh|
-//|      VERSION 2.10: Optimized for incremental calculation.        |
+//|      VERSION 2.20: Fixed uninitialized buffer bug on W1.         |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -21,7 +21,6 @@ public:
    bool              Init(int p1, ENUM_MA_TYPE t1, int p2, ENUM_MA_TYPE t2,
                           int p3, ENUM_MA_TYPE t3, int p4, ENUM_MA_TYPE t4);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &ma1_buffer[], double &ma2_buffer[], double &ma3_buffer[], double &ma4_buffer[]);
   };
@@ -38,7 +37,7 @@ protected:
 //+==================================================================+
 
 //+------------------------------------------------------------------+
-//| Constructor                                                      |
+//|                                                                  |
 //+------------------------------------------------------------------+
 CMovingAverageRibbonCalculator::CMovingAverageRibbonCalculator(void)
   {
@@ -49,7 +48,7 @@ CMovingAverageRibbonCalculator::CMovingAverageRibbonCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| Destructor                                                       |
+//|                                                                  |
 //+------------------------------------------------------------------+
 CMovingAverageRibbonCalculator::~CMovingAverageRibbonCalculator(void)
   {
@@ -64,7 +63,7 @@ CMovingAverageRibbonCalculator::~CMovingAverageRibbonCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| Factory Method                                                   |
+//|                                                                  |
 //+------------------------------------------------------------------+
 CMovingAverageCalculator *CMovingAverageRibbonCalculator::CreateMAInstance(void)
   {
@@ -72,7 +71,7 @@ CMovingAverageCalculator *CMovingAverageRibbonCalculator::CreateMAInstance(void)
   }
 
 //+------------------------------------------------------------------+
-//| Initialization                                                   |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CMovingAverageRibbonCalculator::Init(int p1, ENUM_MA_TYPE t1, int p2, ENUM_MA_TYPE t2,
       int p3, ENUM_MA_TYPE t3, int p4, ENUM_MA_TYPE t4)
@@ -92,25 +91,33 @@ bool CMovingAverageRibbonCalculator::Init(int p1, ENUM_MA_TYPE t1, int p2, ENUM_
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CMovingAverageRibbonCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &ma1_buffer[], double &ma2_buffer[], double &ma3_buffer[], double &ma4_buffer[])
   {
-   if(CheckPointer(m_ma1) == POINTER_INVALID || CheckPointer(m_ma2) == POINTER_INVALID ||
-      CheckPointer(m_ma3) == POINTER_INVALID || CheckPointer(m_ma4) == POINTER_INVALID)
+   if(CheckPointer(m_ma1) == POINTER_INVALID)
       return;
 
-//--- Delegate to individual MA calculators, passing prev_calculated
+// CRITICAL FIX: Initialize buffers with EMPTY_VALUE on full recalc.
+// This prevents garbage values if the MA engine returns early due to insufficient data (e.g. on W1).
+   if(prev_calculated == 0)
+     {
+      ArrayInitialize(ma1_buffer, EMPTY_VALUE);
+      ArrayInitialize(ma2_buffer, EMPTY_VALUE);
+      ArrayInitialize(ma3_buffer, EMPTY_VALUE);
+      ArrayInitialize(ma4_buffer, EMPTY_VALUE);
+     }
+
    m_ma1.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, ma1_buffer);
    m_ma2.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, ma2_buffer);
    m_ma3.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, ma3_buffer);
    m_ma4.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, ma4_buffer);
   }
 
-//+==================================================================+
-//|       METHOD IMPLEMENTATIONS: CMovingAverageRibbonCalculator_HA  |
-//+==================================================================+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 CMovingAverageCalculator *CMovingAverageRibbonCalculator_HA::CreateMAInstance(void)
   {
    return new CMovingAverageCalculator_HA();
