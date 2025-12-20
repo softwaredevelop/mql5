@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // True Moving Linear Regression
+#property version   "3.10" // Fixed initialization bug
 #property description "Professional Moving Linear Regression (Curve)."
 #property description "Plots the end-point of the regression line for every bar."
 
@@ -122,6 +122,14 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
+// CRITICAL FIX: Initialize buffers on full recalculation
+   if(prev_calculated == 0)
+     {
+      ArrayInitialize(BufferUpper, EMPTY_VALUE);
+      ArrayInitialize(BufferLower, EMPTY_VALUE);
+      ArrayInitialize(BufferMiddle, EMPTY_VALUE);
+     }
+
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
@@ -129,7 +137,6 @@ int OnCalculate(const int rates_total,
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Delegate calculation with prev_calculated optimization
-//--- Using CalculateMoving for the continuous curve
    g_calculator.CalculateMoving(rates_total, prev_calculated, open, high, low, close, price_type, BufferMiddle, BufferUpper, BufferLower);
 
    return(rates_total);
