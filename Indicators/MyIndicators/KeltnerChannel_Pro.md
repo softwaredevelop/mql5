@@ -36,14 +36,16 @@ The Keltner Channel is constructed by creating a channel around a central moving
 Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability.
 
 * **Modular Calculation Engine (`KeltnerChannel_Calculator.mqh`):**
-    The entire calculation logic for all three modes is encapsulated within a single, powerful include file.
-  * **Composition over Inheritance:** The calculator uses a composition-based design, internally instantiating dedicated engines for the Moving Average (`CMovingAverageCalculator`) and the ATR (`CATRCalculator`). This ensures that the Keltner Channel benefits from the same optimizations and robustness as the standalone indicators.
+    The entire calculation logic is encapsulated within a reusable include file.
+  * **Composition Pattern:** The calculator orchestrates two powerful engines:
+    1. **MA Engine:** It uses the `MovingAverage_Engine.mqh` for the Middle Line, enabling advanced smoothing types like DEMA or TEMA.
+    2. **ATR Engine:** It uses the `ATR_Calculator.mqh` for precise volatility measurement.
   * **ATR Source Logic:** The calculator internally checks the `InpAtrSource` parameter and decides whether to calculate the True Range from standard candles or from Heikin Ashi candles, providing all three logical variations within a clean, unified structure.
 
-* **Optimized Incremental Calculation:**
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
   * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (like `m_ma_price` and `m_atr_buffer`) persist their state between ticks. This allows recursive smoothing methods (like EMA for the middle line and Wilder's Smoothing for ATR) to continue seamlessly from the last known value without re-processing the entire history.
+  * **Persistent State:** The internal buffers persist their state between ticks. This allows recursive smoothing methods to continue seamlessly from the last known value without re-processing the entire history.
   * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 ## 4. Parameters
@@ -51,12 +53,12 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 The indicator's parameters are logically grouped for clarity:
 
 * **Middle Line (MA) Settings:**
-  * `InpMaPeriod`: The lookback period for the middle line. Default is `20`.
-  * `InpMaMethod`: The type of moving average for the middle line. Default is `MODE_EMA`.
-  * `InpSourcePrice`: The source price for the middle line. This unified dropdown allows you to select from all standard and Heikin Ashi price types.
+  * `InpMaPeriod`: The lookback period for the middle line. (Default: `20`).
+  * `InpMaMethod`: The type of moving average for the middle line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `EMA`).
+  * `InpSourcePrice`: The source price for the middle line. (Standard or Heikin Ashi).
 * **Channel (ATR) Settings:**
-  * `InpAtrPeriod`: The lookback period for the ATR calculation. Default is `10`.
-  * `InpMultiplier`: The factor to multiply the ATR by. Default is `2.0`.
+  * `InpAtrPeriod`: The lookback period for the ATR calculation. (Default: `10`).
+  * `InpMultiplier`: The factor to multiply the ATR by. (Default: `2.0`).
   * `InpAtrSource`: Determines the source for the ATR calculation (`Standard` or `Heikin Ashi`), allowing you to create "Hybrid" or "Pure" HA channels.
 
 ## 5. Usage and Interpretation
