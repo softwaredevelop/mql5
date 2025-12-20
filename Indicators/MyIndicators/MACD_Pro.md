@@ -2,7 +2,7 @@
 
 ## 1. Summary (Introduction)
 
-The MACD Pro is an enhanced version of the classic Moving Average Convergence/Divergence indicator. While the standard MACD uses Exponential Moving Averages (EMAs), this "Pro" version offers traders the flexibility to choose from four different moving average types for its calculation (SMA, EMA, SMMA, LWMA).
+The MACD Pro is an enhanced version of the classic Moving Average Convergence/Divergence indicator. While the standard MACD uses Exponential Moving Averages (EMAs), this "Pro" version offers traders the flexibility to choose from **seven** different moving average types for its calculation.
 
 This customization allows traders to fine-tune the indicator's responsiveness and smoothness. Our `MACD_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data, selectable from a single input parameter.
 
@@ -40,29 +40,28 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 
 * **Modular Calculation Engine (`MACD_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
-  * **Composition over Inheritance:** The calculator internally instantiates two dedicated `CMovingAverageCalculator` engines (from our universal `MovingAverage_Engine.mqh`) to handle the Fast and Slow MA calculations. This ensures that the core MA logic is consistent across our entire indicator suite.
+  * **Composition Pattern:** The calculator internally instantiates **three** dedicated `CMovingAverageCalculator` engines (from our universal `MovingAverage_Engine.mqh`):
+    1. **Fast Engine:** Calculates the Fast MA.
+    2. **Slow Engine:** Calculates the Slow MA.
+    3. **Signal Engine:** Calculates the Signal Line smoothing.
+    This ensures that the core MA logic is consistent across the entire indicator and allows for advanced combinations (e.g., DEMA-based MACD with TEMA Signal).
 
-* **Hybrid Signal Line Implementation:**
-    While the Fast and Slow MAs use the universal engine, the Signal Line calculation employs a specialized, local implementation.
-  * **Why?** The MACD Line (the input for the Signal Line) does not start at the beginning of the chart; it has a significant "warm-up" period determined by the Slow MA. Standard MA engines often assume data starts at index 0.
-  * **Solution:** Our custom Signal Line logic correctly handles this offset, ensuring that recursive smoothing methods (like EMA and SMMA) initialize correctly at the exact point where valid MACD data becomes available. This prevents calculation errors at the start of the data series.
-
-* **Optimized Incremental Calculation:**
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (`m_fast_ma`, `m_slow_ma`) persist their state between ticks. This allows recursive calculations to continue seamlessly from the last known value without re-processing the entire history.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (Fast/Slow MA -> MACD Line -> Signal Line), ensuring that each step starts only when valid data is available. This prevents artifacts and "INF" errors at the beginning of the chart.
 
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
 
 ## 4. Parameters
 
-* **Fast Period (`InpFastPeriod`):** The period for the shorter-term MA. Default is `12`.
-* **Slow Period (`InpSlowPeriod`):** The period for the longer-term MA. Default is `26`.
-* **Signal Period (`InpSignalPeriod`):** The period for the signal line's MA. Default is `9`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
-* **Source MA Type (`InpSourceMAType`):** The MA type for the Fast and Slow lines. Default is `MODE_EMA` (classic MACD).
-* **Signal MA Type (`InpSignalMAType`):** The MA type for the Signal line. Default is `MODE_EMA` (classic MACD).
+* **Fast Period (`InpFastPeriod`):** The period for the shorter-term MA. (Default: `12`).
+* **Slow Period (`InpSlowPeriod`):** The period for the longer-term MA. (Default: `26`).
+* **Signal Period (`InpSignalPeriod`):** The period for the signal line's MA. (Default: `9`).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
+* **Source MA Type (`InpSourceMAType`):** The MA type for the Fast and Slow lines. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `EMA`).
+* **Signal MA Type (`InpSignalMAType`):** The MA type for the Signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `EMA`).
 
 ## 5. Usage and Interpretation
 
@@ -76,5 +75,5 @@ The interpretation of the MACD Pro is identical to the standard MACD, but the si
 **Effect of MA Types:**
 
 * **EMA (Default):** The classic, balanced MACD.
-* **SMA:** Using SMAs will result in a much slower, smoother MACD with significant lag.
-* **LWMA:** Using LWMAs will result in a faster, more responsive MACD.
+* **TEMA/DEMA:** Using these will result in a much faster, more responsive MACD, ideal for scalping.
+* **TMA:** Using Triangular MA will result in a very smooth, laggy MACD, useful for filtering out noise in long-term trends.
