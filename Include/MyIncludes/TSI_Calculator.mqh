@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               TSI_Calculator.mqh |
-//|      VERSION 2.10: Fixed initialization bug (zero fill).         |
+//|      VERSION 3.00: Uses MovingAverage_Engine for Signal Line.    |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -15,7 +15,7 @@ class CTSICalculator
   {
 protected:
    int               m_slow_p, m_fast_p, m_signal_p;
-   ENUM_MA_METHOD    m_signal_ma_type;
+   ENUM_MA_TYPE      m_signal_ma_type;
 
    //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
@@ -32,7 +32,8 @@ public:
                      CTSICalculator(void);
    virtual          ~CTSICalculator(void);
 
-   bool              Init(int slow_p, int fast_p, int signal_p, ENUM_MA_METHOD signal_ma);
+   //--- Init now takes ENUM_MA_TYPE
+   bool              Init(int slow_p, int fast_p, int signal_p, ENUM_MA_TYPE signal_ma);
 
    //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
@@ -63,14 +64,14 @@ CTSICalculator::~CTSICalculator(void)
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CTSICalculator::Init(int slow_p, int fast_p, int signal_p, ENUM_MA_METHOD signal_ma)
+bool CTSICalculator::Init(int slow_p, int fast_p, int signal_p, ENUM_MA_TYPE signal_ma)
   {
    m_slow_p         = (slow_p < 1) ? 1 : slow_p;
    m_fast_p         = (fast_p < 1) ? 1 : fast_p;
    m_signal_p       = (signal_p < 1) ? 1 : signal_p;
    m_signal_ma_type = signal_ma;
 
-   if(!m_signal_ma_engine.Init(m_signal_p, (ENUM_MA_TYPE)m_signal_ma_type))
+   if(!m_signal_ma_engine.Init(m_signal_p, m_signal_ma_type))
       return false;
 
    return true;
@@ -82,6 +83,7 @@ bool CTSICalculator::Init(int slow_p, int fast_p, int signal_p, ENUM_MA_METHOD s
 void CTSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &tsi_buffer[], double &signal_buffer[])
   {
+// Minimum bars check
    if(rates_total <= m_slow_p + m_fast_p + m_signal_p)
       return;
 
@@ -145,7 +147,7 @@ void CTSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
    int tsi_start = m_slow_p + m_fast_p - 2; // Warmup period
    int loop_start_tsi = MathMax(tsi_start, start_index);
 
-// FIX: Initialize buffer with 0.0 on full recalc to avoid garbage in Signal Line input
+// Initialize buffer on full recalc
    if(prev_calculated == 0)
       ArrayInitialize(tsi_buffer, 0.0);
 
@@ -158,10 +160,9 @@ void CTSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
      }
 
 //--- 7. Calculate Signal Line (Using Engine)
-// We pass tsi_buffer as 'close' price.
-   m_signal_ma_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
-                                tsi_buffer, tsi_buffer, tsi_buffer, tsi_buffer,
-                                signal_buffer);
+// Use CalculateOnArray with correct offset
+// TSI is valid from 'tsi_start'
+   m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, tsi_buffer, signal_buffer, tsi_start);
   }
 
 //+------------------------------------------------------------------+
@@ -268,4 +269,5 @@ bool CTSICalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENU
      }
    return true;
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
