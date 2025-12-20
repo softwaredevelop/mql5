@@ -2,14 +2,12 @@
 
 ## 1. Summary (Introduction)
 
-The `Stochastic_Adaptive_Pro` is an implementation of Frank Key's innovative "Variable-Length Stochastic" concept, which was popularized by Perry Kaufman. It is an "intelligent" oscillator that solves a major drawback of the classic Stochastic: its tendency to get "stuck" in overbought or oversold zones during a strong, sustained trend.
+The `Stochastic_Adaptive_Pro` is an implementation of Frank Key's innovative "Variable-Length Stochastic" concept. It is an "intelligent" oscillator that solves a major drawback of the classic Stochastic: its tendency to get "stuck" in overbought or oversold zones during a strong, sustained trend.
 
 This indicator achieves this by dynamically adjusting its own lookback period based on the market's "trendiness," which it measures using **Kaufman's Efficiency Ratio (ER)**.
 
-* In a **strong, trending market**, the indicator automatically **lengthens its period**, becoming less sensitive and helping the trader to stay with the trend.
-* In a **choppy, sideways market**, it automatically **shortens its period**, becoming more responsive to identify potential turning points at the edges of the range.
-
-This dual-mode behavior makes it a powerful and versatile tool for both trend-following and range-bound strategies.
+* In a **strong, trending market** (High ER), the indicator automatically **lengthens its period**. This desensitizes the oscillator, preventing it from hitting extremes too early and helping the trader stay with the trend.
+* In a **choppy, sideways market** (Low ER), it automatically **shortens its period**. This makes it more responsive, allowing it to identify potential turning points at the edges of the range.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
@@ -34,34 +32,42 @@ The calculation is a multi-stage process that combines Kaufman's ER with the cla
         $\text{Highest High} = \text{Highest Price over the last NSP}_t \text{ bars}$
         $\text{Lowest Low} = \text{Lowest Price over the last NSP}_t \text{ bars}$
         $\text{Raw \%K}_t = 100 \times \frac{P_t - \text{Lowest Low}}{\text{Highest High} - \text{Lowest Low}}$
-    * **Calculate Slow %K and %D:** The `Raw %K` is then smoothed using fixed-period moving averages to produce the final %K (main) and %D (signal) lines.
+    * **Calculate Slow %K and %D:** The `Raw %K` is then smoothed using configurable moving averages to produce the final %K (main) and %D (signal) lines.
 
 ## 3. MQL5 Implementation Details
 
-* **Modular Calculation Engine (`Stochastic_Adaptive_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file. The engine first calculates the ER and the adaptive period for the entire history, then calculates the Stochastic using these dynamic period values.
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Reusable Components:** The engine leverages our universal `CalculateMA` helper function for the final %K and %D smoothing steps, ensuring consistency with our other Stochastic indicators.
+* **Modular Calculation Engine (`Stochastic_Adaptive_Calculator.mqh`):**
+    All mathematical logic is encapsulated in a dedicated include file.
+  * **Engine Integration:** The calculator internally uses two instances of our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Slow %K and the %D Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
 
-* **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (for ER, NSP, Raw %K) persist their state between ticks.
+  * **Dynamic Lookback Handling:** The algorithm correctly handles the variable lookback period during incremental updates, ensuring efficiency without sacrificing accuracy.
 
-* **Stability via Full Recalculation:** The indicator performs a full recalculation on every tick. This is the most robust approach for a complex, state-dependent indicator where the lookback period itself is constantly changing.
+* **Object-Oriented Design:**
+  * The Heikin Ashi version (`CStochasticAdaptiveCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the data preparation module.
 
 ## 4. Parameters
 
-* **ER Period (`InpErPeriod`):** The lookback period for the Efficiency Ratio calculation. Default is `10`.
-* **Min Stochastic Period (`InpMinStochPeriod`):** The shortest possible period for the Stochastic, used in choppy markets. Default is `5`.
-* **Max Stochastic Period (`InpMaxStochPeriod`):** The longest possible period for the Stochastic, used in strong trends. Default is `30`.
-* **Slowing Period (`InpSlowingPeriod`):** The fixed period for the first smoothing of the Raw %K. Default is `3`.
-* **%D Period (`InpDPeriod`):** The fixed period for smoothing the main %K line to create the signal line. Default is `3`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
-* **%D MA Type (`InpDMAType`):** The type of moving average for the %D signal line.
+* **Adaptive Settings:**
+  * `InpErPeriod`: The lookback period for the Efficiency Ratio calculation. (Default: `10`).
+  * `InpMinStochPeriod`: The shortest possible period for the Stochastic. (Default: `5`).
+  * `InpMaxStochPeriod`: The longest possible period for the Stochastic. (Default: `30`).
+* **Stochastic & Price Settings:**
+  * `InpSlowingPeriod`: The smoothing period for the main Slow %K line. (Default: `3`).
+  * `InpSlowingMAType`: The MA type for the "Slowing" step. (Default: `SMA`).
+  * `InpDPeriod`: The smoothing period for the final signal line (%D). (Default: `3`).
+  * `InpDMAType`: The MA type for the "%D" step. (Default: `SMA`).
+  * `InpSourcePrice`: The source price for the calculation. (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
 The key to using this indicator is understanding its dual nature.
 
-* **In Strong Trends:** When the market is moving decisively in one direction, the indicator's period will lengthen. It will stay away from the extreme overbought/oversold zones for longer than a standard Stochastic. This is a feature, not a bug. It helps you **stay in a winning trade** and avoid exiting prematurely on minor pullbacks. Do not look for reversal signals from the extremes during these phases.
+* **In Strong Trends:** When the market is moving decisively in one direction, the indicator's period will lengthen. It will stay away from the extreme overbought/oversold zones for longer than a standard Stochastic. This helps you **stay in a winning trade** and avoid exiting prematurely on minor pullbacks.
 
 * **In Sideways/Ranging Markets:** When the market is choppy, the indicator's period will shorten. Its behavior will become very similar to a fast standard Stochastic. In this mode, it is excellent for identifying potential turning points near the top (>80) and bottom (<20) of the range.
-
-* **Crossovers:** The crossover of the %K and %D lines provides standard bullish and bearish signals, but their reliability is enhanced by the adaptive context. A bullish crossover after the indicator has been in a "slow mode" (trending) and pulls back can be a very powerful trend-continuation signal.
