@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "9.10" // Optimized for incremental calculation
+#property version   "3.00" // Refactored to use MovingAverage_Engine
 #property description "Professional MACD with selectable MA types and price source"
 #property description "(Standard and Heikin Ashi)."
 
@@ -40,15 +40,16 @@ input int                       InpFastPeriod   = 12;
 input int                       InpSlowPeriod   = 26;
 input int                       InpSignalPeriod = 9;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
-input ENUM_MA_METHOD            InpSourceMAType = MODE_EMA; // MA Type for Fast and Slow lines
-input ENUM_MA_METHOD            InpSignalMAType = MODE_EMA; // MA Type for Signal line
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSourceMAType = EMA; // MA Type for Fast and Slow lines
+input ENUM_MA_TYPE              InpSignalMAType = EMA; // MA Type for Signal line
 
 //--- Indicator Buffers ---
 double    BufferMACD_Histogram[];
 double    BufferMACDLine[];
 double    BufferSignalLine[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CMACDCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -56,7 +57,6 @@ CMACDCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferMACD_Histogram, INDICATOR_DATA);
    SetIndexBuffer(1, BufferMACDLine,       INDICATOR_DATA);
    SetIndexBuffer(2, BufferSignalLine,     INDICATOR_DATA);
@@ -64,26 +64,23 @@ int OnInit()
    ArraySetAsSeries(BufferMACDLine,       false);
    ArraySetAsSeries(BufferSignalLine,     false);
 
-//--- Dynamically create the appropriate calculator instance
-   if(InpSourcePrice <= PRICE_HA_CLOSE) // Heikin Ashi source selected
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CMACDCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MACD Pro HA(%d,%d,%d)", InpFastPeriod, InpSlowPeriod, InpSignalPeriod));
      }
-   else // Standard price source selected
+   else
      {
       g_calculator = new CMACDCalculator();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MACD Pro(%d,%d,%d)", InpFastPeriod, InpSlowPeriod, InpSignalPeriod));
      }
 
-//--- Check if creation was successful and initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastPeriod, InpSlowPeriod, InpSignalPeriod, InpSourceMAType, InpSignalMAType))
      {
       Print("Failed to create or initialize MACD Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
    int slow_period = MathMax(InpFastPeriod, InpSlowPeriod);
    int macd_line_draw_begin = slow_period - 1;
    int signal_draw_begin = slow_period + InpSignalPeriod - 2;
@@ -101,7 +98,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
@@ -110,7 +106,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -129,7 +125,6 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferMACDLine, BufferSignalLine, BufferMACD_Histogram);
 
    return(rates_total);
