@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Fixed initialization bug (Vertical Lines)
 #property description "Professional Linear Regression Channel (Straight Segment)"
 #property description "Draws the regression channel for the most recent N bars."
 
@@ -103,6 +103,15 @@ int OnCalculate(const int rates_total,
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
+
+// CRITICAL FIX: Initialize buffers on full recalculation (e.g. timeframe switch)
+// This prevents "ghost" 0.0 values which cause vertical lines.
+   if(prev_calculated == 0)
+     {
+      ArrayInitialize(BufferUpper, EMPTY_VALUE);
+      ArrayInitialize(BufferLower, EMPTY_VALUE);
+      ArrayInitialize(BufferMiddle, EMPTY_VALUE);
+     }
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
