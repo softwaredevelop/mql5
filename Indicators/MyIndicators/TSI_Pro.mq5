@@ -3,8 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.10" // Optimized for incremental calculation
+#property version   "3.00" // Refactored to use MovingAverage_Engine
 #property description "Professional True Strength Index (TSI) with a signal line and"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -41,14 +40,15 @@ input int                       InpFastPeriod   = 13;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 input group                     "Signal Line Settings"
 input int                       InpSignalPeriod = 13;
-input ENUM_MA_METHOD            InpSignalMAType = MODE_EMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSignalMAType = EMA;
 
 //--- Indicator Buffers ---
 double    BufferTSI[];
 double    BufferSignal[];
 
-//--- Global calculator object (as a base class pointer) ---
-CTSICalculator *g_calculator; // Use the base class for the pointer
+//--- Global calculator object ---
+CTSICalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function.                        |
@@ -60,15 +60,14 @@ int OnInit()
    ArraySetAsSeries(BufferTSI,    false);
    ArraySetAsSeries(BufferSignal, false);
 
-//--- Instantiate the correct concrete wrapper classes ---
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
-      g_calculator = new CTSICalculator_HA(); // Use the HA class
+      g_calculator = new CTSICalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI HA(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
    else
      {
-      g_calculator = new CTSICalculator(); // Use the Standard class
+      g_calculator = new CTSICalculator();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
 
@@ -109,7 +108,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferTSI, BufferSignal);
 
    return(rates_total);
