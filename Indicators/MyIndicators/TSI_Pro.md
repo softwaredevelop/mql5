@@ -2,9 +2,11 @@
 
 ## 1. Summary (Introduction)
 
-The True Strength Index (TSI), developed by William Blau, is a momentum oscillator designed to provide a smoother and more reliable measure of market momentum by using a double-smoothing mechanism with Exponential Moving Averages (EMAs). It fluctuates around a zero line, providing clear signals for trend direction, momentum, and overbought/oversold conditions.
+The True Strength Index (TSI), developed by William Blau, is a momentum oscillator designed to provide a smoother and more reliable measure of market momentum. It fluctuates around a zero line, providing clear signals for trend direction, momentum, and overbought/oversold conditions.
 
-Our `TSI_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data, selectable from a single input parameter.
+**Classic Definition:** The original TSI is defined as a double-smoothed momentum indicator using two **Exponential Moving Averages (EMAs)**.
+
+**Pro Features:** Our `TSI_Pro` implementation extends this concept by allowing the calculation to be based on either **standard** or **Heikin Ashi** price data, and offers unprecedented customization by allowing traders to replace the standard EMAs with other smoothing methods (like SMA, DEMA, or TEMA).
 
 ## 2. Mathematical Foundations and Calculation Logic
 
@@ -12,42 +14,59 @@ The TSI is calculated by double-smoothing both the price momentum and the absolu
 
 ### Required Components
 
-* **Slow Period (N_slow):** The period for the first, longer-term EMA smoothing (standard is 25).
-* **Fast Period (N_fast):** The period for the second, shorter-term EMA smoothing (standard is 13).
+* **Slow Period (N_slow):** The period for the first, longer-term smoothing (standard is 25).
+* **Fast Period (N_fast):** The period for the second, shorter-term smoothing (standard is 13).
 * **Signal Period:** The period for the moving average signal line.
 * **Source Price (P):** The price series used for the calculation.
 
 ### Calculation Steps (Algorithm)
 
 1. **Calculate Price Momentum:** $\text{Momentum}_i = P_i - P_{i-1}$
-2. **First EMA Smoothing (Slow Period):** Apply an `N_slow`-period EMA to both the `Momentum` and its absolute value.
-3. **Second EMA Smoothing (Fast Period):** Apply an `N_fast`-period EMA to the results of the first smoothing step.
+
+2. **First Smoothing (Slow Period):** Apply an `N_slow`-period Moving Average to both the `Momentum` and its absolute value.
+   * *Classic TSI uses EMA here.*
+
+3. **Second Smoothing (Fast Period):** Apply an `N_fast`-period Moving Average to the results of the first smoothing step.
+   * *Classic TSI uses EMA here.*
+
 4. **Calculate the TSI Value:** Divide the double-smoothed momentum by the double-smoothed absolute momentum and scale the result to 100.
-    $\text{TSI}_i = 100 \times \frac{\text{EMA}_{\text{fast}}(\text{EMA}_{\text{slow}}(\text{Momentum}))_i}{\text{EMA}_{\text{fast}}(\text{EMA}_{\text{slow}}(\text{AbsMomentum}))_i}$
+    $\text{TSI}_i = 100 \times \frac{\text{MA}_{\text{fast}}(\text{MA}_{\text{slow}}(\text{Momentum}))_i}{\text{MA}_{\text{fast}}(\text{MA}_{\text{slow}}(\text{AbsMomentum}))_i}$
+
 5. **Calculate the Signal Line:** The signal line is a moving average of the TSI line itself.
 
 ## 3. MQL5 Implementation Details
 
 Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Centralized Calculation Engine (`TSI_Engine.mqh`):**
-    The core of our implementation is a single, powerful calculation engine. This include file contains the complete, definition-true logic for calculating both the TSI and its signal line. It supports both standard and Heikin Ashi data sources through class inheritance (`CTSICalculator` and `CTSICalculator_HA`).
+* **Full Engine Integration:**
+    The TSI calculator (`TSI_Calculator.mqh`) is a powerful orchestrator that utilizes **five** instances of our universal `MovingAverage_Engine.mqh`:
+    1. **Slow Momentum Engine:** Smooths raw momentum.
+    2. **Fast Momentum Engine:** Double-smooths the result.
+    3. **Slow Abs Momentum Engine:** Smooths absolute momentum.
+    4. **Fast Abs Momentum Engine:** Double-smooths the result.
+    5. **Signal Engine:** Smooths the final TSI line.
+    This architecture allows for extreme flexibility (e.g., using DEMA for internal smoothing) while maintaining code consistency.
 
-* **Specialized Wrapper (`TSI_Calculator.mqh`):**
-    The final indicator uses a thin "wrapper" class that utilizes the central engine. The wrapper's role is to instantiate the correct engine (standard or HA) and provide a clean interface to the main `.mq5` indicator file. This approach eliminates code duplication and ensures all TSI-based indicators in our toolkit use the exact same calculation logic.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations, ensuring that each step starts only when valid data is available.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
-
-* **Fully Manual EMA Calculations:** All EMA calculations are performed **manually**, with robust initialization to provide a stable starting point for the calculation chain.
+* **Object-Oriented Logic:**
+  * The Heikin Ashi version (`CTSICalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the data preparation module.
 
 ## 4. Parameters
 
-* **Slow Period (`InpSlowPeriod`):** The period for the first, longer-term EMA smoothing. Default is `25`.
-* **Fast Period (`InpFastPeriod`):** The period for the second, shorter-term EMA smoothing. Default is `13`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **TSI Calculation Settings:**
+  * `InpSlowPeriod`: The period for the first smoothing step. (Default: `25`).
+  * `InpSlowMAType`: The MA type for the first smoothing. Set to **EMA** for classic TSI behavior. (Default: `EMA`).
+  * `InpFastPeriod`: The period for the second smoothing step. (Default: `13`).
+  * `InpFastMAType`: The MA type for the second smoothing. Set to **EMA** for classic TSI behavior. (Default: `EMA`).
+  * `InpSourcePrice`: The source price for the calculation. (Standard or Heikin Ashi).
 * **Signal Line Settings:**
-  * `InpSignalPeriod`: The lookback period for the signal line. Default is `13`.
-  * `InpSignalMAType`: The type of moving average for the signal line. Default is `MODE_EMA`.
+  * `InpSignalPeriod`: The lookback period for the signal line. (Default: `13`).
+  * `InpSignalMAType`: The type of moving average for the signal line. (Default: `EMA`).
 
 ## 5. Usage and Interpretation
 
