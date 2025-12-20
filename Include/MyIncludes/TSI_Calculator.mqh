@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               TSI_Calculator.mqh |
-//|      VERSION 3.00: Uses MovingAverage_Engine for Signal Line.    |
+//|      VERSION 4.00: Full Engine Integration (Core + Signal).      |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -15,33 +15,33 @@ class CTSICalculator
   {
 protected:
    int               m_slow_p, m_fast_p, m_signal_p;
-   ENUM_MA_TYPE      m_signal_ma_type;
 
-   //--- Persistent Buffers for Incremental Calculation
-   double            m_price[];
-   double            m_ema1_mtm[], m_ema1_abs[];
-   double            m_ema2_mtm[], m_ema2_abs[];
+   //--- Engines for Core Calculation (Double Smoothing)
+   CMovingAverageCalculator m_slow_mtm_engine;
+   CMovingAverageCalculator m_fast_mtm_engine;
+   CMovingAverageCalculator m_slow_abs_engine;
+   CMovingAverageCalculator m_fast_abs_engine;
 
    //--- Engine for Signal Line
-   CMovingAverageCalculator *m_signal_ma_engine;
+   CMovingAverageCalculator m_signal_ma_engine;
 
-   //--- Updated: Accepts start_index
+   //--- Persistent Buffers
+   double            m_price[];
+   double            m_mtm[], m_abs_mtm[]; // Raw Momentum
+   double            m_ema1_mtm[], m_ema1_abs[]; // First Smoothing
+   double            m_ema2_mtm[], m_ema2_abs[]; // Second Smoothing
+
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CTSICalculator(void);
    virtual          ~CTSICalculator(void);
 
-   //--- Init now takes ENUM_MA_TYPE
-   bool              Init(int slow_p, int fast_p, int signal_p, ENUM_MA_TYPE signal_ma);
+   //--- Init now takes MA types for core calculation too
+   bool              Init(int slow_p, ENUM_MA_TYPE slow_ma, int fast_p, ENUM_MA_TYPE fast_ma, int signal_p, ENUM_MA_TYPE signal_ma);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &tsi_buffer[], double &signal_buffer[]);
-
-   int               GetPeriodSlow() const { return m_slow_p; }
-   int               GetPeriodFast() const { return m_fast_p; }
-   int               GetPeriodSignal() const { return m_signal_p; }
   };
 
 //+------------------------------------------------------------------+
@@ -49,7 +49,6 @@ public:
 //+------------------------------------------------------------------+
 CTSICalculator::CTSICalculator(void)
   {
-   m_signal_ma_engine = new CMovingAverageCalculator();
   }
 
 //+------------------------------------------------------------------+
@@ -57,28 +56,38 @@ CTSICalculator::CTSICalculator(void)
 //+------------------------------------------------------------------+
 CTSICalculator::~CTSICalculator(void)
   {
-   if(CheckPointer(m_signal_ma_engine) != POINTER_INVALID)
-      delete m_signal_ma_engine;
   }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CTSICalculator::Init(int slow_p, int fast_p, int signal_p, ENUM_MA_TYPE signal_ma)
+bool CTSICalculator::Init(int slow_p, ENUM_MA_TYPE slow_ma, int fast_p, ENUM_MA_TYPE fast_ma, int signal_p, ENUM_MA_TYPE signal_ma)
   {
-   m_slow_p         = (slow_p < 1) ? 1 : slow_p;
-   m_fast_p         = (fast_p < 1) ? 1 : fast_p;
-   m_signal_p       = (signal_p < 1) ? 1 : signal_p;
-   m_signal_ma_type = signal_ma;
+   m_slow_p   = (slow_p < 1) ? 1 : slow_p;
+   m_fast_p   = (fast_p < 1) ? 1 : fast_p;
+   m_signal_p = (signal_p < 1) ? 1 : signal_p;
 
-   if(!m_signal_ma_engine.Init(m_signal_p, m_signal_ma_type))
+// Initialize Core Engines (Momentum)
+   if(!m_slow_mtm_engine.Init(m_slow_p, slow_ma))
+      return false;
+   if(!m_fast_mtm_engine.Init(m_fast_p, fast_ma))
+      return false;
+
+// Initialize Core Engines (Abs Momentum)
+   if(!m_slow_abs_engine.Init(m_slow_p, slow_ma))
+      return false;
+   if(!m_fast_abs_engine.Init(m_fast_p, fast_ma))
+      return false;
+
+// Initialize Signal Engine
+   if(!m_signal_ma_engine.Init(m_signal_p, signal_ma))
       return false;
 
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Main Calculation                                                 |
 //+------------------------------------------------------------------+
 void CTSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &tsi_buffer[], double &signal_buffer[])
@@ -87,90 +96,77 @@ void CTSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
    if(rates_total <= m_slow_p + m_fast_p + m_signal_p)
       return;
 
-//--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Buffers
+// Resize Buffers
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
+      ArrayResize(m_mtm, rates_total);
+      ArrayResize(m_abs_mtm, rates_total);
       ArrayResize(m_ema1_mtm, rates_total);
       ArrayResize(m_ema1_abs, rates_total);
       ArrayResize(m_ema2_mtm, rates_total);
       ArrayResize(m_ema2_abs, rates_total);
      }
 
-//--- 3. Prepare Price (Optimized)
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-//--- 4. Calculate First Smoothing (Slow EMA)
-   double pr_slow = 2.0 / (m_slow_p + 1.0);
-   int loop_start_1 = MathMax(1, start_index); // Momentum needs i-1
-
-// Initialization for first bar
-   if(loop_start_1 == 1)
+//--- 1. Calculate Momentum (Raw)
+   int loop_start = MathMax(1, start_index);
+   if(loop_start == 1)
      {
-      m_ema1_mtm[0] = 0;
-      m_ema1_abs[0] = 0;
+      m_mtm[0] = 0;
+      m_abs_mtm[0] = 0;
      }
 
-   for(int i = loop_start_1; i < rates_total; i++)
+   for(int i = loop_start; i < rates_total; i++)
      {
-      double momentum = m_price[i] - m_price[i-1];
-      double abs_momentum = MathAbs(momentum);
-
-      m_ema1_mtm[i] = momentum * pr_slow + m_ema1_mtm[i-1] * (1.0 - pr_slow);
-      m_ema1_abs[i] = abs_momentum * pr_slow + m_ema1_abs[i-1] * (1.0 - pr_slow);
+      double diff = m_price[i] - m_price[i-1];
+      m_mtm[i] = diff;
+      m_abs_mtm[i] = MathAbs(diff);
      }
 
-//--- 5. Calculate Second Smoothing (Fast EMA)
-   double pr_fast = 2.0 / (m_fast_p + 1.0);
+//--- 2. First Smoothing (Slow MA)
+// Input: m_mtm / m_abs_mtm
+// Offset: 1 (because momentum starts at index 1)
+   m_slow_mtm_engine.CalculateOnArray(rates_total, prev_calculated, m_mtm, m_ema1_mtm, 1);
+   m_slow_abs_engine.CalculateOnArray(rates_total, prev_calculated, m_abs_mtm, m_ema1_abs, 1);
 
-   if(loop_start_1 == 1)
-     {
-      m_ema2_mtm[0] = 0;
-      m_ema2_abs[0] = 0;
-     }
+//--- 3. Second Smoothing (Fast MA)
+// Input: m_ema1_mtm / m_ema1_abs
+// Offset: 1 + slow_period - 1 = slow_period
+   int offset2 = m_slow_p;
+   m_fast_mtm_engine.CalculateOnArray(rates_total, prev_calculated, m_ema1_mtm, m_ema2_mtm, offset2);
+   m_fast_abs_engine.CalculateOnArray(rates_total, prev_calculated, m_ema1_abs, m_ema2_abs, offset2);
 
-   for(int i = loop_start_1; i < rates_total; i++)
-     {
-      m_ema2_mtm[i] = m_ema1_mtm[i] * pr_fast + m_ema2_mtm[i-1] * (1.0 - pr_fast);
-      m_ema2_abs[i] = m_ema1_abs[i] * pr_fast + m_ema2_abs[i-1] * (1.0 - pr_fast);
-     }
-
-//--- 6. Calculate TSI
-   int tsi_start = m_slow_p + m_fast_p - 2; // Warmup period
+//--- 4. Calculate TSI
+// Valid from: offset2 + fast_period - 1 = slow_period + fast_period - 1
+   int tsi_start = m_slow_p + m_fast_p - 1;
    int loop_start_tsi = MathMax(tsi_start, start_index);
 
-// Initialize buffer on full recalc
    if(prev_calculated == 0)
       ArrayInitialize(tsi_buffer, 0.0);
 
    for(int i = loop_start_tsi; i < rates_total; i++)
      {
-      if(m_ema2_abs[i] > 0)
-         tsi_buffer[i] = 100 * (m_ema2_mtm[i] / m_ema2_abs[i]);
+      if(m_ema2_abs[i] > 0.0000001)
+         tsi_buffer[i] = 100.0 * (m_ema2_mtm[i] / m_ema2_abs[i]);
       else
-         tsi_buffer[i] = 0;
+         tsi_buffer[i] = 0.0;
      }
 
-//--- 7. Calculate Signal Line (Using Engine)
-// Use CalculateOnArray with correct offset
-// TSI is valid from 'tsi_start'
+//--- 5. Calculate Signal Line
    m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, tsi_buffer, signal_buffer, tsi_start);
   }
 
+//... (PreparePriceSeries and HA class remain the same) ...
 //+------------------------------------------------------------------+
 //| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
 bool CTSICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -204,26 +200,23 @@ bool CTSICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_A
    return true;
   }
 
-//+==================================================================+
-//|             CLASS 2: CTSICalculator_HA (Heikin Ashi)             |
-//+==================================================================+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 class CTSICalculator_HA : public CTSICalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
 protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CTSICalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -231,12 +224,7 @@ bool CTSICalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENU
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
      }
-
-//--- STRICT CALL: Use the optimized 10-param HA calculation
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
-
-//--- Copy to m_price (Optimized loop)
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -269,5 +257,4 @@ bool CTSICalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENU
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
