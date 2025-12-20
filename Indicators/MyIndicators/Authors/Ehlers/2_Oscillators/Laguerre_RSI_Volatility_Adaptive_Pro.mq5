@@ -12,22 +12,23 @@
 
 #property indicator_label1  "Vol-Adaptive LRSI"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrMagenta
+#property indicator_color1  clrMediumTurquoise
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrOrangeRed
-#property indicator_style2  STYLE_DOT
+#property indicator_color2  clrLightCoral
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 #property indicator_minimum 0
 #property indicator_maximum 100
-#property indicator_level1 20.0
-#property indicator_level2 50.0
-#property indicator_level3 80.0
-#property indicator_levelcolor clrGray
+#property indicator_level1 10.0
+#property indicator_level2 20.0
+#property indicator_level3 50.0
+#property indicator_level4 80.0
+#property indicator_level5 90.0
 #property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Laguerre_RSI_Volatility_Calculator.mqh>
