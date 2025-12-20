@@ -3,13 +3,13 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // Refactored to use MovingAverage_Engine
-#property description "Professional True Strength Index (TSI) with a signal line and"
-#property description "selectable price source (Standard and Heikin Ashi)."
+#property version   "4.00" // Full Engine Integration
+#property description "Professional True Strength Index (TSI) with fully customizable"
+#property description "smoothing methods and selectable price source."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
-#property indicator_buffers 2 // TSI and Signal Line
+#property indicator_buffers 2
 #property indicator_plots   2
 
 //--- Plot 1: TSI Line
@@ -31,16 +31,18 @@
 #property indicator_level3  0.0
 #property indicator_levelstyle STYLE_DOT
 
-//--- Include the calculator engine ---
 #include <MyIncludes\TSI_Calculator.mqh>
 
 //--- Input Parameters ---
+input group                     "TSI Calculation Settings"
 input int                       InpSlowPeriod   = 25;
+input ENUM_MA_TYPE              InpSlowMAType   = EMA; // Default: EMA (Classic TSI)
 input int                       InpFastPeriod   = 13;
+input ENUM_MA_TYPE              InpFastMAType   = EMA; // Default: EMA (Classic TSI)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+
 input group                     "Signal Line Settings"
 input int                       InpSignalPeriod = 13;
-// UPDATED: Use ENUM_MA_TYPE
 input ENUM_MA_TYPE              InpSignalMAType = EMA;
 
 //--- Indicator Buffers ---
@@ -71,7 +73,8 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpSlowPeriod, InpFastPeriod, InpSignalPeriod, InpSignalMAType))
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpSlowPeriod, InpSlowMAType, InpFastPeriod, InpFastMAType, InpSignalPeriod, InpSignalMAType))
      {
       Print("Failed to create or initialize TSI Calculator object.");
       return(INIT_FAILED);
