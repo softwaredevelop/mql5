@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               TSI_Calculator.mqh |
-//|      VERSION 4.00: Full Engine Integration (Core + Signal).      |
+//|      VERSION 4.10: Added missing Getters.                        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -42,6 +42,11 @@ public:
 
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &tsi_buffer[], double &signal_buffer[]);
+
+   //--- ADDED: Missing Getters required by Oscillator wrapper
+   int               GetPeriodSlow() const { return m_slow_p; }
+   int               GetPeriodFast() const { return m_fast_p; }
+   int               GetPeriodSignal() const { return m_signal_p; }
   };
 
 //+------------------------------------------------------------------+
@@ -161,7 +166,6 @@ void CTSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
    m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, tsi_buffer, signal_buffer, tsi_start);
   }
 
-//... (PreparePriceSeries and HA class remain the same) ...
 //+------------------------------------------------------------------+
 //| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
@@ -200,9 +204,9 @@ bool CTSICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_A
    return true;
   }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+//+==================================================================+
+//|             CLASS 2: CTSICalculator_HA (Heikin Ashi)             |
+//+==================================================================+
 class CTSICalculator_HA : public CTSICalculator
   {
 private:
