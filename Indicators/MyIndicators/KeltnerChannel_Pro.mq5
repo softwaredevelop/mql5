@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "5.30" // Modular architecture
+#property version   "3.00" // Refactored to use MovingAverage_Engine
 #property description "Professional Keltner Channels with separate source selection"
 #property description "for the Middle Line (MA) and the ATR calculation."
 
@@ -17,12 +17,14 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrOliveDrab
 #property indicator_style1  STYLE_DOT
+#property indicator_width1  1
 
 //--- Plot 2: Lower Band
 #property indicator_label2  "Lower Band"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrOliveDrab
 #property indicator_style2  STYLE_DOT
+#property indicator_width2  1
 
 //--- Plot 3: Middle Band (Basis)
 #property indicator_label3  "Basis"
@@ -34,14 +36,16 @@
 //--- Include the calculator engine ---
 #include <MyIncludes\KeltnerChannel_Calculator.mqh>
 
-//--- CORRECTED: The ENUM_ATR_SOURCE is now defined inside the include file. ---
-//--- No need to declare it here again. ---
-
 //--- Input Parameters ---
 input group                     "Middle Line (MA) Settings"
 input int                       InpMaPeriod     = 20;
-input ENUM_MA_METHOD            InpMaMethod     = MODE_EMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpMaMethod     = EMA;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_TYPICAL_STD;
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 input group                     "Channel (ATR) Settings"
 input int                       InpAtrPeriod    = 10;
 input double                    InpMultiplier   = 2.0;
@@ -52,7 +56,7 @@ double    BufferUpper[];
 double    BufferLower[];
 double    BufferMiddle[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CKeltnerChannelCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
@@ -60,7 +64,6 @@ CKeltnerChannelCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferUpper,  INDICATOR_DATA);
    SetIndexBuffer(1, BufferLower,  INDICATOR_DATA);
    SetIndexBuffer(2, BufferMiddle, INDICATOR_DATA);
@@ -68,26 +71,23 @@ int OnInit()
    ArraySetAsSeries(BufferLower,  false);
    ArraySetAsSeries(BufferMiddle, false);
 
-//--- Dynamically create the appropriate calculator instance based on MA source price
-   if(InpSourcePrice <= PRICE_HA_CLOSE) // Heikin Ashi price selected for MA
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CKeltnerChannelCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KC HA(%d,%d)", InpMaPeriod, InpAtrPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KC HA(%d,%d,%s)", InpMaPeriod, InpAtrPeriod, EnumToString(InpMaMethod)));
      }
-   else // Standard price selected for MA
+   else
      {
       g_calculator = new CKeltnerChannelCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KC(%d,%d)", InpMaPeriod, InpAtrPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("KC(%d,%d,%s)", InpMaPeriod, InpAtrPeriod, EnumToString(InpMaMethod)));
      }
 
-//--- Check if creation was successful and initialize (passing the ATR source)
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpMaPeriod, InpMaMethod, InpAtrPeriod, InpMultiplier, InpAtrSource))
      {
       Print("Failed to create or initialize Keltner Channel Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    int draw_begin = MathMax(InpMaPeriod, InpAtrPeriod);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
@@ -102,7 +102,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
@@ -111,7 +110,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -130,7 +129,6 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferMiddle, BufferUpper, BufferLower);
 
    return(rates_total);
