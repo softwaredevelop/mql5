@@ -21,14 +21,21 @@ The indicator is a Gaussian-smoothed average of the `Close - Open` value of each
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability.
+
 * **Unified Calculator (`Gaussian_Filter_Calculator.mqh`):** This indicator uses the exact same, powerful calculator engine as the `Gaussian_Filter_Pro`. The only difference is that it is initialized in `SOURCE_MOMENTUM` mode.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The indicator buffer itself acts as the persistent memory for the recursive calculation, ensuring seamless updates without drift or full recalculation.
+
 * **Heikin Ashi Integration:** The indicator fully supports calculation on smoothed Heikin Ashi data (`HA Close - HA Open`).
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call to ensure the stateful, recursive calculation is always stable.
 
 ## 4. Parameters
 
 * **Period (`InpPeriod`):** The cutoff period of the Gaussian filter, which controls its smoothing and responsiveness.
-* **Candle Source (`InpCandleSource`):** Selects between `Standard` and `Heikin Ashi` candles for the `Close - Open` calculation.
+* **Applied Price (`InpSourcePrice`):** Selects between `Standard` and `Heikin Ashi` candles for the `Close - Open` calculation.
 
 ## 5. Usage and Interpretation
 
