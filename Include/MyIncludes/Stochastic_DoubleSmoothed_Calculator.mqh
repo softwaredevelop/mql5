@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                           Stochastic_DoubleSmoothed_Calculator.mqh |
-//|         VERSION 1.10: Corrected EMA calculation chain logic.     |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -9,177 +9,193 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
+//|             CLASS 1: CStochasticDoubleSmoothedCalculator         |
+//+==================================================================+
 class CStochasticDoubleSmoothedCalculator
   {
 protected:
    int               m_q, m_r, m_s, m_signal_p;
-   double            m_high[], m_low[], m_close[];
 
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
-   //--- UPDATED: Helper now accepts a starting position ---
-   void              CalculateEMA(int rates_total, int period, const double &source[], double &dest[], int start_pos);
+   //--- Engines for Smoothing
+   CMovingAverageCalculator m_num_ema1_engine;
+   CMovingAverageCalculator m_den_ema1_engine;
+   CMovingAverageCalculator m_num_ema2_engine;
+   CMovingAverageCalculator m_den_ema2_engine;
+   CMovingAverageCalculator m_signal_engine;
+
+   //--- Persistent Buffers
+   double            m_high[], m_low[], m_close[];
+   double            m_num_raw[], m_den_raw[];
+   double            m_num_ema1[], m_den_ema1[];
+   double            m_num_ema2[], m_den_ema2[];
+
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CStochasticDoubleSmoothedCalculator(void) {};
    virtual          ~CStochasticDoubleSmoothedCalculator(void) {};
 
-   bool              Init(int q, int r, int s, int signal_p);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+   //--- Init now takes MA types
+   bool              Init(int q, int r, ENUM_MA_TYPE r_ma, int s, ENUM_MA_TYPE s_ma, int signal_p, ENUM_MA_TYPE signal_ma);
+
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &k_buffer[], double &d_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Init                                                             |
 //+------------------------------------------------------------------+
-class CStochasticDoubleSmoothedCalculator_HA : public CStochasticDoubleSmoothedCalculator
-  {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-protected:
-   virtual bool      PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
-
-//+==================================================================+
-//|                 METHOD IMPLEMENTATIONS                           |
-//+==================================================================+
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool CStochasticDoubleSmoothedCalculator::Init(int q, int r, int s, int signal_p)
+bool CStochasticDoubleSmoothedCalculator::Init(int q, int r, ENUM_MA_TYPE r_ma, int s, ENUM_MA_TYPE s_ma, int signal_p, ENUM_MA_TYPE signal_ma)
   {
    m_q = (q < 1) ? 1 : q;
    m_r = (r < 1) ? 1 : r;
    m_s = (s < 1) ? 1 : s;
    m_signal_p = (signal_p < 1) ? 1 : signal_p;
+
+// Initialize Engines
+   if(!m_num_ema1_engine.Init(m_r, r_ma))
+      return false;
+   if(!m_den_ema1_engine.Init(m_r, r_ma))
+      return false;
+
+   if(!m_num_ema2_engine.Init(m_s, s_ma))
+      return false;
+   if(!m_den_ema2_engine.Init(m_s, s_ma))
+      return false;
+
+   if(!m_signal_engine.Init(m_signal_p, signal_ma))
+      return false;
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CStochasticDoubleSmoothedCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+void CStochasticDoubleSmoothedCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
       double &k_buffer[], double &d_buffer[])
   {
-   if(rates_total < m_q + m_r + m_s)
-      return;
-   if(!PrepareSourceData(rates_total, open, high, low, close))
+// Minimum bars check
+   if(rates_total <= m_q + m_r + m_s + m_signal_p)
       return;
 
-   double num_raw[], den_raw[];
-   ArrayResize(num_raw, rates_total);
-   ArrayResize(den_raw, rates_total);
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-   for(int i = m_q - 1; i < rates_total; i++)
+// Resize Buffers
+   if(ArraySize(m_high) != rates_total)
      {
-      double highest = m_high[i], lowest = m_low[i];
+      ArrayResize(m_high, rates_total);
+      ArrayResize(m_low, rates_total);
+      ArrayResize(m_close, rates_total);
+
+      ArrayResize(m_num_raw, rates_total);
+      ArrayResize(m_den_raw, rates_total);
+
+      ArrayResize(m_num_ema1, rates_total);
+      ArrayResize(m_den_ema1, rates_total);
+
+      ArrayResize(m_num_ema2, rates_total);
+      ArrayResize(m_den_ema2, rates_total);
+     }
+
+   if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
+      return;
+
+//--- 1. Calculate Raw Numerator and Denominator
+   int loop_start_raw = MathMax(m_q - 1, start_index);
+
+   for(int i = loop_start_raw; i < rates_total; i++)
+     {
+      double highest = m_high[i];
+      double lowest = m_low[i];
+
       for(int j = 1; j < m_q; j++)
         {
          highest = MathMax(highest, m_high[i-j]);
          lowest = MathMin(lowest, m_low[i-j]);
         }
-      num_raw[i] = m_close[i] - lowest;
-      den_raw[i] = highest - lowest;
+
+      m_num_raw[i] = m_close[i] - lowest;
+      m_den_raw[i] = highest - lowest;
      }
 
-   double num_ema1[], num_ema2[], den_ema1[], den_ema2[];
-   ArrayResize(num_ema1, rates_total);
-   ArrayResize(num_ema2, rates_total);
-   ArrayResize(den_ema1, rates_total);
-   ArrayResize(den_ema2, rates_total);
+//--- 2. First Smoothing (EMA1)
+// Offset: m_q - 1
+   int offset1 = m_q - 1;
+   m_num_ema1_engine.CalculateOnArray(rates_total, prev_calculated, m_num_raw, m_num_ema1, offset1);
+   m_den_ema1_engine.CalculateOnArray(rates_total, prev_calculated, m_den_raw, m_den_ema1, offset1);
 
-//--- CORRECTED: Chaining the calculations with proper start positions ---
-   int start_pos1 = m_q + m_r - 2;
-   CalculateEMA(rates_total, m_r, num_raw, num_ema1, start_pos1);
-   CalculateEMA(rates_total, m_r, den_raw, den_ema1, start_pos1);
+//--- 3. Second Smoothing (EMA2)
+// Offset: offset1 + m_r - 1
+   int offset2 = offset1 + m_r - 1;
+   m_num_ema2_engine.CalculateOnArray(rates_total, prev_calculated, m_num_ema1, m_num_ema2, offset2);
+   m_den_ema2_engine.CalculateOnArray(rates_total, prev_calculated, m_den_ema1, m_den_ema2, offset2);
 
-   int start_pos2 = start_pos1 + m_s - 1;
-   CalculateEMA(rates_total, m_s, num_ema1, num_ema2, start_pos2);
-   CalculateEMA(rates_total, m_s, den_ema1, den_ema2, start_pos2);
+//--- 4. Calculate %K
+// Valid from: offset2 + m_s - 1
+   int k_start = offset2 + m_s - 1;
+   int loop_start_k = MathMax(k_start, start_index);
 
-   for(int i = 0; i < rates_total; i++)
+   if(prev_calculated == 0)
+      ArrayInitialize(k_buffer, EMPTY_VALUE);
+
+   for(int i = loop_start_k; i < rates_total; i++)
      {
-      if(i < start_pos2)
-         k_buffer[i] = EMPTY_VALUE;
+      if(m_den_ema2[i] > 0.000001)
+         k_buffer[i] = 100.0 * m_num_ema2[i] / m_den_ema2[i];
       else
-         if(den_ema2[i] > 0.000001)
-            k_buffer[i] = 100.0 * num_ema2[i] / den_ema2[i];
-         else
-            k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
+         k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
      }
 
-   int start_pos_signal = start_pos2 + m_signal_p - 1;
-   CalculateEMA(rates_total, m_signal_p, k_buffer, d_buffer, start_pos_signal);
+//--- 5. Calculate %D (Signal Line)
+   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, k_start);
   }
 
-//--- UPDATED: Helper now uses the provided start_pos ---
-void CStochasticDoubleSmoothedCalculator::CalculateEMA(int rates_total, int period, const double &source[], double &dest[], int start_pos)
+//+------------------------------------------------------------------+
+//| Prepare Source Data (Standard - Optimized)                       |
+//+------------------------------------------------------------------+
+bool CStochasticDoubleSmoothedCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   if(rates_total <= start_pos)
-      return;
-   double pr = 2.0 / (double)(period + 1.0);
-
-   for(int i=0; i<start_pos; i++)
-      dest[i] = EMPTY_VALUE;
-
-   double sum=0;
-   int count=0;
-   for(int j=0; j<period; j++)
-      if(source[start_pos-j] != EMPTY_VALUE)
-        {
-         sum += source[start_pos-j];
-         count++;
-        }
-   if(count > 0)
-      dest[start_pos] = sum / count;
-   else
-      dest[start_pos] = EMPTY_VALUE;
-
-   for(int i = start_pos + 1; i < rates_total; i++)
+   for(int i = start_index; i < rates_total; i++)
      {
-      if(source[i] != EMPTY_VALUE && dest[i-1] != EMPTY_VALUE)
-         dest[i] = source[i] * pr + dest[i-1] * (1.0 - pr);
-      else
-         if(dest[i-1] != EMPTY_VALUE)
-            dest[i] = dest[i-1];
-         else
-            dest[i] = EMPTY_VALUE;
+      m_high[i] = high[i];
+      m_low[i] = low[i];
+      m_close[i] = close[i];
      }
+   return true;
   }
+
+//+==================================================================+
+//|             CLASS 2: CStochasticDoubleSmoothedCalculator_HA      |
+//+==================================================================+
+class CStochasticDoubleSmoothedCalculator_HA : public CStochasticDoubleSmoothedCalculator
+  {
+private:
+   CHeikinAshi_Calculator m_ha_calculator;
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+protected:
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+  };
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool CStochasticDoubleSmoothedCalculator::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CStochasticDoubleSmoothedCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_high, rates_total);
-   ArrayResize(m_low, rates_total);
-   ArrayResize(m_close, rates_total);
-   ArrayCopy(m_high, high, 0, 0, rates_total);
-   ArrayCopy(m_low, low, 0, 0, rates_total);
-   ArrayCopy(m_close, close, 0, 0, rates_total);
+   if(ArraySize(m_ha_open) != rates_total)
+     {
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_high[i] = m_ha_high[i];
+      m_low[i] = m_ha_low[i];
+      m_close[i] = m_ha_close[i];
+     }
    return true;
   }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool CStochasticDoubleSmoothedCalculator_HA::PrepareSourceData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_high, rates_total);
-   ArrayResize(m_low, rates_total);
-   ArrayResize(m_close, rates_total);
-   ArrayCopy(m_high, ha_high, 0, 0, rates_total);
-   ArrayCopy(m_low, ha_low, 0, 0, rates_total);
-   ArrayCopy(m_close, ha_close, 0, 0, rates_total);
-   return true;
-  }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
