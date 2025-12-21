@@ -30,10 +30,17 @@ The Gaussian Filter is a 2-pole Infinite Impulse Response (IIR) filter. Its calc
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained Calculator (`Gaussian_Filter_Calculator.mqh`):** The entire recursive calculation, including the coefficient computation, is encapsulated within a dedicated, reusable calculator class.
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability.
+
+* **Modular Calculation Engine (`Gaussian_Filter_Calculator.mqh`):**
+    The entire recursive calculation is encapsulated within a dedicated, reusable calculator class.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The indicator buffer itself acts as the persistent memory for the recursive calculation (`Filt[i-1]`, `Filt[i-2]`), ensuring seamless updates without drift or full recalculation.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation is highly state-dependent. To ensure absolute stability, the indicator employs a **full recalculation** on every `OnCalculate` call, with the recursive state (`f[1]`, `f[2]`) managed internally within the calculation loop.
-* **Definition-True Initialization:** The filter is "warmed up" by setting the initial output values to the raw price for the first few bars, providing a stable starting point for the recursion.
 
 ## 4. Parameters
 
@@ -49,8 +56,6 @@ The Gaussian Filter should be used as a high-quality, low-lag replacement for tr
 * **Dynamic Support and Resistance:** The filter line acts as a dynamic level of support in an uptrend and resistance in a downtrend.
 * **Trend Filtering:** A longer-period Gaussian filter can be used to define the overall market bias.
 * **Crossover Signals:** A system using a fast and a slow Gaussian filter will generate crossover signals with less lag than an equivalent EMA-based system.
-
-The key advantage of the Gaussian filter is its excellent balance between smoothing and responsiveness.
 
 ### **Combined Strategy with Gaussian Momentum (Advanced)**
 
