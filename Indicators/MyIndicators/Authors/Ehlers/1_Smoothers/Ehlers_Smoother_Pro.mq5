@@ -13,7 +13,7 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrBlueViolet
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  1
+#property indicator_width1  2
 
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 
@@ -67,10 +67,8 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -89,7 +87,6 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter);
 
    return(rates_total);
