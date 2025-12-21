@@ -9,8 +9,6 @@ The result is a "doubly adaptive" oscillator that measures where the RSI is rela
 * In a **strong, trending market**, the indicator's lookback period on the RSI lengthens, aiming to reduce premature signals.
 * In a **choppy, sideways market**, the period shortens, aiming to increase sensitivity to turns within the range.
 
-This indicator explores the concept of applying adaptive techniques to an already smoothed data series (the RSI), resulting in a unique, hybrid momentum profile.
-
 ## 2. Mathematical Foundations and Calculation Logic
 
 The calculation is a complex, four-stage sequential process.
@@ -24,9 +22,9 @@ The calculation is a complex, four-stage sequential process.
 
 ### Calculation Steps (Algorithm)
 
-1. **Calculate the Base RSI:** First, a standard Wilder's RSI is calculated on the source price over the period `N_rsi`. This creates the primary data series for the oscillator.
+1. **Calculate the Base RSI:** First, a standard Wilder's RSI is calculated on the source price over the period `N_rsi`.
 
-2. **Calculate the Efficiency Ratio (ER):** Separately, the ER is calculated on the **source price** over the period `N_er` to measure the market's trendiness.
+2. **Calculate the Efficiency Ratio (ER):** Separately, the ER is calculated on the **source price** over the period `N_er`.
     * $\text{ER}_t = \frac{\text{Abs}(P_t - P_{t-N_{er}})}{\sum_{i=0}^{N_{er}-1} \text{Abs}(P_{t-i} - P_{t-i-1})}$
 
 3. **Calculate the Adaptive Stochastic Period (NSP):** The ER is used to calculate the new, dynamic lookback period for the Stochastic on each bar.
@@ -37,39 +35,46 @@ The calculation is a complex, four-stage sequential process.
         $\text{Highest High} = \text{Highest value of RSI over the last NSP}_t \text{ bars}$
         $\text{Lowest Low} = \text{Lowest value of RSI over the last NSP}_t \text{ bars}$
         $\text{Raw \%K}_t = 100 \times \frac{\text{RSI}_t - \text{Lowest Low}}{\text{Highest High} - \text{Lowest Low}}$
-    * **Calculate Slow %K and %D:** The `Raw %K` is then smoothed using fixed-period moving averages.
+    * **Calculate Slow %K and %D:** The `Raw %K` is then smoothed using configurable moving averages.
 
 ## 3. MQL5 Implementation Details
 
-* **Modular and Composite Design:** The `Stochastic_Adaptive_RSI_Calculator.mqh` uses a composition-based design. It **contains an instance** of our robust `CRSIProCalculator` to generate the base RSI data, and it reuses the ER calculation logic from our KAMA implementation.
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Reusable Components:** The calculator leverages our universal `CalculateMA` helper function for the final %K and %D smoothing steps.
+* **Full Engine Integration:**
+    The calculator (`Stochastic_Adaptive_RSI_Calculator.mqh`) orchestrates three powerful engines:
+    1. **RSI Engine:** Calculates the base RSI.
+    2. **Slowing Engine:** Smooths the Raw %K using `MovingAverage_Engine.mqh`.
+    3. **Signal Engine:** Calculates the %D line using `MovingAverage_Engine.mqh`.
 
-* **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (RSI, ER, NSP, Raw %K) persist their state between ticks.
+
+* **Hybrid Heikin Ashi Logic:**
+    When using Heikin Ashi prices, the indicator offers a unique "Hybrid" mode via the `Adaptive Source` parameter.
+  * **Standard (Recommended):** Calculates RSI on Heikin Ashi, but measures ER (market noise) on Standard prices. This prevents the HA smoothing from artificially inflating the ER.
+  * **Heikin Ashi:** Calculates both RSI and ER on Heikin Ashi prices (Pure HA).
 
 ## 4. Parameters
 
-* **RSI Period (`InpRSIPeriod`):** The lookback period for the base RSI calculation.
-* **ER Period (`InpErPeriod`):** The lookback period for the Efficiency Ratio calculation.
-* **Min Stochastic Period (`InpMinStochPeriod`):** The shortest possible period for the Stochastic on the RSI.
-* **Max Stochastic Period (`InpMaxStochPeriod`):** The longest possible period for the Stochastic on the RSI.
-* **Slowing/D Periods:** The fixed periods for the final smoothing steps.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
-* **%D MA Type (`InpDMAType`):** The type of moving average for the %D signal line.
+* **Adaptive Settings:**
+  * `InpRSIPeriod`: RSI Period. (Default: `14`).
+  * `InpErPeriod`: ER Period. (Default: `10`).
+  * `InpMinStochPeriod`: Min Stochastic Period. (Default: `5`).
+  * `InpMaxStochPeriod`: Max Stochastic Period. (Default: `30`).
+  * `InpAdaptiveSource`: Selects the source for ER calculation in HA mode (`Standard` or `Heikin Ashi`).
+* **Stochastic & Price Settings:**
+  * `InpSlowingPeriod`: Smoothing period for Slow %K. (Default: `3`).
+  * `InpSlowingMAType`: Smoothing type for Slow %K. (Default: `SMA`).
+  * `InpDPeriod`: Smoothing period for %D. (Default: `3`).
+  * `InpDMAType`: Smoothing type for %D. (Default: `SMA`).
+  * `InpSourcePrice`: Source price for the calculation.
 
 ## 5. Usage and Interpretation
 
-The Stochastic Adaptive RSI is a hybrid oscillator with a unique character. Its behavior is a blend of the `Stochastic RSI` and the `Stochastic Adaptive` indicators.
+The Stochastic Adaptive RSI is a hybrid oscillator with a unique character.
 
-* **Comparison to its "Parents":**
-  * It is **smoother** than the standard `Stochastic Adaptive` (which is based on raw price) because its input is the already-smoothed RSI line.
-  * It is **more responsive and "jagged"** than the standard `Stochastic RSI` (which uses a fixed period) because its lookback period is constantly changing.
-
-* **Interpreting the Behavior:** This indicator attempts to find a middle ground. It aims to provide the "trend-following" benefit of the adaptive period while working on a less noisy data series (RSI). However, this "double processing" (smoothing from RSI + adaptive period) can sometimes lead to a "hyper-refined" signal that may lose some of the raw power of its simpler counterparts.
-
-* **Strategy:** It should be used like other Stochastic oscillators, looking for:
-  * **Overbought (>80) and Oversold (<20)** conditions.
-  * **Crossovers** of the %K and %D lines for entry/exit signals.
-  * **Divergences** with price.
-
-It is best used by traders who find the standard `Stochastic RSI` too slow but the standard `Stochastic Adaptive` too noisy for their particular strategy or timeframe.
+* **Comparison:** It is **smoother** than the standard `Stochastic Adaptive` (because it uses RSI) but **more responsive** than the standard `Stochastic RSI` (because of the adaptive period).
+* **Strategy:** Use it to identify overbought/oversold conditions and crossovers, especially in markets that alternate between trending and ranging phases.
