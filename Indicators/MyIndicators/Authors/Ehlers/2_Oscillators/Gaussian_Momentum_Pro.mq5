@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                       Gaussian_Momentum_Pro.mq5  |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Refactored to use centralized enums
+#property version   "2.00" // Optimized for incremental calculation
 #property description "Gaussian-smoothed Momentum Oscillator based on Ehlers' concepts."
 
 #property indicator_separate_window
@@ -17,14 +16,13 @@
 #property indicator_width1  1
 
 #property indicator_level1 0.0
-#property indicator_levelstyle STYLE_SOLID
-#property indicator_levelcolor clrGray
+#property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Gaussian_Filter_Calculator.mqh>
 
 //--- Input Parameters ---
-input int                InpPeriod       = 20;    // Cutoff Period for the filter
-input ENUM_CANDLE_SOURCE InpCandleSource = SOURCE_STD;
+input int                       InpPeriod       = 20;    // Cutoff Period for the filter
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferMomentum[];
@@ -38,7 +36,7 @@ int OnInit()
    SetIndexBuffer(0, BufferMomentum,  INDICATOR_DATA);
    ArraySetAsSeries(BufferMomentum,  false);
 
-   if(InpCandleSource == SOURCE_HA)
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CGaussianFilterCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("G-Mom HA(%d)", InpPeriod));
@@ -49,6 +47,7 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("G-Mom(%d)", InpPeriod));
      }
 
+// Initialize with SOURCE_MOMENTUM mode
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, SOURCE_MOMENTUM))
      {
       Print("Failed to initialize Gaussian Momentum Calculator.");
@@ -69,12 +68,29 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   g_calculator.Calculate(rates_total, PRICE_CLOSE, open, high, low, close, BufferMomentum);
+   ENUM_APPLIED_PRICE price_type;
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+   else
+      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+// Delegate calculation with incremental optimization
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferMomentum);
+
    return(rates_total);
   }
 //+------------------------------------------------------------------+
