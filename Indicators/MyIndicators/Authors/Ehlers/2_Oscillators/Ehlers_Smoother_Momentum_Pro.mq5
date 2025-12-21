@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Optimized for incremental calculation
+#property version   "1.20" // Simplified Price Source Selection
 #property description "Ehlers' Smoother (Super/Ultimate) applied to Momentum (Close-Open)."
 
 #property indicator_separate_window
@@ -16,22 +16,22 @@
 #property indicator_width1  1
 
 #property indicator_level1 0.0
-#property indicator_levelstyle STYLE_SOLID
-#property indicator_levelcolor clrGray
+#property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 
-//--- Restored Enum for clarity ---
+//--- Enum for selecting the candle source for calculation ---
 enum ENUM_CANDLE_SOURCE
   {
-   SOURCE_STD, // Standard Candles
-   SOURCE_HA   // Heikin Ashi Candles
+   CANDLE_STANDARD,      // Use standard OHLC data
+   CANDLE_HEIKIN_ASHI    // Use Heikin Ashi smoothed data
   };
 
 //--- Input Parameters ---
 input ENUM_SMOOTHER_TYPE InpSmootherType = SUPERSMOOTHER;
 input int                InpPeriod       = 20;
-input ENUM_CANDLE_SOURCE InpCandleSource = SOURCE_STD;
+// UPDATED: Use simplified candle source selection
+input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
 
 //--- Indicator Buffers ---
 double    BufferMomentum[];
@@ -47,7 +47,8 @@ int OnInit()
 
    string name = (InpSmootherType == SUPERSMOOTHER) ? "SS-Mom" : "US-Mom";
 
-   if(InpCandleSource == SOURCE_HA)
+// Determine HA usage based on simplified enum
+   if(InpCandleSource == CANDLE_HEIKIN_ASHI)
      {
       g_calculator = new CEhlersSmootherCalculator_HA();
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("%s HA(%d)", name, InpPeriod));
@@ -80,7 +81,7 @@ void OnDeinit(const int reason)
 
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -93,11 +94,12 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate calculation with prev_calculated optimization
-//--- We pass PRICE_CLOSE as a dummy value because in SOURCE_MOMENTUM mode,
-//--- the calculator ignores price_type and calculates (Close - Open) internally.
+// We pass PRICE_CLOSE as a dummy because in SOURCE_MOMENTUM mode,
+// the calculator ignores price_type and calculates (Close - Open) internally.
+// The HA switching is handled by the object type (CEhlersSmootherCalculator_HA).
    g_calculator.Calculate(rates_total, prev_calculated, PRICE_CLOSE, open, high, low, close, BufferMomentum);
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
