@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                               Stochastic_DoubleSmoothed_Pro.mq5  |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Refactored to use MovingAverage_Engine
 #property description "William Blau's Double Smoothed Stochastic."
 
 #property indicator_separate_window
@@ -35,10 +34,19 @@
 input group                     "Stochastic Settings"
 input int                       InpStochPeriod   = 5;  // Stochastic Period (q)
 input int                       InpSmoothPeriod1 = 3;  // 1st Smoothing Period (r)
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSmoothMAType1 = EMA; // 1st Smoothing Type
 input int                       InpSmoothPeriod2 = 3;  // 2nd Smoothing Period (s)
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSmoothMAType2 = EMA; // 2nd Smoothing Type
+
+input group                     "Signal Line Settings"
 input int                       InpSignalPeriod  = 3;  // Signal Line Period
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSignalMAType  = EMA; // Signal Line Type
+
 input group                     "Price Source"
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD; // Note: UO uses H,L,C, so this is a simplification
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferK[], BufferD[];
@@ -60,7 +68,7 @@ int OnInit()
       g_calculator = new CStochasticDoubleSmoothedCalculator();
 
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpStochPeriod, InpSmoothPeriod1, InpSmoothPeriod2, InpSignalPeriod))
+      !g_calculator.Init(InpStochPeriod, InpSmoothPeriod1, InpSmoothMAType1, InpSmoothPeriod2, InpSmoothMAType2, InpSignalPeriod, InpSignalMAType))
      {
       Print("Failed to create or initialize Double Smoothed Stochastic Calculator.");
       return(INIT_FAILED);
@@ -79,13 +87,18 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-// The calculator handles its own price source logic
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferK, BufferD);
+
+   ENUM_APPLIED_PRICE price_type;
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+   else
+      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
