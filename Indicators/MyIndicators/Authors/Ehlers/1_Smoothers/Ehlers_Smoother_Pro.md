@@ -37,22 +37,24 @@ The coefficients `c1, c2, c3` are calculated based on the `Period` input.
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Unified Calculator (`Ehlers_Smoother_Calculator.mqh`):** The complex, recursive calculations for both filter types are encapsulated within a single, dedicated calculator class. A user input determines which formula is executed.
-* **Optimized Incremental Calculation:**
+
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal price buffer (`m_price`) and the output buffer (`filter_buffer`) persist their state between ticks. This allows the recursive IIR filter to continue seamlessly from the last known values (`Filt[i-1]`, `Filt[i-2]`) without re-processing the entire history.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
-* **Definition-True Initialization:** The filter is carefully "warmed up" by setting the initial output values to the raw price for the first few bars, exactly as described in Ehlers' original EasyLanguage code. This provides a stable starting point for the recursive calculation.
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The indicator buffer itself acts as the persistent memory for the recursive calculation (`Filt[i-1]`, `Filt[i-2]`), ensuring seamless updates without drift or full recalculation.
+
+* **Definition-True Initialization:** The filter is carefully "warmed up" by setting the initial output values to the raw price for the first few bars, providing a stable starting point for the recursion.
+
+* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
 
 ## 4. Parameters
 
-* **Smoother Type (`InpSmootherType`):** Allows the user to select which filter to display.
-  * `SUPERSMOOTHER`: Selects the filter focused on maximum smoothing.
-  * `ULTIMATESMOOTHER`: Selects the filter focused on near-zero lag.
-* **Period (`InpPeriod`):** The "critical period" of the filter, which controls its responsiveness. A longer period results in a smoother, slower filter, while a shorter period results in a faster, more responsive one. A good starting point is **20**.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **Smoother Type (`InpSmootherType`):** Allows the user to select which filter to display (`SUPERSMOOTHER` or `ULTIMATESMOOTHER`).
+* **Period (`InpPeriod`):** The "critical period" of the filter. A longer period results in a smoother, slower filter. (Default: `20`).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
@@ -60,36 +62,16 @@ The choice between the two smoothers depends on your primary goal.
 
 ### Using the SuperSmoother (Focus on Clarity)
 
-The SuperSmoother is best used as a high-quality replacement for any traditional moving average, especially for **trend identification**.
-
-* A long-period SuperSmoother (e.g., 100) provides a very clean and reliable baseline for the primary trend.
+Best used as a high-quality replacement for any traditional moving average, especially for **trend identification**.
 
 ### Using the Ultimate Smoother (Focus on Speed)
 
-The Ultimate Smoother excels where responsiveness is critical, making it an excellent tool for identifying **dynamic support/resistance zones**.
-
-* Because it has minimal lag, it can be used to time entries at the exact end of a pullback. When the price touches the Ultimate Smoother and turns, the signal is immediate.
+Excels where responsiveness is critical, making it an excellent tool for identifying **dynamic support/resistance zones**.
 
 ### Combined Strategy with Smoother Momentum (Advanced)
 
-The filter's true potential is unlocked when used with its companion oscillator, the **[Ehlers Smoother Momentum Pro](./Ehlers_Smoother_Momentum_Pro.md)**. A key predictive relationship exists between them:
+The filter's true potential is unlocked when used with its companion oscillator, the **[Ehlers Smoother Momentum Pro](./Ehlers_Smoother_Momentum_Pro.md)**.
 
 * **The Momentum Oscillator's zero-cross predicts the Smoother's turning point.**
-  * When the `Smoother Momentum` oscillator crosses **above its zero line**, it provides an early warning that the `Ehlers Smoother` on the main chart is about to form a **trough (a bottom)**.
-  * When the `Smoother Momentum` oscillator crosses **below the zero line**, it provides an early warning that the `Ehlers Smoother` is about to form a **peak (a top)**.
-
-This relationship allows a trader to use the momentum oscillator as a **leading indicator** to anticipate the turning points of the smoother, lagging filter on the price chart.
-
-### Combined Strategy with the Band-Pass Filter (Recommended)
-
-The true power of the Ehlers Filter Family is unlocked when the three filters are used together in a comprehensive trading strategy.
-
-1. **Trend Filter (The "Map"):** Use a long-period **SuperSmoother** (e.g., Period 100) to define the main trend.
-    * If price is above the SuperSmoother, only look for buy signals.
-    * If price is below the SuperSmoother, only look for sell signals.
-2. **Dynamic S/R (The "Zone"):** Use a short-period **Ultimate Smoother** (e.g., Period 20) as a dynamic support/resistance level.
-    * In an uptrend, wait for the price to pull back to the Ultimate Smoother line. This is your potential entry zone.
-3. **Entry Trigger (The "Timing"):** Use the **[Band-Pass Filter](./BandPass_Filter_Pro.md)** to time your entry.
-    * **Buy Signal:** When the price is in the entry zone (touching the Ultimate Smoother) and the Band-Pass Filter forms a **valley below the zero line and turns up**, it provides a high-probability entry signal in the direction of the main trend.
-
-This combined approach uses each indicator for its intended purpose: the SuperSmoother for **trend**, the UltimateSmoother for the **entry zone**, and the Band-Pass Filter for the **precise timing trigger**.
+  * **Buy Signal:** Momentum crosses above zero -> Smoother forms a trough.
+  * **Sell Signal:** Momentum crosses below zero -> Smoother forms a peak.
