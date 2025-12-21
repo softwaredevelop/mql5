@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                   Ehlers_Smoother_Calculator.mqh |
-//|      VERSION 2.50: Added safety resize for output buffer.        |
+//|      VERSION 3.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -10,6 +10,8 @@
 enum ENUM_SMOOTHER_TYPE { SUPERSMOOTHER, ULTIMATESMOOTHER };
 enum ENUM_INPUT_SOURCE { SOURCE_PRICE, SOURCE_MOMENTUM };
 
+//+==================================================================+
+//|             CLASS 1: CEhlersSmootherCalculator                   |
 //+==================================================================+
 class CEhlersSmootherCalculator
   {
@@ -21,6 +23,7 @@ protected:
    //--- Persistent Buffer for Price
    double              m_price[];
 
+   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -28,11 +31,15 @@ public:
    virtual          ~CEhlersSmootherCalculator(void) {};
 
    bool              Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type);
+
+   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
 
    int               GetPeriod(void) const { return m_period; }
   };
 
+//+------------------------------------------------------------------+
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator::Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type)
   {
@@ -43,54 +50,46 @@ bool CEhlersSmootherCalculator::Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_I
   }
 
 //+------------------------------------------------------------------+
+//| Main Calculation (Optimized)                                     |
+//+------------------------------------------------------------------+
 void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[])
   {
    if(rates_total < 4)
       return;
 
-//--- SAFETY FIX: Ensure output buffer is large enough
-//--- If filter_buffer is a dynamic array passed from another calculator, it might be size 0.
-   if(ArraySize(filter_buffer) != rates_total)
-      ArrayResize(filter_buffer, rates_total);
-
-//--- 1. Determine Start Index
    int start_index;
    if(prev_calculated == 0)
       start_index = 0;
    else
       start_index = prev_calculated - 1;
 
-//--- 2. Resize Internal Buffer
+// Resize internal buffer
    if(ArraySize(m_price) != rates_total)
       ArrayResize(m_price, rates_total);
 
-//--- 3. Prepare Price
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-//--- 4. Calculate Coefficients
+//--- Calculate Coefficients
    double a1 = exp(-M_SQRT2 * M_PI / m_period);
    double b1 = 2.0 * a1 * cos(M_SQRT2 * M_PI / m_period);
    double c2 = b1;
    double c3 = -a1 * a1;
    double c1 = (m_type == SUPERSMOOTHER) ? (1.0 - c2 - c3) : ((1.0 + c2 - c3) / 4.0);
 
-//--- 5. Calculate Filter
-   int i = start_index;
+//--- Incremental Loop
+// We start at index 3 because we need i-1 and i-2 (and i-3 for safety/logic consistency)
+   int loop_start = MathMax(3, start_index);
 
-// Initialization
-   if(i < 3)
+// Initialization for the very first bars
+   if(loop_start == 3)
      {
-      if(rates_total > 0)
-         filter_buffer[0] = m_price[0];
-      if(rates_total > 1)
-         filter_buffer[1] = m_price[1];
-      if(rates_total > 2)
-         filter_buffer[2] = m_price[2];
-      i = 3;
+      filter_buffer[0] = m_price[0];
+      filter_buffer[1] = m_price[1];
+      filter_buffer[2] = m_price[2];
      }
 
-   for(; i < rates_total; i++)
+   for(int i = loop_start; i < rates_total; i++)
      {
       double f1 = filter_buffer[i-1];
       double f2 = filter_buffer[i-2];
@@ -98,13 +97,15 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
       double current_f;
       if(m_type == SUPERSMOOTHER)
          current_f = c1 * (m_price[i] + m_price[i-1]) / 2.0 + c2 * f1 + c3 * f2;
-      else
+      else // ULTIMATESMOOTHER
          current_f = (1.0 - c1) * m_price[i] + (2.0 * c1 - c2) * m_price[i-1] - (c1 + c3) * m_price[i-2] + c2 * f1 + c3 * f2;
 
       filter_buffer[i] = current_f;
      }
   }
 
+//+------------------------------------------------------------------+
+//| Prepare Price (Standard - Optimized)                             |
 //+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -149,16 +150,19 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(int rates_total, int start_in
   }
 
 //+==================================================================+
+//|             CLASS 2: CEhlersSmootherCalculator_HA                |
+//+==================================================================+
 class CEhlersSmootherCalculator_HA : public CEhlersSmootherCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
 protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
+//+------------------------------------------------------------------+
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -169,9 +173,7 @@ bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
      }
-
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
    for(int i = start_index; i < rates_total; i++)
      {
