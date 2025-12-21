@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                          Gaussian_Filter_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Adapted to new universal calculator
+#property version   "2.00" // Optimized for incremental calculation
 #property description "John Ehlers' 2-Pole Gaussian Filter."
 
 #property indicator_chart_window
@@ -14,7 +13,7 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrCrimson
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  1
+#property indicator_width1  2
 
 #include <MyIncludes\Gaussian_Filter_Calculator.mqh>
 
@@ -45,7 +44,6 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Gaussian(%d)", InpPeriod));
      }
 
-// CORRECTED: Pass the source type to the Init function
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, SOURCE_PRICE))
      {
       Print("Failed to initialize Gaussian Filter Calculator.");
@@ -66,7 +64,16 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -77,7 +84,7 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferFilter);
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter);
    return(rates_total);
   }
 //+------------------------------------------------------------------+
