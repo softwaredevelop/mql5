@@ -3,10 +3,11 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.21" // Fixed display mode bug
+#property version   "4.00" // Refactored to use MovingAverage_Engine
 #property description "A professional, unified RSI with selectable price source (incl. Heikin Ashi),"
 #property description "a flexible MA signal line, and optional Bollinger Bands."
 
+//--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
 #property indicator_buffers 4
 #property indicator_plots   4
@@ -56,17 +57,16 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 input group "Overlay Settings"
 input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_RSI_AND_BANDS;
 input int                InpPeriodMA     = 20;
-input ENUM_MA_METHOD     InpMethodMA     = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE       InpMethodMA     = SMA;
 input double             InpBandsDev     = 2.0;
 
 //--- Indicator Buffers ---
 double    BufferRSI[], BufferSignalMA[], BufferUpperBand[], BufferLowerBand[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CRSIProCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -80,7 +80,6 @@ int OnInit()
    ArraySetAsSeries(BufferUpperBand, false);
    ArraySetAsSeries(BufferLowerBand, false);
 
-//--- Dynamic Calculator Instantiation ---
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CRSIProCalculator_HA();
@@ -109,16 +108,12 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -139,13 +134,8 @@ int OnCalculate(const int rates_total,
       else
          price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-      //--- Delegate calculation (Calculates ALL buffers)
       g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
                              BufferRSI, BufferSignalMA, BufferUpperBand, BufferLowerBand);
-
-      //--- FIX: Force hide unused buffers for the ENTIRE history
-      //--- Since the calculator fills them all, we must clear what we don't want to see.
-      //--- Clearing a double array is very fast, so we do it from 0.
 
       if(InpDisplayMode == DISPLAY_RSI_ONLY)
         {
