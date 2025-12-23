@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property version   "2.00" // Refactored to use MovingAverage_Engine
 #property description "RSI %B. Shows the position of the RSI line relative to its Bollinger Bands."
 
 #property indicator_separate_window
@@ -30,7 +30,8 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group "Bollinger Bands Settings"
 input int                InpPeriodMA     = 20;
-input ENUM_MA_METHOD     InpMethodMA     = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE       InpMethodMA     = SMA;
 input double             InpBandsDev     = 2.0;
 
 //--- Indicator Buffers ---
@@ -69,7 +70,8 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriodRSI + InpPeriodMA - 1);
+   int draw_begin = InpPeriodRSI + InpPeriodMA - 1;
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, 3);
 
    return(INIT_SUCCEEDED);
@@ -81,7 +83,6 @@ void OnDeinit(const int reason)
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
 
-// Free internal memory
    ArrayFree(BufferRSI_Internal);
    ArrayFree(BufferMA_Internal);
    ArrayFree(BufferUpper_Internal);
@@ -90,7 +91,7 @@ void OnDeinit(const int reason)
 
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -103,7 +104,7 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Resize internal buffers
+// Resize internal buffers
    if(ArraySize(BufferRSI_Internal) != rates_total)
      {
       ArrayResize(BufferRSI_Internal, rates_total);
@@ -118,12 +119,11 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Step 1: Run the main calculation (Incremental)
-//--- Passing global buffers to preserve state for recursive calculations
+// Step 1: Run the main calculation (Incremental)
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
                           BufferRSI_Internal, BufferMA_Internal, BufferUpper_Internal, BufferLower_Internal);
 
-//--- Step 2: Calculate the final %B value (Optimized Loop)
+// Step 2: Calculate the final %B value (Optimized Loop)
    int start_pos = InpPeriodRSI + InpPeriodMA - 1;
    int loop_start = MathMax(start_pos, (prev_calculated > 0 ? prev_calculated - 1 : 0));
 
@@ -143,4 +143,5 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
