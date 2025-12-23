@@ -42,25 +42,27 @@ All indicators in this family are derived from the same core components: the RSI
 
 Our MQL5 suite is built on a single, shared, modular, and robust calculation engine to ensure consistency and maintainability across the entire indicator family.
 
-* **Unified, Reusable Calculation Engine (`RSI_Pro_Calculator.mqh`):** The entire calculation logic for all components (RSI, MA, Bands) and for both standard and Heikin Ashi versions is encapsulated within this powerful include file.
-  * An elegant, object-oriented inheritance model (`CRSIProCalculator` and `CRSIProCalculator_HA`) allows all indicators in the family to dynamically choose the correct calculation engine at runtime based on user input.
-  * This **DRY (Don't Repeat Yourself)** approach ensures that any future improvements to the core logic are automatically inherited by all indicators in the family.
+* **Unified, Reusable Calculation Engine (`RSI_Pro_Calculator.mqh`):**
+    The entire calculation logic is encapsulated within this powerful include file.
+  * **Composition Pattern:** The calculator internally uses our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
+  * **Drift-Free RSI:** We implemented a robust internal buffering system for the Wilder's Smoothing components (Average Gain/Loss). This prevents the common "RSI Drift" issue seen in many incremental implementations, ensuring that the indicator values remain stable and accurate over time.
 
-* **Optimized Incremental Calculation:**
+* **Optimized Incremental Calculation (O(1)):**
     All indicators employ an intelligent incremental algorithm.
-  * They utilize the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (like `m_rsi_buffer`) persist their state between ticks. This allows recursive smoothing methods (like EMA and SMMA for the signal line) to continue seamlessly from the last known value without re-processing the entire history.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> Signal Line -> Bands), ensuring that each step starts only when valid data is available.
 
-* **Flexible "Pro" Indicators:** Functionality is consolidated into powerful "Pro" versions.
-  * **`RSI_Pro.mq5`**: The main indicator, featuring a custom `enum` to seamlessly switch between standard and a full range of Heikin Ashi price types. It also has a `Display Mode` to show the RSI alone, with its signal line, or with the full Bollinger Bands.
+* **Object-Oriented Design:**
+  * An elegant inheritance model (`CRSIProCalculator` and `CRSIProCalculator_HA`) allows all indicators in the family to dynamically choose the correct calculation engine at runtime based on user input.
 
 ## 4. Parameters
 
 * **RSI Period (`InpPeriodRSI`):** The lookback period for the base RSI.
 * **Source Price (`InpSourcePrice`):** A comprehensive list of price sources, including all standard prices and a full range of Heikin Ashi prices.
-* **MA Period & Method:** The period and type of moving average for the signal line and/or Bollinger Bands centerline.
-* **Bands Deviation:** The standard deviation multiplier for the Bollinger Bands on the RSI.
+* **MA Period (`InpPeriodMA`):** The period for the signal line / Bollinger Bands centerline.
+* **MA Method (`InpMethodMA`):** The type of moving average. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
+* **Bands Deviation (`InpBandsDev`):** The standard deviation multiplier for the Bollinger Bands on the RSI.
 * **Display Mode:** (For `RSI_Pro`) Controls which components are visible on the chart.
 
 ## 5. Usage and Interpretation
