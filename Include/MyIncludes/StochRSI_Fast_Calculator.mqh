@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                      StochRSI_Fast_Calculator.mqh|
-//|  VERSION 2.00: Uses MovingAverage_Engine for smoothing.          |
+//|  VERSION 2.10: Fixed Enum Type Mismatch.                         |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -66,7 +66,8 @@ bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_TYPE d
       return false;
 
 // Init RSI calculator (MA params for RSI bands are dummy here as we only need RSI line)
-   if(!m_rsi_calculator.Init(m_rsi_period, 1, MODE_SMA, 2.0))
+// FIX: Use 'SMA' (from ENUM_MA_TYPE) instead of 'MODE_SMA'
+   if(!m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
       return false;
 
 // Init MA Engine for %D
