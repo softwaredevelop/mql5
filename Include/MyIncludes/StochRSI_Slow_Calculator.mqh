@@ -68,7 +68,7 @@ bool CStochRSI_Slow_Calculator::Init(int rsi_p, int k_p, int slow_p, ENUM_MA_TYP
       return false;
 
 // Init RSI calculator
-   if(!m_rsi_calculator.Init(m_rsi_period, 1, MODE_SMA, 2.0))
+   if(!m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
       return false;
 
 // Init MA Engines
