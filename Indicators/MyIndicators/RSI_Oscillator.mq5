@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.10" // Optimized for incremental calculation
+#property version   "3.20" // Refactored to use MovingAverage_Engine
 #property description "RSI Oscillator (Histogram of RSI vs Signal Line) with selectable price source."
 
 #property indicator_separate_window
@@ -23,7 +23,8 @@ input int                      InpPeriodRSI    = 14;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 input group                    "Signal Line Settings"
 input int                      InpPeriodMA     = 14;
-input ENUM_MA_METHOD           InpMethodMA     = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE             InpMethodMA     = SMA;
 
 //--- Indicator Buffers ---
 double    BufferOscillator[];
@@ -127,4 +128,5 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
