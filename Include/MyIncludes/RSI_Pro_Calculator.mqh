@@ -1,11 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           RSI_Pro_Calculator.mqh |
-//|        Calculation engine for Standard and Heikin Ashi RSI Pro.  |
+//|        VERSION 3.10: Fixed RSI Drift (Added internal buffers).   |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
 //|             CLASS 1: CRSIProCalculator (Base Class)              |
@@ -16,7 +17,9 @@ protected:
    int               m_rsi_period;
    int               m_ma_period;
    double            m_deviation;
-   ENUM_MA_METHOD    m_ma_method;
+
+   //--- Engine for Signal Line
+   CMovingAverageCalculator m_ma_engine;
 
    //--- Persistent Buffers for Incremental Calculation
    double            m_price[];
@@ -25,9 +28,9 @@ protected:
    double            m_upper_band[];
    double            m_lower_band[];
 
-   //--- Persistent State for Wilder's Smoothing
-   double            m_sum_pos;
-   double            m_sum_neg;
+   //--- NEW: Persistent Buffers for Wilder's Smoothing (Fixes Drift)
+   double            m_avg_gain[];
+   double            m_avg_loss[];
 
    //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
@@ -36,7 +39,8 @@ public:
                      CRSIProCalculator(void);
    virtual          ~CRSIProCalculator(void) {};
 
-   bool              Init(int rsi_p, int ma_p, ENUM_MA_METHOD ma_m, double dev);
+   //--- Init now takes ENUM_MA_TYPE
+   bool              Init(int rsi_p, int ma_p, ENUM_MA_TYPE ma_m, double dev);
 
    //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
@@ -46,21 +50,23 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CRSIProCalculator::CRSIProCalculator(void) : m_sum_pos(0), m_sum_neg(0)
+CRSIProCalculator::CRSIProCalculator(void)
   {
   }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CRSIProCalculator::Init(int rsi_p, int ma_p, ENUM_MA_METHOD ma_m, double dev)
+bool CRSIProCalculator::Init(int rsi_p, int ma_p, ENUM_MA_TYPE ma_m, double dev)
   {
    m_rsi_period = (rsi_p < 1) ? 1 : rsi_p;
    m_ma_period = (ma_p < 1) ? 1 : ma_p;
-   m_ma_method = ma_m;
    m_deviation = dev;
-   m_sum_pos = 0;
-   m_sum_neg = 0;
+
+// Initialize MA Engine
+   if(!m_ma_engine.Init(m_ma_period, ma_m))
+      return false;
+
    return true;
   }
 
@@ -76,11 +82,7 @@ void CRSIProCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
 //--- 1. Determine Start Index
    int start_index;
    if(prev_calculated == 0)
-     {
       start_index = 0;
-      m_sum_pos = 0;
-      m_sum_neg = 0;
-     }
    else
       start_index = prev_calculated - 1;
 
@@ -92,6 +94,10 @@ void CRSIProCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
       ArrayResize(m_ma_buffer, rates_total);
       ArrayResize(m_upper_band, rates_total);
       ArrayResize(m_lower_band, rates_total);
+
+      // Resize internal averaging buffers
+      ArrayResize(m_avg_gain, rates_total);
+      ArrayResize(m_avg_loss, rates_total);
      }
 
 //--- 3. Prepare Price (Optimized)
@@ -101,88 +107,73 @@ void CRSIProCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
 //--- 4. Calculate RSI (Incremental)
    int i = start_index;
    if(i == 0)
-      i = 1; // Skip first bar for diff
+     {
+      m_avg_gain[0] = 0;
+      m_avg_loss[0] = 0;
+      m_rsi_buffer[0] = 0;
+      i = 1;
+     }
 
    for(; i < rates_total; i++)
      {
       double diff = m_price[i] - m_price[i-1];
-     }
+      double pos = (diff > 0 ? diff : 0);
+      double neg = (diff < 0 ? -diff : 0);
 
-// Reset sums for full loop
-   double sum_pos = 0;
-   double sum_neg = 0;
-
-   for(i = 1; i < rates_total; i++)
-     {
-      double diff = m_price[i] - m_price[i-1];
-      sum_pos = (sum_pos * (m_rsi_period - 1) + (diff > 0 ? diff : 0)) / m_rsi_period;
-      sum_neg = (sum_neg * (m_rsi_period - 1) + (diff < 0 ? -diff : 0)) / m_rsi_period;
-
-      if(i >= m_rsi_period)
+      if(i <= m_rsi_period)
         {
-         if(sum_neg > 0)
-            m_rsi_buffer[i] = 100.0 - (100.0 / (1.0 + (sum_pos / sum_neg)));
+         // First value (at index period) is SMA.
+         // Subsequent values are RMA.
+         if(i < m_rsi_period)
+           {
+            // Accumulate
+            m_avg_gain[i] = m_avg_gain[i-1] + pos;
+            m_avg_loss[i] = m_avg_loss[i-1] + neg;
+            m_rsi_buffer[i] = 0;
+           }
+         else // i == m_rsi_period
+           {
+            // Calculate initial SMA
+            // Add current value to sum
+            double sum_g = m_avg_gain[i-1] + pos;
+            double sum_l = m_avg_loss[i-1] + neg;
+
+            m_avg_gain[i] = sum_g / m_rsi_period;
+            m_avg_loss[i] = sum_l / m_rsi_period;
+
+            if(m_avg_loss[i] > 0)
+               m_rsi_buffer[i] = 100.0 - (100.0 / (1.0 + (m_avg_gain[i] / m_avg_loss[i])));
+            else
+               m_rsi_buffer[i] = 100.0;
+           }
+        }
+      else
+        {
+         // Normal Phase: Wilder's Smoothing (RMA)
+         // Avg[i] = (Avg[i-1] * (N-1) + Val[i]) / N
+         // We use the persistent buffer values from [i-1], which are stable!
+
+         m_avg_gain[i] = (m_avg_gain[i-1] * (m_rsi_period - 1) + pos) / m_rsi_period;
+         m_avg_loss[i] = (m_avg_loss[i-1] * (m_rsi_period - 1) + neg) / m_rsi_period;
+
+         if(m_avg_loss[i] > 0)
+            m_rsi_buffer[i] = 100.0 - (100.0 / (1.0 + (m_avg_gain[i] / m_avg_loss[i])));
          else
             m_rsi_buffer[i] = 100.0;
         }
-      else
-         m_rsi_buffer[i] = 0;
      }
 
-//--- 5. Calculate Moving Average on RSI (Optimized)
-   int ma_start_pos = m_rsi_period + m_ma_period - 1;
-   int loop_start_ma = MathMax(ma_start_pos, start_index);
-
-   for(i = loop_start_ma; i < rates_total; i++)
-     {
-      switch(m_ma_method)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == ma_start_pos)
-              {
-               double sum = 0;
-               for(int j = 0; j < m_ma_period; j++)
-                  sum += m_rsi_buffer[i-j];
-               m_ma_buffer[i] = sum / m_ma_period;
-              }
-            else
-              {
-               if(m_ma_method == MODE_EMA)
-                 {
-                  double pr = 2.0 / (m_ma_period + 1.0);
-                  m_ma_buffer[i] = m_rsi_buffer[i] * pr + m_ma_buffer[i-1] * (1.0 - pr);
-                 }
-               else
-                  m_ma_buffer[i] = (m_ma_buffer[i-1] * (m_ma_period - 1) + m_rsi_buffer[i]) / m_ma_period;
-              }
-            break;
-         case MODE_LWMA:
-           {
-            double lwma_sum = 0, weight_sum = 0;
-            for(int j = 0; j < m_ma_period; j++)
-              {
-               int weight = m_ma_period - j;
-               lwma_sum += m_rsi_buffer[i-j] * weight;
-               weight_sum += weight;
-              }
-            if(weight_sum > 0)
-               m_ma_buffer[i] = lwma_sum / weight_sum;
-            break;
-           }
-         default: // MODE_SMA
-           {
-            double sum = 0;
-            for(int j = 0; j < m_ma_period; j++)
-               sum += m_rsi_buffer[i-j];
-            m_ma_buffer[i] = sum / m_ma_period;
-            break;
-           }
-        }
-     }
+//--- 5. Calculate Moving Average on RSI (Using Engine)
+// RSI is valid from index: m_rsi_period
+   int rsi_offset = m_rsi_period;
+   m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_rsi_buffer, m_ma_buffer, rsi_offset);
 
 //--- 6. Calculate Bollinger Bands (Optimized)
-   for(i = loop_start_ma; i < rates_total; i++)
+// Bands are based on the MA, so they start where MA starts
+   int ma_start_pos = rsi_offset + m_ma_period - 1;
+   int loop_start_bands = MathMax(ma_start_pos, start_index);
+
+   for(i = loop_start_bands; i < rates_total; i++)
      {
       double std_dev_val = 0, sum_sq = 0;
       for(int j = 0; j < m_ma_period; j++)
@@ -194,7 +185,6 @@ void CRSIProCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
      }
 
 //--- 7. Copy to Output
-// We copy everything to be safe, ArrayCopy is fast
    ArrayCopy(rsi_out, m_rsi_buffer, 0, 0, rates_total);
    ArrayCopy(ma_out, m_ma_buffer, 0, 0, rates_total);
    ArrayCopy(upper_out, m_upper_band, 0, 0, rates_total);
@@ -206,7 +196,6 @@ void CRSIProCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
 //+------------------------------------------------------------------+
 bool CRSIProCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -230,7 +219,7 @@ bool CRSIProCalculator::PreparePriceSeries(int rates_total, int start_index, ENU
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
+            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
             break;
          default:
             m_price[i] = close[i];
@@ -247,19 +236,16 @@ class CRSIProCalculator_HA : public CRSIProCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
 protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CRSIProCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -267,12 +253,7 @@ bool CRSIProCalculator_HA::PreparePriceSeries(int rates_total, int start_index, 
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
      }
-
-//--- STRICT CALL: Use the optimized 10-param HA calculation
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
-
-//--- Copy to m_price (Optimized loop)
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
