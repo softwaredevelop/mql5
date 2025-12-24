@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                           Stochastic_Adaptive_RSI_Calculator.mqh |
-//|      VERSION 3.00: Selectable ER Source for HA mode.             |
+//|      VERSION 3.10: Fixed Enum Type Mismatch.                     |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -79,7 +79,9 @@ bool CStochasticAdaptiveRSICalculator::Init(int rsi_p, int er_p, int min_p, int 
 
    if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
       return false;
-   if(!m_rsi_calculator.Init(m_rsi_period, 1, MODE_SMA, 2.0))
+
+// FIX: Use 'SMA' (from ENUM_MA_TYPE) instead of 'MODE_SMA'
+   if(!m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
       return false;
 
    if(!m_slowing_engine.Init(slow_p, slow_ma))
