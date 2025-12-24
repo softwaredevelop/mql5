@@ -67,9 +67,9 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
   * `InpAdaptiveSource`: Selects the source for ER calculation in HA mode (`Standard` or `Heikin Ashi`).
 * **Stochastic & Price Settings:**
   * `InpSlowingPeriod`: Smoothing period for Slow %K. (Default: `3`).
-  * `InpSlowingMAType`: Smoothing type for Slow %K. (Default: `SMA`).
+  * `InpSlowingMAType`: Smoothing type for Slow %K. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
   * `InpDPeriod`: Smoothing period for %D. (Default: `3`).
-  * `InpDMAType`: Smoothing type for %D. (Default: `SMA`).
+  * `InpDMAType`: Smoothing type for %D. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
   * `InpSourcePrice`: Source price for the calculation.
 
 ## 5. Usage and Interpretation
