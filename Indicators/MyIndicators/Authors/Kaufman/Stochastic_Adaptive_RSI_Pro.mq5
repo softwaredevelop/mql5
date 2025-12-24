@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // Selectable ER Source
+#property version   "3.10" // Fixed Init call
 #property description "Variable-Length Stochastic applied to an RSI series."
 #property description "Dynamically adjusts its period based on market trendiness (ER)."
 
@@ -36,7 +36,6 @@ input int                       InpRSIPeriod     = 14; // RSI Period
 input int                       InpErPeriod      = 10; // Efficiency Ratio Period
 input int                       InpMinStochPeriod= 5;  // Minimum Stochastic Period on RSI
 input int                       InpMaxStochPeriod= 30; // Maximum Stochastic Period on RSI
-// NEW: Adaptive Source Selection
 input ENUM_ADAPTIVE_SOURCE      InpAdaptiveSource= ADAPTIVE_SOURCE_STANDARD;
 
 input group                     "Stochastic & Price Settings"
@@ -65,6 +64,7 @@ int OnInit()
    else
       g_calculator = new CStochasticAdaptiveRSICalculator();
 
+// FIX: Added InpAdaptiveSource to Init call
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
       !g_calculator.Init(InpRSIPeriod, InpErPeriod, InpMinStochPeriod, InpMaxStochPeriod, InpSlowingPeriod, InpSlowingMAType, InpDPeriod, InpDMAType, InpAdaptiveSource))
      {
