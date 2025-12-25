@@ -26,7 +26,7 @@ The system is built by first creating a Laguerre-based MACD line, then applying 
     * $\text{MACD Line}_t = \text{Fast Filter}_t - \text{Slow Filter}_t$
 
 3. **Calculate the Signal Line:** A smoothing of the user-selected type (`MA Type`) is applied to the `MACD Line`.
-    * $\text{Signal Line}_t = \text{Smoothing}(\text{MACD Line}, \text{Period}, \text{MA Type})_t$
+    * $\text{Signal Line}_t = \text{Smoothing}(\text{MACD Line}, \text{Parameters})_t$
 
 4. **Calculate the Histogram:** The final output is the difference between the MACD Line and the Signal Line.
     * $\text{Histogram}_t = \text{MACD Line}_t - \text{Signal Line}_t$
@@ -35,13 +35,13 @@ The system is built by first creating a Laguerre-based MACD line, then applying 
 
 * **Modular and Composite Design:** The `MACD_Laguerre_Calculator.mqh` uses a composition-based design: it **contains two instances** of our robust, state-managed `Laguerre_Engine` to generate the base MACD line.
 
-* **Optimized Incremental Calculation:**
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
   * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
   * **Persistent State:** The internal Laguerre engines persist their state (`L0`...`L3`) between ticks, allowing the recursive calculation to continue seamlessly from the last known value.
   * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Flexible Signal Line Calculation:** The calculator dynamically instantiates either a third `Laguerre_Engine` or a `MovingAverage_Engine` for the signal line, depending on the user's choice. This ensures that the signal line calculation is also fully optimized and incremental.
+* **Flexible Signal Line Calculation:** The calculator dynamically instantiates either a third `Laguerre_Engine` or a `MovingAverage_Engine` for the signal line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
 
 * **Heikin Ashi Integration:** A "Factory Method" (`CreateEngineInstance`) is used to instantiate the correct type of Laguerre engine (`standard` or `_HA`), ensuring seamless Heikin Ashi integration.
 
@@ -50,8 +50,8 @@ The system is built by first creating a Laguerre-based MACD line, then applying 
 * **Laguerre MACD Settings:**
   * **`InpGamma1` / `InpGamma2`:** The gamma coefficients for the two base Laguerre filters. The smaller value will be the fast filter, the larger will be the slow one.
 * **Signal Line Settings:**
-  * **`InpSignalMAType`:** A dropdown menu to select the smoothing type for the signal line. Options include `Laguerre`, `SMA`, `EMA`, `SMMA`, `LWMA`.
-  * **`InpSignalPeriod`:** The lookback period for standard MA signal lines.
+  * **`InpSignalMAType`:** A dropdown menu to select the smoothing type for the signal line. Options include `Laguerre`, `SMA`, `EMA`, `SMMA`, `LWMA`, `TMA`, `DEMA`, `TEMA`.
+  * **`InpSignalPeriod`:** The lookback period for **standard MA** signal lines.
   * **`InpSignalGamma`:** The gamma coefficient used **only** if the signal line type is set to `Laguerre`.
 * **Price Source:**
   * **`InpSourcePrice`:** The source price for the calculation (Standard or Heikin Ashi).
