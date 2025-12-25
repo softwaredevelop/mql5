@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.30" // Improved Short Name
+#property version   "2.00" // Refactored to use Engines
 #property description "Full MACD with Laguerre base lines and a selectable signal line."
 
 #property indicator_separate_window
@@ -95,10 +95,8 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -113,7 +111,6 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type,
                           BufferMACDLine, BufferSignalLine, BufferHistogram);
 
