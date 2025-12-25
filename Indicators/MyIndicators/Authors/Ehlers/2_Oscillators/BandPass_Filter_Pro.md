@@ -26,9 +26,16 @@ The final output of this two-stage process is the Band-Pass line, which represen
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Self-Contained Calculator (`BandPass_Calculator.mqh`):** The entire two-stage, recursive calculation is encapsulated within a dedicated, reusable calculator class.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal buffers (for the High-Pass output and the final Band-Pass output) persist their state between ticks. This allows the recursive IIR filters to continue seamlessly from the last known values without re-processing the entire history.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation involves two chained, state-dependent filters. To ensure absolute stability, the indicator employs a **full recalculation** on every `OnCalculate` call.
 
 ## 4. Parameters
 
