@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                          BandPass_Filter_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Optimized for incremental calculation
 #property description "John Ehlers' Band-Pass Filter, created by combining a High-Pass"
 #property description "filter with a SuperSmoother filter."
 
@@ -18,14 +17,13 @@
 #property indicator_width1  1
 
 #property indicator_level1 0.0
-#property indicator_levelstyle STYLE_SOLID
-#property indicator_levelcolor clrGray
+#property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\BandPass_Calculator.mqh>
 
 //--- Input Parameters ---
-input int                       InpLowerPeriod  = 30;    // Lower critical period (for High-Pass)
-input int                       InpUpperPeriod  = 15;    // Upper critical period (for SuperSmoother)
+input int                       InpLowerPeriod  = 30;    // Lower critical period (High-Pass Cutoff)
+input int                       InpUpperPeriod  = 15;    // Upper critical period (Low-Pass Cutoff)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
@@ -71,7 +69,16 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -82,7 +89,8 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferBandPass);
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferBandPass);
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
