@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property version   "2.00" // Refactored to use Engines
 #property description "Histogram for the Laguerre MACD with a selectable signal line."
 
 #property indicator_separate_window
@@ -26,8 +26,8 @@ input double InpGamma2 = 0.8; // Slow Laguerre Gamma (larger value)
 
 input group "Signal Line Settings"
 input ENUM_SMOOTHING_METHOD_LAGUERRE InpSignalMAType = SMOOTH_Laguerre;
-input int                            InpSignalPeriod = 9;
-input double                         InpSignalGamma  = 0.5;
+input int                            InpSignalPeriod = 9;   // Period (for MA types)
+input double                         InpSignalGamma  = 0.5; // Gamma (for Laguerre type)
 
 input group "Price Source"
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
@@ -70,10 +70,8 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -88,7 +86,6 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferHistogram);
 
    return(rates_total);
