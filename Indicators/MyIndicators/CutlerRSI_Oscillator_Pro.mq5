@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     CutlerRSI_Oscillator_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.00" // Final unified architecture
+#property version   "3.00" // Refactored to use CutlerRSI Engine
 #property description "Cutler's RSI Oscillator (Histogram of RSI vs Signal Line) with"
 #property description "selectable price source (Standard and Heikin Ashi)."
 
@@ -28,43 +26,35 @@ input int                       InpPeriodRSI    = 14;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 input group                     "Signal Line Settings"
 input int                       InpPeriodMA     = 14;
-input ENUM_MA_METHOD            InpMethodMA     = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpMethodMA     = SMA;
 
 //--- Indicator Buffers ---
 double    BufferOscillator[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CCutlerRSI_OscillatorCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
-//+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffer and set as non-timeseries
    SetIndexBuffer(0, BufferOscillator, INDICATOR_DATA);
    ArraySetAsSeries(BufferOscillator, false);
 
-//--- Dynamically create the appropriate calculator instance
-   if(InpSourcePrice <= PRICE_HA_CLOSE) // Heikin Ashi source selected
-     {
-      g_calculator = new CCutlerRSI_OscillatorCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CutlerRSI Osc HA(%d,%d)", InpPeriodRSI, InpPeriodMA));
-     }
-   else // Standard price source selected
-     {
-      g_calculator = new CCutlerRSI_OscillatorCalculator_Std();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CutlerRSI Osc(%d,%d)", InpPeriodRSI, InpPeriodMA));
-     }
+   g_calculator = new CCutlerRSI_OscillatorCalculator();
 
-//--- Check if creation was successful and initialize
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriodRSI, InpPeriodMA, InpMethodMA))
+   bool use_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpPeriodRSI, InpPeriodMA, InpMethodMA, use_ha))
      {
       Print("Failed to create or initialize CutlerRSI Oscillator Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
+   string type = use_ha ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CutlerRSI Osc%s(%d,%d)", type, InpPeriodRSI, InpPeriodMA));
+
    int draw_begin = InpPeriodRSI + InpPeriodMA - 1;
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
@@ -73,17 +63,12 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -96,21 +81,17 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Convert our custom enum to the standard ENUM_APPLIED_PRICE
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferOscillator);
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferOscillator);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
