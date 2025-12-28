@@ -31,26 +31,26 @@ The core difference lies in the smoothing method applied to the price changes.
 
 Our MQL5 implementation follows a highly modular, object-oriented design.
 
-- **Centralized Calculation Engine (`CutlerRSI_Engine.mqh`):**
-    The core of our implementation is a single, powerful calculation engine that contains the complete logic for calculating both the Cutler's RSI and its signal line.
+- **Unified Calculation Engine (`CutlerRSI_Calculator.mqh`):**
+    The core logic is encapsulated in a robust engine.
+  - **Composition:** The calculator internally uses our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
+  - **Reusability:** The `CutlerRSI_Oscillator_Pro` calculator uses composition to include the main `CCutlerRSICalculator`, ensuring that both indicators share the exact same mathematical foundation.
 
-- **Specialized Wrappers (`CutlerRSI_Calculator.mqh`, `CutlerRSI_Oscillator_Calculator.mqh`):**
-    The final indicators use thin "wrapper" classes that utilize the central engine to produce the desired output (line or histogram).
+- **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  - **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  - **Persistent Buffers:** Internal buffers persist their state between ticks.
 
 - **Selectable Display Mode:** The `CutlerRSI_Pro` indicator includes a `Display Mode` input that allows the user to show either the RSI line by itself or the RSI line together with its moving average signal line.
 
-- **Efficient RSI Calculation:** The engine calculates the Cutler's RSI using an efficient **sliding window sum** technique.
-
-- **Stability via Full Recalculation:** All versions employ a "brute-force" full recalculation for maximum stability.
-
 ## 4. Parameters
 
-- **RSI Period (`InpPeriodRSI`):** The lookback period for the SMA of price changes. Default is `14`.
-- **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+- **RSI Period (`InpPeriodRSI`):** The lookback period for the SMA of price changes. (Default: `14`).
+- **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
 - **Signal Line Settings:**
   - `InpDisplayMode`: Toggles the visibility of the signal line.
   - `InpPeriodMA`: The lookback period for the signal line.
-  - `InpMethodMA`: The type of moving average for the signal line.
+  - `InpMethodMA`: The type of moving average for the signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
 
 ## 5. Usage and Interpretation
 
