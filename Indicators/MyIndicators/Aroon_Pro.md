@@ -50,20 +50,16 @@ The characteristic linearly declining, "sawtooth" appearance of the Aroon lines 
 Our MQL5 implementation follows a modern, object-oriented design pattern to ensure stability, reusability, and maintainability.
 
 * **Modular Calculator Engine (`Aroon_Calculator.mqh`):**
-    All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management. The logic cleanly implements the "sliding window" search for highs and lows.
+    All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks, ensuring seamless updates without full recalculation.
 
 * **Object-Oriented Design (Inheritance):**
   * A base class, `CAroonCalculator`, handles the entire shared calculation logic.
-  * A derived class, `CAroonCalculator_HA`, inherits from the base class and **overrides** only one specific function: `PrepareSourceData`. Its sole responsibility is to calculate and provide Heikin Ashi high/low data to the base class's calculation engine, which then proceeds without needing to know the source of the data. This is a clean and efficient use of polymorphism.
-
-* **Simplified Main Indicator (`Aroon_Pro.mq5`):**
-    The main indicator file is extremely clean. Its primary roles are:
-    1. Handling user inputs (`input` variables).
-    2. Setting fixed window boundaries (`#property indicator_minimum 0`, `#property indicator_maximum 100`) for correct visualization.
-    3. Instantiating the correct calculator object (`CAroonCalculator` or `CAroonCalculator_HA`) in `OnInit()`.
-    4. Delegating the entire calculation process to the calculator object with a single call in `OnCalculate()`.
-
-* **Stability via Full Recalculation:** We use a full recalculation on every tick. For a state-dependent indicator like Aroon, this "brute-force" approach is the most robust method, ensuring perfect synchronization with the price data at all times.
+  * A derived class, `CAroonCalculator_HA`, inherits from the base class and **overrides** only one specific function: `PrepareSourceData`. Its sole responsibility is to calculate and provide Heikin Ashi high/low data to the base class's calculation engine.
 
 ## 4. Parameters (`Aroon_Pro.mq5`)
 
