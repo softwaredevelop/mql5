@@ -31,24 +31,30 @@ The suite is constructed in a layered process, starting with the base CCI.
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation follows a modern, object-oriented design to ensure stability and maintainability.
+Our MQL5 implementation follows a modern, component-based, object-oriented design to ensure stability and maintainability.
 
-- **Self-Contained Calculators:** Each indicator in the suite (`CCI_Pro`, `CCI_Oscillator_Pro`, `CCI_PercentB_Pro`) uses its own dedicated, self-contained calculator. Each calculator contains the full, multi-stage logic required for its specific output. This approach prioritizes stability and clarity for each individual component.
+- **Unified Calculation Engine (`CCI_Calculator.mqh`):**
+    The core logic is encapsulated in a robust engine.
+  - **Composition:** The calculator internally uses our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
+  - **Reusability:** The `CCI_Oscillator_Pro` and `CCI_PercentB_Pro` calculators use composition to include the main `CCCI_Calculator`, ensuring that all indicators in the suite share the exact same mathematical foundation.
 
-- **Object-Oriented Inheritance:** Within each calculator, an elegant inheritance model (`...Calculator` and `...Calculator_HA`) is used. The Heikin Ashi child class inherits all the complex logic from its base class and only overrides the initial data preparation step.
+- **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  - **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  - **Persistent Buffers:** Internal buffers (SMA, MAD) persist their state between ticks.
+  - **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
 
-- **Stability via Full Recalculation:** All indicators employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
-
-- **Mathematically Precise Implementation:** The engine adheres strictly to the mathematical definition of CCI, using a nested loop structure to calculate the Mean Absolute Deviation (MAD) precisely for each bar.
+- **Object-Oriented Design:**
+  - An elegant inheritance model (`CCCI_Calculator` and `CCCI_Calculator_HA`) allows all indicators in the family to dynamically choose the correct calculation engine at runtime based on user input.
 
 ## 4. Parameters
 
 - **CCI Period (`InpCCIPeriod`):** The lookback period for the base CCI calculation.
-- **Applied Price (`InpSourcePrice`):** The source price for the base CCI. This unified dropdown allows selection from all standard and Heikin Ashi price types.
+- **Applied Price (`InpSourcePrice`):** The source price for the base CCI. (Standard or Heikin Ashi).
 - **Overlay Settings:**
   - **Display Mode (`InpDisplayMode`):** (Only for `CCI_Pro`) Toggles between `CCI_Only`, `CCI_and_MA`, and `CCI_and_Bands`.
   - **MA Period (`InpMAPeriod`):** The period for the signal line, which also serves as the center for the Bollinger Bands.
-  - **MA Method (`InpMAMethod`):** The type of moving average for the signal line.
+  - **MA Method (`InpMAMethod`):** The type of moving average for the signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
   - **Bands Period (`InpBandsPeriod`):** The lookback period for the standard deviation calculation of the Bollinger Bands.
   - **Bands Deviation (`InpBandsDev`):** The standard deviation multiplier for the Bollinger Bands.
 
