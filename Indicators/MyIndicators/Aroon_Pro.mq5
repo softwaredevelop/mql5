@@ -1,19 +1,17 @@
 //+------------------------------------------------------------------+
 //|                                                    Aroon_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2025, xxxxxxxx"
-#property link        ""
-#property version     "1.10" // Added fixed 0-100 scale
+#property version     "2.00" // Optimized for incremental calculation
 #property description "Aroon indicator with selectable candle source (Standard or Heikin Ashi)."
 
 //--- Indicator Window and Level Properties ---
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   2
-#property indicator_minimum 0   // <-- FIX: Force the bottom of the scale to 0
-#property indicator_maximum 105 // <-- FIX: Force the top of the scale to 105
+#property indicator_minimum 0
+#property indicator_maximum 105
 #property indicator_level1 30.0
 #property indicator_level2 50.0
 #property indicator_level3 70.0
@@ -51,43 +49,35 @@ input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD; // Candle source
 double    BufferAroonUp[];
 double    BufferAroonDown[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CAroonCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
-//+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffers
    SetIndexBuffer(0, BufferAroonUp,   INDICATOR_DATA);
    SetIndexBuffer(1, BufferAroonDown, INDICATOR_DATA);
-
-//--- Set all buffers as non-timeseries for stable calculation
    ArraySetAsSeries(BufferAroonUp,   false);
    ArraySetAsSeries(BufferAroonDown, false);
 
-//--- Dynamically create the appropriate calculator instance
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
          g_calculator = new CAroonCalculator_HA();
          IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Aroon Pro HA(%d)", InpPeriodAroon));
          break;
-      default: // CANDLE_STANDARD
+      default:
          g_calculator = new CAroonCalculator();
          IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Aroon Pro(%d)", InpPeriodAroon));
          break;
      }
 
-//--- Check if creation was successful and initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriodAroon))
      {
       Print("Failed to create or initialize Aroon Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator properties
    int period = g_calculator.GetPeriod();
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, period - 1);
@@ -97,17 +87,12 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -120,14 +105,12 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, high, low, BufferAroonUp, BufferAroonDown);
+// Delegate calculation with incremental optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferAroonUp, BufferAroonDown);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
