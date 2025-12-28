@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                                       CCI_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "4.00"
+#property version   "4.10" // Fixed Calculate parameters
 #property description "Professional CCI with MA signal line and optional Bollinger Bands."
 
+//--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
 #property indicator_buffers 4
 #property indicator_plots   4
@@ -51,10 +51,11 @@ enum ENUM_DISPLAY_MODE
 input group                     "CCI Settings"
 input int                       InpCCIPeriod    = 20;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_TYPICAL_STD;
+
 input group                     "Overlay Settings"
 input ENUM_DISPLAY_MODE         InpDisplayMode  = DISPLAY_CCI_AND_BANDS;
 input int                       InpMAPeriod     = 14;
-input ENUM_MA_METHOD            InpMAMethod     = MODE_SMA;
+input ENUM_MA_TYPE              InpMAMethod     = SMA;
 input int                       InpBandsPeriod  = 14;
 input double                    InpBandsDev     = 2.0;
 
@@ -64,8 +65,6 @@ double BufferCCI[], BufferSignal[], BufferUpper[], BufferLower[];
 //--- Global calculator ---
 CCCI_Calculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| OnInit                                                           |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -79,9 +78,15 @@ int OnInit()
    ArraySetAsSeries(BufferLower,  false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
+     {
       g_calculator = new CCCI_Calculator_HA();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CCI Pro HA(%d)", InpCCIPeriod));
+     }
    else
+     {
       g_calculator = new CCCI_Calculator();
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CCI Pro(%d)", InpCCIPeriod));
+     }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpCCIPeriod, InpMAPeriod, InpMAMethod, InpBandsPeriod, InpBandsDev))
      {
@@ -98,20 +103,15 @@ int OnInit()
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, bands_draw_begin);
    PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, bands_draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CCI Pro(%d)", InpCCIPeriod));
 
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-//| OnDeinit                                                         |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| OnCalculate                                                      |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -122,7 +122,9 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferCCI, BufferSignal, BufferUpper, BufferLower);
+// FIX: Correct parameter order
+// Calculate(rates_total, prev_calculated, price_type, open, high, low, close, ...)
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferCCI, BufferSignal, BufferUpper, BufferLower);
 
    for(int i=0; i<rates_total; i++)
      {
