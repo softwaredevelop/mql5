@@ -38,21 +38,27 @@ The Chaikin Oscillator is calculated by subtracting a slow moving average of the
 
 Our MQL5 implementation follows a highly modular, component-based design to ensure accuracy, reusability, and maintainability.
 
-* **Component-Based Design:** The Chaikin Oscillator does not recalculate the Accumulation/Distribution Line internally. Instead, its calculator (`CHO_Calculator.mqh`) **reuses** our existing, standalone `AD_Calculator.mqh` module. This is a prime example of our "Pragmatic Modularity" principle, eliminating code duplication and ensuring that both the ADL and CHO indicators are always based on the exact same, robust ADL calculation logic.
+* **Component-Based Design (Composition):**
+    The CHO calculator (`CHO_Calculator.mqh`) orchestrates three powerful engines:
+    1. **ADL Engine:** It reuses the `AD_Calculator.mqh` to compute the underlying Accumulation/Distribution Line.
+    2. **Fast MA Engine:** It uses the `MovingAverage_Engine.mqh` to calculate the Fast MA of the ADL.
+    3. **Slow MA Engine:** It uses another `MovingAverage_Engine.mqh` instance to calculate the Slow MA of the ADL.
+    This ensures mathematical consistency across the entire suite and eliminates code duplication.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
 
 * **Object-Oriented Logic:**
-  * The `CHO_Calculator` contains a pointer to an `AD_Calculator` object.
-  * The Heikin Ashi version (`CCHOCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the ADL module (`CADCalculator_HA`). The CHO's own logic (calculating MAs and the difference) remains identical, as it operates on the ADL data it receives, regardless of its source.
-
-* **Flexible MA Types:** While the classic CHO uses EMAs, our version allows the user to select from four different moving average types (**SMA, EMA, SMMA, LWMA**) via the `InpMaMethod` input parameter, providing greater flexibility.
-
-* **Stability via Full Recalculation:** The indicator employs a "brute-force" full recalculation within `OnCalculate` to ensure the multi-stage calculation remains stable and accurate.
+  * The Heikin Ashi version (`CCHOCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the ADL module.
 
 ## 4. Parameters
 
-* **Fast Period (`InpFastPeriod`):** The period for the shorter-term MA of the ADL. Default is `3`.
-* **Slow Period (`InpSlowPeriod`):** The period for the longer-term MA of the ADL. Default is `10`.
-* **MA Method (`InpMaMethod`):** The type of moving average to use for the Fast and Slow MAs. Default is `MODE_EMA`.
+* **Fast Period (`InpFastPeriod`):** The period for the shorter-term MA of the ADL. (Default: `3`).
+* **Slow Period (`InpSlowPeriod`):** The period for the longer-term MA of the ADL. (Default: `10`).
+* **MA Method (`InpMaMethod`):** The type of moving average to use for the Fast and Slow MAs. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `EMA`).
 * **Volume Type (`InpVolumeType`):** Allows the user to select between Tick Volume and Real Volume for the underlying ADL calculation.
 * **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the underlying ADL calculation (`Standard` or `Heikin Ashi`).
 
