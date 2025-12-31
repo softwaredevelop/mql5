@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                                AD_Calculator.mqh |
 //|         Calculation engine for Standard and Heikin Ashi A/D.     |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,47 +9,58 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|             CLASS 1: CADCalculator (Base Class)                  |
-//|                                                                  |
 //+==================================================================+
 class CADCalculator
   {
 protected:
-   //--- Internal buffers for the selected candle data
+   //--- Persistent Buffers for Incremental Calculation
    double            m_high[];
    double            m_low[];
    double            m_close[];
 
-   //--- Virtual method for preparing the candle data. Base class handles standard candles.
-   //--- CORRECTED: Added 'open' array to the signature for consistency with derived class.
-   virtual bool      PrepareCandleData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Updated: Accepts start_index
+   virtual bool      PrepareCandleData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CADCalculator(void) {};
    virtual          ~CADCalculator(void) {};
 
-   //--- Public calculation method
-   //--- CORRECTED: Added 'open' array to the signature.
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                const long &tick_volume[], const long &volume[], ENUM_APPLIED_VOLUME volume_type, double &ad_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//| CADCalculator: Main Calculation Method (Shared Logic)            |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CADCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+void CADCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                               const long &tick_volume[], const long &volume[], ENUM_APPLIED_VOLUME volume_type, double &ad_buffer[])
   {
    if(rates_total < 1)
       return;
 
-//--- STEP 1: Prepare the source candle arrays (delegated to virtual method)
-   if(!PrepareCandleData(rates_total, open, high, low, close))
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+//--- 2. Resize Internal Buffers
+   if(ArraySize(m_high) != rates_total)
+     {
+      ArrayResize(m_high, rates_total);
+      ArrayResize(m_low, rates_total);
+      ArrayResize(m_close, rates_total);
+     }
+
+//--- 3. Prepare Candle Data (Optimized)
+   if(!PrepareCandleData(rates_total, start_index, open, high, low, close))
       return;
 
-//--- STEP 2: Core A/D calculation using the prepared m_high[], m_low[], m_close[] arrays
-   for(int i = 0; i < rates_total; i++)
+//--- 4. Calculate A/D (Incremental Loop)
+   for(int i = start_index; i < rates_total; i++)
      {
       double mfm = 0; // Money Flow Multiplier
       double range = m_high[i] - m_low[i];
@@ -69,55 +81,44 @@ void CADCalculator::Calculate(int rates_total, const double &open[], const doubl
   }
 
 //+------------------------------------------------------------------+
-//| CADCalculator: Prepares the standard candle data series.         |
+//| Prepare Candle Data (Standard - Optimized)                       |
 //+------------------------------------------------------------------+
-bool CADCalculator::PrepareCandleData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CADCalculator::PrepareCandleData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-//--- CORRECTED: Use ArrayCopy for robust data handling instead of invalid pointer assignment.
-   ArrayResize(m_high, rates_total);
-   ArrayResize(m_low, rates_total);
-   ArrayResize(m_close, rates_total);
-
-   ArrayCopy(m_high, high, 0, 0, rates_total);
-   ArrayCopy(m_low, low, 0, 0, rates_total);
-   ArrayCopy(m_close, close, 0, 0, rates_total);
-
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_high[i] = high[i];
+      m_low[i]  = low[i];
+      m_close[i] = close[i];
+     }
    return true;
   }
 
 //+==================================================================+
-//|                                                                  |
 //|             CLASS 2: CADCalculator_HA (Heikin Ashi)              |
-//|                                                                  |
 //+==================================================================+
 class CADCalculator_HA : public CADCalculator
   {
 private:
-   CHeikinAshi_Calculator m_ha_calculator; // Instance of the HA calculator tool
+   CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[]; // Temp buffer for HA Open
 
 protected:
-   //--- Overridden method to prepare Heikin Ashi candle data
-   //--- CORRECTED: Signature now matches the base class, including 'open'.
-   virtual bool      PrepareCandleData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PrepareCandleData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| CADCalculator_HA: Prepares the Heikin Ashi candle data series.   |
+//| Prepare Candle Data (Heikin Ashi - Optimized)                    |
 //+------------------------------------------------------------------+
-bool CADCalculator_HA::PrepareCandleData(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CADCalculator_HA::PrepareCandleData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-//--- For the HA calculator, we must calculate and store the HA values.
-   ArrayResize(m_high, rates_total);
-   ArrayResize(m_low, rates_total);
-   ArrayResize(m_close, rates_total);
+   if(ArraySize(m_ha_open) != rates_total)
+      ArrayResize(m_ha_open, rates_total);
 
-//--- We need a temporary ha_open buffer for the calculation
-   double ha_open[];
-   ArrayResize(ha_open, rates_total);
-
-//--- Calculate the HA candles into our member arrays
-//--- CORRECTED: Removed invalid GetPointer() calls.
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, m_high, m_low, m_close);
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_high, m_low, m_close);
 
    return true;
   }
