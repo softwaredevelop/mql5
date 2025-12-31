@@ -34,17 +34,15 @@ Our MQL5 implementation follows a modern, object-oriented design pattern to ensu
 * **Modular Calculator Engine (`AD_Calculator.mqh`):**
     All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management.
 
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (High, Low, Close) persist their state between ticks.
+  * **Cumulative Logic:** The calculation correctly handles the running total (`ADL[i] = ADL[i-1] + MFV`) during incremental updates, ensuring that the cumulative value remains accurate without re-processing the entire history.
+
 * **Object-Oriented Design (Inheritance):**
-  * A base class, `CADCalculator`, handles the core A/D algorithm. It is designed to work with any set of High, Low, and Close data it receives.
-  * A derived class, `CADCalculator_HA`, inherits from the base class and **overrides** only one specific function: the candle data preparation. Its sole responsibility is to calculate Heikin Ashi candles and provide the resulting HA High, Low, and Close values to the base class's A/D algorithm. This is a clean and efficient use of polymorphism.
-
-* **Simplified Main Indicator (`AD_Pro.mq5`):**
-    The main indicator file is now extremely clean. Its primary roles are:
-    1. Handling user inputs (`input` variables).
-    2. Instantiating the correct calculator object (`CADCalculator` or `CADCalculator_HA`) in `OnInit()` based on the user's choice.
-    3. Delegating the entire calculation process to the calculator object with a single call in `OnCalculate()`.
-
-* **Stability via Full Recalculation:** We use a full recalculation on every tick. For a cumulative, recursive indicator like the ADL, this "brute-force" approach is the most robust method, eliminating potential errors from `prev_calculated` logic during history loading or timeframe changes.
+  * A base class, `CADCalculator`, handles the core A/D algorithm.
+  * A derived class, `CADCalculator_HA`, inherits from the base class and **overrides** only one specific function: the candle data preparation. Its sole responsibility is to calculate Heikin Ashi candles and provide the resulting HA High, Low, and Close values to the base class's A/D algorithm.
 
 ## 4. Parameters (`AD_Pro.mq5`)
 
