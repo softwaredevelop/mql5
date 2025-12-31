@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       AD_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.01" // Corrected calculator logic
+#property version   "2.00" // Optimized for incremental calculation
 #property description "Professional Accumulation/Distribution Line with selectable"
 #property description "candle source (Standard or Heikin Ashi)."
 
@@ -34,39 +32,33 @@ input ENUM_APPLIED_VOLUME InpVolumeType   = VOLUME_TICK;     // Volume type
 //--- Indicator Buffers ---
 double    BufferAD[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CADCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
-//+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffer and set as non-timeseries
    SetIndexBuffer(0, BufferAD, INDICATOR_DATA);
    ArraySetAsSeries(BufferAD, false);
 
-//--- Dynamically create the appropriate calculator instance
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
          g_calculator = new CADCalculator_HA();
          IndicatorSetString(INDICATOR_SHORTNAME, "HA A/D");
          break;
-      default: // CANDLE_STANDARD
+      default:
          g_calculator = new CADCalculator();
          IndicatorSetString(INDICATOR_SHORTNAME, "A/D");
          break;
      }
 
-//--- Check if creation was successful
    if(CheckPointer(g_calculator) == POINTER_INVALID)
      {
       Print("Failed to create A/D Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
    IndicatorSetInteger(INDICATOR_DIGITS, 0);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 1);
 
@@ -74,17 +66,12 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -97,14 +84,12 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate the entire calculation to our calculator object (now passing 'open')
-   g_calculator.Calculate(rates_total, open, high, low, close, tick_volume, volume, InpVolumeType, BufferAD);
+// Delegate calculation with incremental optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, volume, InpVolumeType, BufferAD);
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
