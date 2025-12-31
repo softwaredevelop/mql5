@@ -1,63 +1,71 @@
-# Session Analysis Pro
+# Session Analysis Pro Suite
 
 ## 1. Summary (Introduction)
 
-The Session Analysis Pro is an advanced, multi-faceted analytical tool designed to visualize and analyze price action within specific, user-defined trading sessions. It is particularly useful for traders who focus on the dynamics of the major market opens.
+The Session Analysis Pro Suite is an advanced set of analytical tools designed to visualize and analyze price action within specific, user-defined trading sessions. It is particularly useful for traders who focus on the dynamics of major market opens (e.g., London, New York, Tokyo).
 
-This powerful indicator can simultaneously display and analyze up to **three independent markets** (e.g., NYSE, LSE, TSE), each with its own customizable **Pre-Market, Core, Post-Market, and optional Full Day** sessions.
+The suite includes two specialized indicators:
 
-For each defined session, the indicator can display several key analytical components:
+1. **`Session_Analysis_Pro` (Multi-Market):** A powerhouse indicator capable of simultaneously analyzing up to **three independent markets** on a single chart. Ideal for global macro traders monitoring cross-market correlations.
+2. **`Session_Analysis_Single_Pro` (Single-Market):** A streamlined version focused on a **single market**, designed for focused intraday trading on specific assets.
+
+For each defined session (Pre-Market, Core, Post-Market, Full Day), both indicators can display:
 
 1. **Session Range Box:** A rectangle encompassing the high and low of the session.
-2. **Volume Weighted Average Price (VWAP):** The true average price for the session, weighted by volume, rendered using a high-performance, buffer-based drawing method for maximum speed and stability.
-3. **Mean Price:** The simple arithmetic average of the selected source prices within the session.
-4. **Linear Regression Line:** A statistical trendline showing the "best fit" line for the session's price action.
+2. **Volume Weighted Average Price (VWAP):** The true average price for the session, weighted by volume.
+3. **Mean Price:** The simple arithmetic average of the session's prices.
+4. **Linear Regression Line:** A statistical trendline showing the "best fit" for the session's price action.
 
-The indicator is highly customizable and fully supports both **standard** and **Heikin Ashi** data sources for its calculations.
+Both indicators fully support **standard** and **Heikin Ashi** data sources.
 
 ## 2. Calculation Logic
 
-The indicator identifies bars belonging to a specific time window and performs distinct calculations on the data within that session.
+The indicators identify bars belonging to specific time windows and perform distinct calculations on the data within those sessions.
 
-1. **Session Range:** Identifies the highest `High` and lowest `Low` within the session's time boundaries and draws a rectangle around them.
-2. **Volume Weighted Average Price (VWAP):** Calculates the cumulative, volume-weighted average of the `Typical Price` `(H+L+C)/3`, resetting at the start of each new session. The calculation is performed by a dedicated, optimized engine.
-3. **Mean Price:** Calculates the simple arithmetic average of the user-selected `Source Price` for all bars within the session.
-4. **Linear Regression Line:** Calculates the "least squares fit" trendline on the user-selected `Source Price`.
+1. **Session Range:** Identifies the highest `High` and lowest `Low` within the session boundaries.
+2. **VWAP:** Calculates the cumulative, volume-weighted average of the `Typical Price` `(H+L+C)/3`, resetting at the start of each new session.
+3. **Mean Price:** Calculates the simple arithmetic average of the user-selected `Source Price`.
+4. **Linear Regression Line:** Calculates the "least squares fit" trendline.
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation follows a modern, robust, and high-performance **hybrid architecture** to provide a smooth, freeze-free user experience.
+Our MQL5 implementation follows a modern, robust, and high-performance **hybrid architecture**.
 
-* **Hybrid Drawing Architecture:** The indicator uses two distinct systems, each optimized for its specific task:
-  * **VWAP via Indicator Buffers:** All VWAP calculations are handled by a dedicated `CVWAPCalculator` engine. This engine writes its results directly into MQL5's fastest drawing mechanism: **indicator buffers** (`DRAW_LINE`). We use the **"double buffer" technique** to create clean visual gaps between sessions.
-  * **Boxes & Stats via Graphical Objects:** The Session Box, Mean, and Linear Regression lines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`). This is handled by a separate `CSessionAnalyzer` class, providing flexibility for these elements.
+* **Unified Calculation Engines:** Both indicators share the exact same core logic:
+  * **`Session_Analysis_Calculator.mqh`:** Handles the session timing, box drawing, Mean, and Linear Regression calculations.
+  * **`VWAP_Calculator.mqh`:** A dedicated engine for high-precision VWAP calculations.
+    This ensures 100% consistency between the Single and Multi versions.
 
-* **Unified Heikin Ashi Integration:** When `CANDLE_HEIKIN_ASHI` is selected, the indicator uses a unified approach. Both the `CVWAPCalculator` and the `CSessionAnalyzer` instantiate their respective `_HA` child classes, leveraging our optimized `HeikinAshi_Tools` library. This ensures that **all visual components** are consistently calculated using the smoothed Heikin Ashi data.
+* **Hybrid Drawing Architecture:**
+  * **VWAP via Indicator Buffers:** VWAP lines are drawn using high-performance indicator buffers (`DRAW_LINE`) for maximum speed.
+  * **Boxes & Stats via Graphical Objects:** Session boxes and trendlines are drawn using standard graphical objects (`OBJ_RECTANGLE`, `OBJ_TREND`), allowing for complex visual overlays.
 
-* **Robust Multi-Instance Support:** Each instance of the indicator on a chart generates a unique, stable ID for its graphical objects using the `ChartWindowFind()` method. This ID is used as a prefix for all object names, ensuring that multiple copies of the indicator can run on the same chart without any conflicts.
+* **Unified Heikin Ashi Integration:** When `CANDLE_HEIKIN_ASHI` is selected, the indicators automatically switch to using smoothed Heikin Ashi data for **all** calculations (VWAP, Mean, LinReg, and Box High/Low).
 
-* **Stability via Full Recalculation on New Bar:** Given the complexity of managing multiple overlapping sessions and graphical objects, we employ a **full recalculation** strategy. However, to ensure high performance, this heavy calculation is executed **only once per new bar**.
-  * When a new bar opens, the indicator clears its buffers and recalculates the session logic from scratch.
-  * This "clean slate" approach guarantees absolute data integrity and visual stability, preventing any synchronization issues between the buffers and the objects, while keeping the chart responsive during the bar's formation.
-
-* **History Optimization:** To keep template files small and chart loading fast, the indicator includes a `Max History Days` parameter. This limits the drawing of both graphical objects (boxes) and indicator buffers (VWAP lines) to the specified number of days, preventing the accumulation of thousands of obsolete objects in history.
+* **History Optimization:** The `Max History Days` parameter limits the drawing of objects and buffers to the recent past, keeping chart loading times fast and template files small.
 
 ## 4. Parameters
 
-* **Global Settings:**
-  * `InpFillBoxes`: Toggles whether the session range boxes are filled or drawn as outlines.
-  * `InpMaxHistoryDays`: Limits the number of past days for which sessions and VWAP lines are drawn. Set to `0` to draw all history (warning: may result in large template files). Default is `5`.
-  * `InpVolumeType`: Selects between `Tick Volume` and `Real Volume` for all VWAP calculations.
-  * `InpCandleSource`: Selects the candle type (`Standard` or `Heikin Ashi`) for the **VWAP** calculation.
-  * `InpSourcePrice`: The source price for the **Mean and Linear Regression** calculations.
+### Common Parameters (Both Versions)
 
-* **Market Settings (Market 1, Market 2, Market 3):**
-  * `Enable`: A master switch to turn all analysis for that market on or off.
-  * **Session Settings (Pre-Market, Core, Post-Market, Full Day):**
-    * `Enable`: Turns the analysis for that specific session on or off.
-    * `Start / End`: The start and end times for the session in "HH:MM" format, based on the **broker's server time**.
-    * `Color`: The color for all graphical elements (box and VWAP line) drawn for that session.
-    * `VWAP / Mean / LinReg`: Toggles the visibility of each analytical component for that session.
+* **Global Settings:**
+  * `InpFillBoxes`: Toggles filled/outline boxes.
+  * `InpMaxHistoryDays`: Limits the history depth (Default: `5`).
+  * `InpVolumeType`: Selects `Tick Volume` or `Real Volume` for VWAP.
+  * `InpCandleSource`: Selects `Standard` or `Heikin Ashi` candles.
+  * `InpSourcePrice`: Source price for Mean/LinReg calculations.
+
+### Session Settings
+
+* **Pre-Market / Core / Post-Market / Full Day:**
+  * `Enable`: Turns the session analysis on/off.
+  * `Start / End`: Session times (HH:MM) based on **broker server time**.
+  * `Color`: Color for the session's visual elements.
+  * `Show VWAP / Mean / LinReg`: Toggles individual components.
+
+### Multi-Market Specific (`Session_Analysis_Pro`)
+
+* **Market 1 / 2 / 3:** Master switches to enable/disable entire market configurations.
 
 ## 5. Trading Session Times Reference
 
@@ -79,7 +87,7 @@ This section provides a detailed reference for the trading hours of major global
 | **New York (EDT)** | 06:30–09:30 | 09:30–16:00 | 16:00–20:00 |
 | **UTC** | 10:30–13:30 | 13:30–20:00 | 20:00–00:00 |
 | **Nicosia (EEST, UTC+3)** | 13:30–16:30 | 16:30–23:00 | 23:00–03:00 |
-| **Budapest (CEST, UTC+2)**| 12:30–15:30 | 15:30–22:00 | 22:00–02:00 |
+| **Budapest (CEST, UTC+2)** | 12:30–15:30 | 15:30–22:00 | 22:00–02:00 |
 
 #### Winter (EST, UTC-5)
 
@@ -104,7 +112,7 @@ This section provides a detailed reference for the trading hours of major global
 | **London (BST)** | 05:00–08:00 | 08:00–16:30 | 16:30–17:15 |
 | **UTC** | 04:00–07:00 | 07:00–15:30 | 15:30–16:15 |
 | **Nicosia (EEST, UTC+3)** | 07:00–10:00 | 10:00–18:30 | 18:30–19:15 |
-| **Budapest (CEST, UTC+2)**| 06:00–09:00 | 09:00–17:30 | 17:30–18:15 |
+| **Budapest (CEST, UTC+2)** | 06:00–09:00 | 09:00–17:30 | 17:30–18:15 |
 
 #### Winter (GMT, UTC+0)
 
@@ -126,10 +134,10 @@ This section provides a detailed reference for the trading hours of major global
 
 | Time Zone | Pre-Market | Core Trading | Post-Market |
 | :--- | :--- | :--- | :--- |
-| **Frankfurt (CEST)**| 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
+| **Frankfurt (CEST)** | 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
 | **UTC** | 06:00–07:00 | 07:00–15:30 | 15:30–18:00 |
 | **Nicosia (EEST, UTC+3)** | 09:00–10:00 | 10:00–18:30 | 18:30–21:00 |
-| **Budapest (CEST, UTC+2)**| 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
+| **Budapest (CEST, UTC+2)** | 08:00–09:00 | 09:00–17:30 | 17:30–20:00 |
 
 #### Winter (CET, UTC+1)
 
@@ -177,13 +185,13 @@ This section provides a detailed reference for the trading hours of major global
 | **Sydney (AEST)** | 07:00–10:00 | 10:00–16:00 | 16:00–19:00 |
 | **UTC** | 21:00–00:00 | 00:00–06:00 | 06:00–09:00 |
 | **Nicosia (EEST, UTC+3)** | 00:00–03:00 | 03:00–09:00 | 09:00–12:00 |
-| **Budapest (CEST, UTC+2)**| 23:00–02:00 | 02:00–08:00 | 08:00–11:00 |
+| **Budapest (CEST, UTC+2)** | 23:00–02:00 | 02:00–08:00 | 08:00–11:00 |
 
 ---
 
 ## 6. Usage and Interpretation
 
-* **Contextual Analysis:** The primary use is to understand the behavior of price during specific, high-volume trading sessions.
-* **VWAP as a Benchmark:** The VWAP line is a key level for intraday traders. Price action above the session VWAP is generally considered bullish; price action below is bearish.
-* **Mean and Linear Regression:** These lines provide a statistical "fair value" for the session. The slope of the regression line indicates the overall direction and strength of the session's trend.
-* **Range Box:** The high and low of the session box become critical support and resistance levels for subsequent trading sessions.
+* **Contextual Analysis:** Understand price behavior during specific, high-volume sessions.
+* **VWAP as Benchmark:** Price above session VWAP is bullish; below is bearish.
+* **Fair Value:** The Mean and Linear Regression lines provide a statistical "fair value" for the session.
+* **Support/Resistance:** The high and low of the session box act as critical levels for subsequent sessions.
