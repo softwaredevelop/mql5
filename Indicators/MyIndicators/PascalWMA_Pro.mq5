@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                PascalWMA_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00"
+#property version   "2.10" // Fixed Calculate parameters
 #property description "Professional Pascal's Triangle WMA with selectable"
 #property description "price source (Standard and Heikin Ashi)."
 
@@ -20,7 +19,7 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrMediumPurple
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  1
+#property indicator_width1  2
 
 //--- Input Parameters ---
 input int                       InpPeriod      = 21;
@@ -29,11 +28,9 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 //--- Indicator Buffers ---
 double    BufferWMA[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CPascalWMACalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -58,11 +55,10 @@ int OnInit()
      }
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod - 1);
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    return(INIT_SUCCEEDED);
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
@@ -71,9 +67,16 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -84,7 +87,8 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferWMA);
+// FIX: Added prev_calculated to the call
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferWMA);
 
    return(rates_total);
   }
