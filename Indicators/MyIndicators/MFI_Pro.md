@@ -29,24 +29,27 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 
 - **Modular Calculation Engine (`MFI_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
-  - **`CMFICalculator`**: The base class that performs the full MFI and signal line calculation.
-  - **`CMFICalculator_HA`**: A child class that inherits all logic and only overrides the data preparation step to use the Typical Price derived from smoothed Heikin Ashi candles.
+  - **Composition:** The calculator internally uses our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
 
-- **Selectable Display Mode:** The indicator includes a `Display Mode` input that allows the user to show either the MFI line by itself or the MFI line together with its moving average signal line.
+- **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  - **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  - **Persistent Buffers:** Internal buffers (Typical Price, Money Flow) persist their state between ticks.
+  - **Sliding Window:** The summation of Money Flow is handled by an efficient sliding window logic that updates incrementally.
 
-- **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
-
-- **Efficient Calculation:** The summation of Money Flow is handled by an efficient **sliding window sum** technique.
+- **Object-Oriented Design:**
+  - A base class, `CMFICalculator`, handles the core MFI algorithm.
+  - A derived class, `CMFICalculator_HA`, inherits from the base class and overrides the data preparation step to use the Typical Price derived from smoothed Heikin Ashi candles.
 
 ## 4. Parameters
 
-- **MFI Period (`InpMFIPeriod`):** The lookback period for summing the money flows. The standard is `14`.
+- **MFI Period (`InpMFIPeriod`):** The lookback period for summing the money flows. (Default: `14`).
 - **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the Typical Price calculation (`Standard` or `Heikin Ashi`).
 - **Volume Type (`InpVolumeType`):** Allows the user to select between Tick Volume and Real Volume.
 - **Signal Line Settings:**
   - `InpDisplayMode`: Toggles the visibility of the signal line.
   - `InpMAPeriod`: The lookback period for the signal line.
-  - `InpMAMethod`: The type of moving average for the signal line.
+  - `InpMAMethod`: The type of moving average for the signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
 
 ## 5. Usage and Interpretation
 
