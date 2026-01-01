@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                       UltimateOscillator_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "2.10" // Added optional signal line
+#property version   "3.00" // Refactored to use MovingAverage_Engine
 #property description "Professional Ultimate Oscillator with an optional signal line and"
 #property description "selectable candle source (Standard or Heikin Ashi)."
 
@@ -60,17 +58,16 @@ input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
 input group              "Signal Line Settings"
 input ENUM_DISPLAY_MODE  InpDisplayMode  = DISPLAY_UO_AND_SIGNAL;
 input int                InpSignalPeriod = 9;
-input ENUM_MA_METHOD     InpSignalMAType = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE       InpSignalMAType = SMA;
 
 //--- Indicator Buffers ---
 double    BufferUO[];
 double    BufferSignal[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CUltimateOscillatorCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -85,7 +82,7 @@ int OnInit()
          g_calculator = new CUltimateOscillatorCalculator_HA();
          IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("UO HA(%d,%d,%d)", InpPeriod1, InpPeriod2, InpPeriod3));
          break;
-      default: // CANDLE_STANDARD
+      default:
          g_calculator = new CUltimateOscillatorCalculator();
          IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("UO(%d,%d,%d)", InpPeriod1, InpPeriod2, InpPeriod3));
          break;
@@ -106,8 +103,6 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
@@ -115,18 +110,26 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferUO, BufferSignal);
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferUO, BufferSignal);
 
    if(InpDisplayMode == DISPLAY_UO_ONLY)
      {
-      for(int i=0; i<rates_total; i++)
+      int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start; i < rates_total; i++)
          BufferSignal[i] = EMPTY_VALUE;
      }
 
