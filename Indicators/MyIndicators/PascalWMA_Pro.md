@@ -4,7 +4,7 @@
 
 The Pascal Weighted Moving Average (Pascal WMA) is a unique type of weighted moving average that derives its weights from the coefficients of Pascal's triangle. This produces a set of weights that are perfectly symmetrical and follow a smooth, bell-shaped (Gaussian-like) curve.
 
-The Pascal WMA is a **symmetrical, zero-lag smoothing filter**. Its primary purpose is not to follow trends with minimal lag, but to provide an exceptionally smooth and stable representation of the market's central tendency.
+The Pascal WMA is a **symmetrical smoothing filter**. Its primary purpose is not to follow trends with minimal lag, but to provide an exceptionally smooth and stable representation of the market's central tendency.
 
 Our `PascalWMA_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data, selectable from a single input parameter.
 
@@ -38,16 +38,19 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 * **Modular Calculation Engine (`PascalWMA_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
   * **`CPascalWMACalculator`**: The base class that performs the full calculation on a given source price.
-  * **`CPascalWMACalculator_HA`**: A child class that inherits all the complex logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices as its input. This object-oriented approach eliminates code duplication.
+  * **`CPascalWMACalculator_HA`**: A child class that inherits all the complex logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices as its input.
 
-* **Efficient Weight Generation:** The Pascal's triangle coefficients are calculated only once during the indicator's initialization. The algorithm is optimized to handle large numbers by using the multiplicative formula and symmetry (`C(n, k) = C(n, n-k)`).
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
+* **Robust Weight Generation:** The Pascal's triangle coefficients are calculated only once during initialization using an iterative method to prevent integer overflow for large periods.
 
 ## 4. Parameters
 
-* **Period (`InpPeriod`):** The lookback period for the moving average. A longer period results in a smoother line. Default is `21`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **Period (`InpPeriod`):** The lookback period for the moving average. A longer period results in a smoother line. (Default: `21`).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
@@ -55,5 +58,4 @@ The Pascal WMA should be interpreted as a **high-quality smoothing filter and a 
 
 * **Noise Reduction and Trend Clarity:** The primary use is to filter out market noise and provide a clearer picture of the underlying price movement.
 * **Mean Reversion Signals:** The line acts as a "magnet" for the price. When the price moves significantly away from the Pascal WMA, it can be considered over-extended, increasing the probability of a reversion back towards the line.
-* **Heikin Ashi Version:** Using a Heikin Ashi price source provides an additional layer of smoothing. Because both Heikin Ashi and the Pascal WMA are strong smoothing techniques, the visual difference between the standard and HA versions may be subtle, especially on longer periods.
 * **Caution:** Due to its inherent nature as a centered, smoothing filter, the Pascal WMA will always lag the price. It should **not** be used for fast crossover signals. Its strength lies in its exceptional smoothness and its ability to define the market's equilibrium point.
