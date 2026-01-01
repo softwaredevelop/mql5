@@ -2,7 +2,7 @@
 
 ## 1. Summary (Introduction)
 
-The DMI Stochastic, developed by Barbara Star and featured in the Stocks and Commodities Magazine (January 2013), is an innovative oscillator that combines two powerful concepts: J. Welles Wilder's Directional Movement Index (DMI) and the Stochastic Oscillator.
+The DMI Stochastic, developed by Barbara Star, is an innovative oscillator that combines two powerful concepts: J. Welles Wilder's Directional Movement Index (DMI) and the Stochastic Oscillator.
 
 Instead of analyzing the price, this indicator measures the **momentum of the underlying directional pressure** in the market. It does this by first creating an oscillator from the difference between the Positive (+DI) and Negative (-DI) Directional Indicators, and then feeding this new value series into a standard Stochastic calculation.
 
@@ -51,19 +51,21 @@ The calculation is a three-stage process: first building the DMI components, the
 
 Our MQL5 implementation follows the same modern, object-oriented design as our other professional indicators.
 
-* **Modular Calculator Engine (`DMIStochastic_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file. This engine manages all intermediate calculations (DM, TR, DI, DMI Oscillator, Fast %K) internally.
+* **Modular Calculation Engine (`DMIStochastic_Calculator.mqh`):**
+    All mathematical logic is encapsulated in a dedicated include file. This engine manages all intermediate calculations (DM, TR, DI, DMI Oscillator, Fast %K) internally.
 
-* **Reusable MA Helper Function:** To avoid code duplication, the calculator contains a private `CalculateMA` helper function. This function holds the logic for all supported moving average types (SMA, EMA, etc.) and is called to smooth both the %K and %D lines, promoting clean and maintainable code.
+* **Engine Integration:** The calculator internally uses two instances of our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Slow %K and the %D Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
 
-* **Object-Oriented Design (Inheritance):**
-  * A base class, `CDMIStochasticCalculator`, handles the entire calculation chain.
-  * A derived class, `CDMIStochasticCalculator_HA`, overrides the `PreparePriceSeries` virtual method. Its sole responsibility is to calculate and provide Heikin Ashi High, Low, and Close values as the source data for the first step of the calculation.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (DM, TR, Smoothed DM/TR, DMI Osc, Fast %K) persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
 
-* **Simplified Main Indicator (`DMIStochastic_Pro.mq5`):** The main `.mq5` file acts as a clean "wrapper" responsible for handling user inputs, creating the correct calculator object, and delegating the calculation with a single function call in `OnCalculate()`.
+* **Object-Oriented Design:**
+  * The Heikin Ashi version (`CDMIStochasticCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the data preparation module.
 
-* **Stability via Full Recalculation:** The indicator performs a full recalculation on every tick to ensure maximum stability and prevent artifacts, which is the most robust approach for multi-stage indicators.
-
-## 4. Parameters (`DMIStochastic_Pro.mq5`)
+## 4. Parameters
 
 * **Candle Source (`InpCandleSource`):** Selects the candle type for the initial DMI calculation.
   * `CANDLE_STANDARD`: Uses standard OHLC data.
@@ -71,11 +73,12 @@ Our MQL5 implementation follows the same modern, object-oriented design as our o
 * **Oscillator Formula (`InpOscType`):** Determines the formula for the internal DMI Oscillator.
   * `OSC_PDI_MINUS_NDI`: High values represent bullish pressure (recommended, intuitive).
   * `OSC_NDI_MINUS_PDI`: High values represent bearish pressure (original definition).
-* **DMI Period (`InpDMIPeriod`):** The lookback period for the underlying +DI and -DI calculation. Default is `10`.
-* **Stochastic %K Period (`InpFastKPeriod`):** The lookback period for finding the highest/lowest values of the DMI Oscillator. Default is `10`.
-* **Stochastic %K Slowing (`InpSlowKPeriod`):** The period for the first smoothing of the raw %K line. Default is `3`.
-* **Stochastic %D Period (`InpSmoothPeriod`):** The period for smoothing the main %K line to create the signal line. Default is `3`.
-* **MA Method for Stochastic (`InpStochMethod`):** The type of moving average to use for both the %K slowing and %D smoothing steps. Default is `SMA`.
+* **DMI Period (`InpDMIPeriod`):** The lookback period for the underlying +DI and -DI calculation. (Default: `10`).
+* **Stochastic %K Period (`InpFastKPeriod`):** The lookback period for finding the highest/lowest values of the DMI Oscillator. (Default: `10`).
+* **Stochastic %K Slowing (`InpSlowKPeriod`):** The period for the first smoothing of the raw %K line. (Default: `3`).
+* **Stochastic %D Period (`InpSmoothPeriod`):** The period for smoothing the main %K line to create the signal line. (Default: `3`).
+* **MA Method for Stochastic (`InpStochMethod`):** The type of moving average to use for the %K slowing step. (Default: `SMA`).
+* **MA Method for Signal (`InpSignalMethod`):** The type of moving average to use for the %D smoothing step. (Default: `SMA`).
 
 ## 5. Usage and Interpretation
 
@@ -87,4 +90,3 @@ The DMI Stochastic should be interpreted as a **momentum-of-momentum** oscillato
 * **Crossovers:**
   * When the **%K line (blue) crosses above the %D line (red)**, it signals a bullish shift in directional momentum.
   * When the **%K line (blue) crosses below the %D line (red)**, it signals a bearish shift in directional momentum.
-* **Trade Confirmation:** High-probability signals often occur when both conditions are met. For example, a potential short signal is generated when the oscillator is in the overbought zone (>80) and the %K line crosses below the %D line. This confirms both the overextended bullish condition and the beginning of a bearish momentum shift.
