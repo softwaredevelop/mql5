@@ -1,13 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                          DMIStochastic_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "1.21" // Fixed enum location for compilation
+#property version   "2.10" // Separate Signal MA Type
 #property description "Barbara Star's DMI Stochastic Oscillator. Supports Standard and Heikin Ashi sources."
 
+//--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   2
@@ -32,7 +31,6 @@
 #property indicator_width2  1
 
 //--- Include the calculator engine ---
-// The enums are now defined inside this .mqh file
 #include <MyIncludes\DMIStochastic_Calculator.mqh>
 
 //--- Input Parameters ---
@@ -41,8 +39,10 @@ input ENUM_DMI_OSC_TYPE  InpOscType      = OSC_PDI_MINUS_NDI;     // Oscillator 
 input int                InpDMIPeriod    = 10;                  // DMI Period
 input int                InpFastKPeriod  = 10;                  // Stochastic %K Period
 input int                InpSlowKPeriod  = 3;                   // Stochastic %K Slowing
+input ENUM_MA_TYPE       InpStochMethod  = SMA;                 // MA Method for %K
 input int                InpSmoothPeriod = 3;                   // Stochastic %D Period (Signal)
-input ENUM_MA_METHOD     InpStochMethod  = MODE_SMA;            // MA Method for Stochastic
+// NEW: Separate MA Type for Signal
+input ENUM_MA_TYPE       InpSignalMethod = SMA;                 // MA Method for %D
 
 //--- Indicator Buffers ---
 double    BufferK[];
@@ -51,8 +51,6 @@ double    BufferD[];
 //--- Global calculator object ---
 CDMIStochasticCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function                         |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -70,7 +68,8 @@ int OnInit()
       g_calculator = new CDMIStochasticCalculator();
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpDMIPeriod, InpFastKPeriod, InpSlowKPeriod, InpSmoothPeriod, InpStochMethod, InpOscType))
+// Pass both MA types to Init
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpDMIPeriod, InpFastKPeriod, InpSlowKPeriod, InpSmoothPeriod, InpStochMethod, InpSignalMethod, InpOscType))
      {
       Print("Failed to create or initialize DMI Stochastic Calculator.");
       return(INIT_FAILED);
@@ -89,16 +88,12 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function                       |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -114,7 +109,7 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return(0);
 
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferK, BufferD);
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
 
    return(rates_total);
   }
