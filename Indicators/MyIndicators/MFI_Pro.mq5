@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       MFI_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property link      ""
-#property version   "3.02" // Added selectable display mode for signal line
+#property version   "3.10" // Refactored to use MovingAverage_Engine
 #property description "Professional Money Flow Index (MFI) with an optional signal line and"
 #property description "selectable candle source (Standard or Heikin Ashi)."
 
@@ -58,47 +56,42 @@ input ENUM_APPLIED_VOLUME InpVolumeType   = VOLUME_TICK;
 input group               "Signal Line Settings"
 input ENUM_DISPLAY_MODE   InpDisplayMode  = DISPLAY_MFI_AND_SIGNAL;
 input int                 InpMAPeriod     = 9;
-input ENUM_MA_METHOD      InpMAMethod     = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE        InpMAMethod     = SMA;
 
 //--- Indicator Buffers ---
 double    BufferMFI[];
 double    BufferSignal[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CMFICalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
-//+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Map the buffers and set as non-timeseries
    SetIndexBuffer(0, BufferMFI,    INDICATOR_DATA);
    SetIndexBuffer(1, BufferSignal, INDICATOR_DATA);
    ArraySetAsSeries(BufferMFI,    false);
    ArraySetAsSeries(BufferSignal, false);
 
-//--- Dynamically create the appropriate calculator instance
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
          g_calculator = new CMFICalculator_HA();
          IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MFI HA(%d,%d)", InpMFIPeriod, InpMAPeriod));
          break;
-      default: // CANDLE_STANDARD
+      default:
          g_calculator = new CMFICalculator();
          IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MFI(%d,%d)", InpMFIPeriod, InpMAPeriod));
          break;
      }
 
-//--- Check if creation was successful and initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpMFIPeriod, InpMAPeriod, InpMAMethod, InpVolumeType))
      {
       Print("Failed to create or initialize MFI Calculator object.");
       return(INIT_FAILED);
      }
 
-//--- Set indicator display properties
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpMFIPeriod);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpMFIPeriod + InpMAPeriod - 1);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
@@ -107,17 +100,12 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-//--- Free the calculator object to prevent memory leaks
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
-//+------------------------------------------------------------------+
-//| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -130,23 +118,19 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Ensure the calculator object is valid
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, open, high, low, close, tick_volume, volume, BufferMFI, BufferSignal);
+// Delegate calculation with incremental optimization
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, volume, BufferMFI, BufferSignal);
 
-//--- Hide signal line buffer if not needed
    if(InpDisplayMode == DISPLAY_MFI_ONLY)
      {
-      for(int i = 0; i < rates_total; i++)
-        {
+      int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start; i < rates_total; i++)
          BufferSignal[i] = EMPTY_VALUE;
-        }
      }
 
-//--- Return rates_total for a full recalculation, ensuring stability
    return(rates_total);
   }
 //+------------------------------------------------------------------+
