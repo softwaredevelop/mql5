@@ -1,118 +1,143 @@
 //+------------------------------------------------------------------+
 //|                                 Stochastic_CMO_Slow_Calculator.mqh |
-//|         Engine for Slow Stochastic applied to CMO data.          |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\CMO_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
+//+==================================================================+
+//|           CLASS: CStochasticCMOSlowCalculator                    |
 //+==================================================================+
 class CStochasticCMOSlowCalculator
   {
 protected:
-   int               m_cmo_period, m_k_period, m_d_period, m_slowing_period;
-   ENUM_MA_METHOD      m_slowing_ma_type, m_d_ma_type;
+   int               m_cmo_period, m_k_period;
+
+   //--- Engines
    CCMOCalculator    *m_cmo_calculator;
+   CMovingAverageCalculator m_slowing_engine;
+   CMovingAverageCalculator m_signal_engine;
+
+   //--- Persistent Buffers
+   double            m_cmo_buffer[];
+   double            m_raw_k[];
 
    double            Highest(const double &array[], int period, int current_pos);
    double            Lowest(const double &array[], int period, int current_pos);
-   void              CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_MA_METHOD method, int start_pos);
+
+   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type);
 
 public:
                      CStochasticCMOSlowCalculator(void);
    virtual          ~CStochasticCMOSlowCalculator(void);
 
-   bool              Init(int cmo_p, int k_p, int slow_p, ENUM_MA_METHOD slow_ma, int d_p, ENUM_MA_METHOD d_ma);
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+   //--- Init now takes ENUM_MA_TYPE for both smoothings
+   bool              Init(int cmo_p, int k_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma);
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &k_buffer[], double &d_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
-class CStochasticCMOSlowCalculator_HA : public CStochasticCMOSlowCalculator
+CStochasticCMOSlowCalculator::CStochasticCMOSlowCalculator(void)
   {
-public:
-                     CStochasticCMOSlowCalculator_HA(void);
-  };
-
-//+==================================================================+
-//|                 METHOD IMPLEMENTATIONS                           |
-//+==================================================================+
+   m_cmo_calculator = new CCMOCalculator();
+  }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Destructor                                                       |
 //+------------------------------------------------------------------+
-CStochasticCMOSlowCalculator::CStochasticCMOSlowCalculator(void) { m_cmo_calculator = new CCMOCalculator(); }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-CStochasticCMOSlowCalculator::~CStochasticCMOSlowCalculator(void) { if(CheckPointer(m_cmo_calculator) != POINTER_INVALID) delete m_cmo_calculator; }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-CStochasticCMOSlowCalculator_HA::CStochasticCMOSlowCalculator_HA(void)
+CStochasticCMOSlowCalculator::~CStochasticCMOSlowCalculator(void)
   {
    if(CheckPointer(m_cmo_calculator) != POINTER_INVALID)
       delete m_cmo_calculator;
-   m_cmo_calculator = new CCMOCalculator_HA();
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Init                                                             |
 //+------------------------------------------------------------------+
-bool CStochasticCMOSlowCalculator::Init(int cmo_p, int k_p, int slow_p, ENUM_MA_METHOD slow_ma, int d_p, ENUM_MA_METHOD d_ma)
+bool CStochasticCMOSlowCalculator::Init(int cmo_p, int k_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma)
   {
-   m_cmo_period      = (cmo_p < 1) ? 1 : cmo_p;
-   m_k_period        = (k_p < 1) ? 1 : k_p;
-   m_slowing_period  = (slow_p < 1) ? 1 : slow_p;
-   m_slowing_ma_type = slow_ma;
-   m_d_period        = (d_p < 1) ? 1 : d_p;
-   m_d_ma_type       = d_ma;
+   m_cmo_period = (cmo_p < 1) ? 1 : cmo_p;
+   m_k_period   = (k_p < 1) ? 1 : k_p;
+
    if(CheckPointer(m_cmo_calculator) == POINTER_INVALID)
       return false;
-   return m_cmo_calculator.Init(m_cmo_period);
+   if(!m_cmo_calculator.Init(m_cmo_period))
+      return false;
+
+   if(!m_slowing_engine.Init(slow_p, slow_ma))
+      return false;
+   if(!m_signal_engine.Init(d_p, d_ma))
+      return false;
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation (Optimized)                                     |
 //+------------------------------------------------------------------+
-void CStochasticCMOSlowCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+void CStochasticCMOSlowCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
   {
-   if(rates_total <= m_cmo_period + m_k_period + m_slowing_period + m_d_period)
+// Minimum bars check
+   int min_bars = m_cmo_period + m_k_period + m_slowing_engine.GetPeriod() + m_signal_engine.GetPeriod();
+   if(rates_total <= min_bars)
       return;
+
    if(CheckPointer(m_cmo_calculator) == POINTER_INVALID)
       return;
 
-   double cmo_buffer[];
-   ArrayResize(cmo_buffer, rates_total);
-   m_cmo_calculator.Calculate(rates_total, price_type, open, high, low, close, cmo_buffer);
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-   double raw_k[];
-   ArrayResize(raw_k, rates_total);
-   int raw_k_start = m_cmo_period + m_k_period - 2;
-   for(int i = raw_k_start; i < rates_total; i++)
+// Resize Buffers
+   if(ArraySize(m_cmo_buffer) != rates_total)
      {
-      double highest_cmo = Highest(cmo_buffer, m_k_period, i);
-      double lowest_cmo  = Lowest(cmo_buffer, m_k_period, i);
-      double range = highest_cmo - lowest_cmo;
-      if(range > 0.00001)
-         raw_k[i] = (cmo_buffer[i] - lowest_cmo) / range * 100.0;
-      else
-         raw_k[i] = (i > 0) ? raw_k[i-1] : 50.0;
+      ArrayResize(m_cmo_buffer, rates_total);
+      ArrayResize(m_raw_k, rates_total);
      }
 
-   int k_slow_start = m_cmo_period + m_k_period + m_slowing_period - 3;
-   CalculateMA(raw_k, k_buffer, m_slowing_period, m_slowing_ma_type, k_slow_start);
+   if(!PrepareSourceData(rates_total, start_index, open, high, low, close, price_type))
+      return;
 
-   int d_start = k_slow_start + m_d_period - 1;
-   CalculateMA(k_buffer, d_buffer, m_d_period, m_d_ma_type, d_start);
+//--- 1. Calculate CMO (Incremental)
+// Note: CMO Calculator handles its own incremental logic
+   m_cmo_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_cmo_buffer);
+
+//--- 2. Calculate Raw %K (Fast %K) on CMO
+// CMO valid from: m_cmo_period
+// Raw %K valid from: m_cmo_period + m_k_period - 1
+   int raw_k_start = m_cmo_period + m_k_period - 1;
+   int loop_start_k = MathMax(raw_k_start, start_index);
+
+   for(int i = loop_start_k; i < rates_total; i++)
+     {
+      double highest_cmo = Highest(m_cmo_buffer, m_k_period, i);
+      double lowest_cmo  = Lowest(m_cmo_buffer, m_k_period, i);
+      double range = highest_cmo - lowest_cmo;
+
+      if(range > 0.00001)
+         m_raw_k[i] = (m_cmo_buffer[i] - lowest_cmo) / range * 100.0;
+      else
+         m_raw_k[i] = (i > 0) ? m_raw_k[i-1] : 50.0;
+     }
+
+//--- 3. Calculate Slow %K (Main Line) using Slowing Engine
+   m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, k_buffer, raw_k_start);
+
+//--- 4. Calculate %D (Signal Line) using Signal Engine
+   int d_offset = raw_k_start + m_slowing_engine.GetPeriod() - 1;
+   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, d_offset);
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Highest                                                          |
 //+------------------------------------------------------------------+
 double CStochasticCMOSlowCalculator::Highest(const double &array[], int period, int current_pos)
   {
@@ -129,7 +154,7 @@ double CStochasticCMOSlowCalculator::Highest(const double &array[], int period, 
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Lowest                                                           |
 //+------------------------------------------------------------------+
 double CStochasticCMOSlowCalculator::Lowest(const double &array[], int period, int current_pos)
   {
@@ -146,75 +171,32 @@ double CStochasticCMOSlowCalculator::Lowest(const double &array[], int period, i
   }
 
 //+------------------------------------------------------------------+
+//| Prepare Source Data (Standard)                                   |
+//+------------------------------------------------------------------+
+bool CStochasticCMOSlowCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
+  {
+// This method is just a placeholder for the base class.
+// The CMO calculator handles its own data preparation internally.
+   return true;
+  }
+
+//+==================================================================+
+//|             CLASS 2: CStochasticCMOSlowCalculator_HA             |
+//+==================================================================+
+class CStochasticCMOSlowCalculator_HA : public CStochasticCMOSlowCalculator
+  {
+public:
+                     CStochasticCMOSlowCalculator_HA(void);
+  };
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CStochasticCMOSlowCalculator::CalculateMA(const double &source_array[], double &dest_array[], int period, ENUM_MA_METHOD method, int start_pos)
+CStochasticCMOSlowCalculator_HA::CStochasticCMOSlowCalculator_HA(void)
   {
-   for(int i = start_pos; i < ArraySize(source_array); i++)
-     {
-      switch(method)
-        {
-         case MODE_EMA:
-         case MODE_SMMA:
-            if(i == start_pos)
-              {
-               double sum=0;
-               int count=0;
-               for(int j=0; j<period; j++)
-                 {
-                  if(source_array[i-j] != EMPTY_VALUE)
-                    {
-                     sum+=source_array[i-j];
-                     count++;
-                    }
-                 }
-               if(count > 0)
-                  dest_array[i]=sum/count;
-              }
-            else
-              {
-               if(method==MODE_EMA)
-                 {
-                  double pr=2.0/(period+1.0);
-                  dest_array[i]=source_array[i]*pr+dest_array[i-1]*(1.0-pr);
-                 }
-               else
-                  dest_array[i]=(dest_array[i-1]*(period-1)+source_array[i])/period;
-              }
-            break;
-         case MODE_LWMA:
-           {
-            double sum=0, w_sum=0;
-            for(int j=0; j<period; j++)
-              {
-               if(source_array[i-j] == EMPTY_VALUE)
-                  continue;
-               int w=period-j;
-               sum+=source_array[i-j]*w;
-               w_sum+=w;
-              }
-            if(w_sum>0)
-               dest_array[i]=sum/w_sum;
-           }
-         break;
-         default: // SMA
-           {
-            double sum=0;
-            int count=0;
-            for(int j=0; j<period; j++)
-              {
-               if(source_array[i-j] != EMPTY_VALUE)
-                 {
-                  sum+=source_array[i-j];
-                  count++;
-                 }
-              }
-            if(count > 0)
-               dest_array[i]=sum/count;
-           }
-         break;
-        }
-     }
+   if(CheckPointer(m_cmo_calculator) != POINTER_INVALID)
+      delete m_cmo_calculator;
+// Use HA version of CMO calculator
+   m_cmo_calculator = new CCMOCalculator_HA();
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
