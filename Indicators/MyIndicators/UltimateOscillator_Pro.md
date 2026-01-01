@@ -37,13 +37,21 @@ The UO's calculation combines "Buying Pressure" relative to "True Range" over th
 
 ## 3. MQL5 Implementation Details
 
-* **Modular Calculation Engine (`UltimateOscillator_Calculator.mqh`):** The entire calculation logic is encapsulated within a reusable include file, separating the mathematical complexity from the user interface.
+Our MQL5 implementation follows a highly modular, component-based design to ensure accuracy, reusability, and maintainability.
 
-* **Object-Oriented Design (Inheritance):** A `CUltimateOscillatorCalculator` base class and a `CUltimateOscillatorCalculator_HA` derived class are used to cleanly separate the logic for standard and Heikin Ashi price sources.
+* **Modular Calculation Engine (`UltimateOscillator_Calculator.mqh`):**
+    The entire calculation logic is encapsulated within a reusable include file.
+  * **Composition:** The calculator internally uses our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
 
-* **Optional Signal Line:** The indicator is enhanced with a user-configurable moving average signal line. A `Display Mode` input allows the user to toggle the visibility of this line.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Sliding Window:** The summation of Buying Pressure and True Range is handled by an efficient sliding window logic (`sum += new_value; sum -= old_value;`), which is significantly faster than recalculating the sum on every bar.
 
-* **Stability and Efficiency:** We employ a full recalculation within `OnCalculate` for maximum stability. The summation of Buying Pressure and True Range is handled by an efficient **sliding window sum** technique (`sum += new_value; sum -= old_value;`), which is significantly faster than recalculating the sum on every bar.
+* **Object-Oriented Design:**
+  * A `CUltimateOscillatorCalculator` base class handles the core UO algorithm.
+  * A derived class, `CUltimateOscillatorCalculator_HA`, inherits from the base class and overrides the data preparation step to use Heikin Ashi prices.
 
 ## 4. Parameters
 
@@ -52,7 +60,7 @@ The UO's calculation combines "Buying Pressure" relative to "True Range" over th
 * **Signal Line Settings:**
   * `InpDisplayMode`: Toggles the visibility of the signal line.
   * `InpSignalPeriod`: The lookback period for the signal line.
-  * `InpSignalMAType`: The type of moving average for the signal line.
+  * `InpSignalMAType`: The type of moving average for the signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
 
 ## 5. Usage and Interpretation
 
