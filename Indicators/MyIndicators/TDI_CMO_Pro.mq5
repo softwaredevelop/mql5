@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                  TDI_CMO_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Refactored to use MovingAverage_Engine
 #property description "Trader's Dynamic Index based on Chande Momentum Oscillator (CMO)."
 #property description "Supports Standard and Heikin Ashi sources."
 
@@ -55,15 +54,15 @@ input int                       InpSignalLinePeriod = 7;
 input int                       InpBaseLinePeriod   = 34;
 input double                    InpBandsDeviation   = 1.618;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice      = PRICE_CLOSE_STD;
+// NEW: Allow changing MA type (default SMA for classic TDI)
+input ENUM_MA_TYPE              InpMAMethod         = SMA;
 
 //--- Indicator Buffers ---
 double    BufferPriceLine[], BufferSignalLine[], BufferBaseLine[], BufferUpperBand[], BufferLowerBand[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CTDICMOCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -91,7 +90,7 @@ int OnInit()
      }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpCmoPeriod, InpPriceLinePeriod, InpSignalLinePeriod, InpBaseLinePeriod, InpBandsDeviation))
+      !g_calculator.Init(InpCmoPeriod, InpPriceLinePeriod, InpSignalLinePeriod, InpBaseLinePeriod, InpBandsDeviation, InpMAMethod))
      {
       Print("Failed to initialize TDI CMO Calculator.");
       return(INIT_FAILED);
@@ -108,14 +107,18 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
+   ENUM_APPLIED_PRICE price_type;
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
+      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
+   else
+      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close,
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
                           BufferPriceLine, BufferSignalLine, BufferBaseLine, BufferUpperBand, BufferLowerBand);
 
    return(rates_total);
