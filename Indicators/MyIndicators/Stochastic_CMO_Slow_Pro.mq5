@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                       Stochastic_CMO_Slow_Pro.mq5|
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Refactored to use MovingAverage_Engine
 #property description "Slow Stochastic applied to the Chande Momentum Oscillator (CMO)."
 
 #property indicator_separate_window
@@ -37,8 +36,9 @@ input int                       InpSlowingPeriod = 3;
 input int                       InpDPeriod       = 3;
 input group                     "MA & Price Settings"
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD;
-input ENUM_MA_METHOD              InpSlowingMAType = MODE_SMA;
-input ENUM_MA_METHOD              InpDMAType       = MODE_SMA;
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE              InpSlowingMAType = SMA;
+input ENUM_MA_TYPE              InpDMAType       = SMA;
 
 //--- Indicator Buffers ---
 double    BufferK[], BufferD[];
@@ -79,12 +79,13 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
-   g_calculator.Calculate(rates_total, open, high, low, close, price_type, BufferK, BufferD);
+
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferK, BufferD);
    return(rates_total);
   }
 //+------------------------------------------------------------------+
