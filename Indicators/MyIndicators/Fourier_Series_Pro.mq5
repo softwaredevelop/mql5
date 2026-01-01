@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                           Fourier_Series_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Optimized for incremental calculation
 #property description "John Ehlers' Fourier Series Model of the Market."
 
 #property indicator_separate_window
@@ -53,7 +52,10 @@ int OnInit()
    SetIndexBuffer(1, BufferROC,  INDICATOR_DATA);
    ArraySetAsSeries(BufferWave, false);
    ArraySetAsSeries(BufferROC,  false);
-   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
+// Hide ROC if not requested
+   if(!InpShowROC)
+      PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    if(InpSource == SOURCE_HEIKIN_ASHI)
      {
@@ -87,16 +89,17 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   g_calculator.Calculate(rates_total, PRICE_MEDIAN, open, high, low, close, BufferWave, BufferROC);
+   g_calculator.Calculate(rates_total, prev_calculated, PRICE_MEDIAN, open, high, low, close, BufferWave, BufferROC);
 
    if(!InpShowROC)
      {
-      for(int i=0; i<rates_total; i++)
+      int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start; i < rates_total; i++)
          BufferROC[i] = EMPTY_VALUE;
      }
 
