@@ -7,63 +7,86 @@
 
 #include <MyIncludes\Holt_Engine.mqh>
 
-//--- Base class for polymorphism
+//+==================================================================+
+//|           CLASS: CHoltOscillatorCalculator                       |
+//+==================================================================+
 class CHoltOscillatorCalculator
   {
-public:
-   virtual bool      Init(int period, double alpha, double beta)=0;
-   virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &osc_buffer[])=0;
-  };
-
-//--- Standard version
-class CHoltOscillatorCalculator_Std : public CHoltOscillatorCalculator
-  {
 protected:
+   //--- Composition: Use the main Holt Engine
    CHoltEngine       *m_engine;
+
+   //--- Dummy Buffers for unused outputs
+   double            m_dummy_forecast[];
+   double            m_dummy_level[];
+   double            m_dummy_upper[];
+   double            m_dummy_lower[];
+
 public:
-                     CHoltOscillatorCalculator_Std(void) { m_engine = new CHoltEngine(); }
-                    ~CHoltOscillatorCalculator_Std(void) { if(CheckPointer(m_engine)!=POINTER_INVALID) delete m_engine; }
+                     CHoltOscillatorCalculator(void);
+   virtual          ~CHoltOscillatorCalculator(void);
 
-   virtual bool      Init(int period, double alpha, double beta) override { return m_engine.Init(period, alpha, beta, 1); } // Forecast period is not used
-   virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &osc_buffer[]) override
-     {
-      if(CheckPointer(m_engine)==POINTER_INVALID)
-         return;
+   //--- Init now takes HA flag
+   bool              Init(int period, double alpha, double beta, bool use_ha);
 
-      double dummy_forecast[], dummy_level[], dummy_upper[], dummy_lower[];
-      ArrayResize(dummy_forecast, rates_total);
-      ArrayResize(dummy_level, rates_total);
-      ArrayResize(dummy_upper, rates_total);
-      ArrayResize(dummy_lower, rates_total);
-
-      // Pass the osc_buffer to the correct 'trend_out' parameter
-      m_engine.Calculate(rates_total, price_type, open, high, low, close, dummy_forecast, osc_buffer, dummy_level, dummy_upper, dummy_lower);
-     }
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &osc_buffer[]);
   };
 
-//--- HA version
-class CHoltOscillatorCalculator_HA : public CHoltOscillatorCalculator
+//+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CHoltOscillatorCalculator::CHoltOscillatorCalculator(void) : m_engine(NULL)
   {
-protected:
-   CHoltEngine       *m_engine;
-public:
-                     CHoltOscillatorCalculator_HA(void) { m_engine = new CHoltEngine_HA(); }
-                    ~CHoltOscillatorCalculator_HA(void) { if(CheckPointer(m_engine)!=POINTER_INVALID) delete m_engine; }
+  }
 
-   virtual bool      Init(int period, double alpha, double beta) override { return m_engine.Init(period, alpha, beta, 1); } // Forecast period is not used
-   virtual void      Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &osc_buffer[]) override
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CHoltOscillatorCalculator::~CHoltOscillatorCalculator(void)
+  {
+   if(CheckPointer(m_engine) != POINTER_INVALID)
+      delete m_engine;
+  }
+
+//+------------------------------------------------------------------+
+//| Init                                                             |
+//+------------------------------------------------------------------+
+bool CHoltOscillatorCalculator::Init(int period, double alpha, double beta, bool use_ha)
+  {
+// Instantiate correct engine
+   if(use_ha)
+      m_engine = new CHoltEngine_HA();
+   else
+      m_engine = new CHoltEngine();
+
+// Initialize engine (Forecast period is dummy 1)
+   return m_engine.Init(period, alpha, beta, 1);
+  }
+
+//+------------------------------------------------------------------+
+//| Main Calculation                                                 |
+//+------------------------------------------------------------------+
+void CHoltOscillatorCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+      double &osc_buffer[])
+  {
+   if(CheckPointer(m_engine) == POINTER_INVALID)
+      return;
+
+// Resize dummy buffers
+   if(ArraySize(m_dummy_forecast) != rates_total)
      {
-      if(CheckPointer(m_engine)==POINTER_INVALID)
-         return;
-
-      double dummy_forecast[], dummy_level[], dummy_upper[], dummy_lower[];
-      ArrayResize(dummy_forecast, rates_total);
-      ArrayResize(dummy_level, rates_total);
-      ArrayResize(dummy_upper, rates_total);
-      ArrayResize(dummy_lower, rates_total);
-
-      // Pass the osc_buffer to the correct 'trend_out' parameter
-      m_engine.Calculate(rates_total, price_type, open, high, low, close, dummy_forecast, osc_buffer, dummy_level, dummy_upper, dummy_lower);
+      ArrayResize(m_dummy_forecast, rates_total);
+      ArrayResize(m_dummy_level, rates_total);
+      ArrayResize(m_dummy_upper, rates_total);
+      ArrayResize(m_dummy_lower, rates_total);
      }
-  };
+
+// Calculate Holt (Incremental)
+// The engine handles its own incremental logic
+// We pass osc_buffer to the 'trend_out' parameter
+   m_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                      m_dummy_forecast, osc_buffer, m_dummy_level, m_dummy_upper, m_dummy_lower);
+  }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
