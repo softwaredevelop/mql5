@@ -46,16 +46,19 @@ Our MQL5 implementation is a cohesive and reusable indicator family, built upon 
 * **Centralized Calculation Engine (`Holt_Engine.mqh`):**
     The core of our implementation is a single, powerful calculation engine. This include file contains the complete logic for calculating all Holt components (Level, Trend, Forecast, and Channel bands). It supports both standard and Heikin Ashi data sources through class inheritance (`CHoltEngine` and `CHoltEngine_HA`), eliminating code duplication.
 
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal buffers (Level, Trend) persist their state between ticks. This allows the recursive Holt equations to continue seamlessly from the last known values without re-processing the entire history.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+
 * **Specialized Wrappers (`Holt_Calculator.mqh`, `Holt_Oscillator_Calculator.mqh`):**
     The final indicators use thin "wrapper" classes that utilize the central engine.
   * `Holt_Calculator` calls the engine and provides the outputs needed for the `Holt_Pro` indicator (MA and Channel bands).
   * `Holt_Oscillator_Calculator` calls the same engine but only extracts the `Trend` component for the `Holt_Oscillator_Pro` indicator.
 
-* **Stability via Full Recalculation:** The Holt method is highly recursive. To ensure perfect accuracy and prevent calculation errors, all our Holt indicators employ a "brute-force" **full recalculation** on every tick.
-
 ## 4. Parameters
 
-* **Period (`InpPeriod`):** Used for the robust initialization of the model. Default is `20`.
 * **Alpha (`InpAlpha`):** The smoothing factor for the Level. Lower values create a smoother level. Default is `0.1`.
 * **Beta (`InpBeta`):** The smoothing factor for the Trend. Lower values create a more stable trend component. Default is `0.05`.
 * **Source Price (`InpSourcePrice`):** The price data used for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
