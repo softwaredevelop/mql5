@@ -31,12 +31,11 @@ The calculation is a multi-stage process that begins with the CMO and then build
 2. **Rescale the CMO:** This is the critical step. The TDI system is designed for an oscillator in the 0-100 range. Therefore, the CMO's output is rescaled from [-100, +100] to [0, 100].
     $\text{Rescaled CMO}_i = \frac{\text{CMO}_i + 100}{2}$
 
-3. **Calculate the Price Line:** The Price Line is a short-period Simple Moving Average (SMA) of the `Rescaled CMO`.
-    $\text{Price Line}_i = \text{SMA}(\text{Rescaled CMO}, \text{Price Line Period})$
+3. **Calculate the Price Line:** The Price Line is a short-period Moving Average of the `Rescaled CMO`.
+    * *Classic TDI uses SMA.*
 
-4. **Calculate the Signal and Base Lines:** Both are SMAs calculated on the `Price Line`.
-    $\text{Signal Line}_i = \text{SMA}(\text{Price Line}, \text{Signal Line Period})$
-    $\text{Base Line}_i = \text{SMA}(\text{Price Line}, \text{Base Line Period})$
+4. **Calculate the Signal and Base Lines:** Both are Moving Averages calculated on the `Price Line`.
+    * *Classic TDI uses SMA.*
 
 5. **Calculate the Volatility Bands:** These are Bollinger Bands, but with a unique twist. The standard deviation is calculated on the `Rescaled CMO` over the `Base Line Period`. The resulting bands are then plotted around the `Base Line`.
     $\text{StdDev} = \text{StandardDeviation}(\text{Rescaled CMO}, \text{Base Line Period})$
@@ -45,22 +44,34 @@ The calculation is a multi-stage process that begins with the CMO and then build
 
 ## 3. MQL5 Implementation Details
 
-The implementation follows our standard, robust, and object-oriented framework.
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Modular Calculator Engine (`TDI_CMO_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file. The engine efficiently performs the entire calculation chain, from the base CMO calculation and rescaling to the final band calculation.
+* **Full Engine Integration:**
+    The calculator (`TDI_CMO_Calculator.mqh`) orchestrates **four** powerful engines:
+    1. **CMO Engine:** Computes the base Chande Momentum Oscillator.
+    2. **Price Line Engine:** Smooths the rescaled CMO (using `MovingAverage_Engine.mqh`).
+    3. **Signal Line Engine:** Smooths the Price Line (using `MovingAverage_Engine.mqh`).
+    4. **Base Line Engine:** Smooths the Price Line (using `MovingAverage_Engine.mqh`).
+    This architecture allows for extreme flexibility (e.g., using DEMA for all lines) while maintaining code consistency.
 
-* **Object-Oriented Design (Inheritance):** A `CTDICMOCalculator` base class and a `CTDICMOCalculator_HA` derived class are used to cleanly separate the logic for standard and Heikin Ashi price sources without code duplication.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
 
-* **Simplified Main Indicator (`TDI_CMO_Pro.mq5`):** The main `.mq5` file is a clean "wrapper" responsible for handling user inputs and delegating the calculation to the appropriate calculator object.
+* **Object-Oriented Design:**
+  * The Heikin Ashi version (`CTDICMOCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the CMO module.
 
-## 4. Parameters (`TDI_CMO_Pro.mq5`)
+## 4. Parameters
 
 * **CMO Period (`InpCmoPeriod`):** The lookback period for the base Chande Momentum Oscillator.
-* **Price Line Period (`InpPriceLinePeriod`):** The smoothing period for the fast (green) line. Default is `2`.
-* **Signal Line Period (`InpSignalLinePeriod`):** The smoothing period for the short-term signal (red) line. Default is `7`.
-* **Base Line Period (`InpBaseLinePeriod`):** The smoothing period for the medium-term market sentiment (orange) line. Default is `34`.
-* **Bands Deviation (`InpBandsDeviation`):** The multiplier for the volatility bands. Default is `1.618`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation (Standard or Heikin Ashi).
+* **Price Line Period (`InpPriceLinePeriod`):** The smoothing period for the fast (green) line. (Default: `2`).
+* **Signal Line Period (`InpSignalLinePeriod`):** The smoothing period for the short-term signal (red) line. (Default: `7`).
+* **Base Line Period (`InpBaseLinePeriod`):** The smoothing period for the medium-term market sentiment (orange) line. (Default: `34`).
+* **Bands Deviation (`InpBandsDeviation`):** The multiplier for the volatility bands. (Default: `1.618`).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
+* **MA Method (`InpMAMethod`):** The type of moving average to use for all lines. Set to **SMA** for classic TDI behavior. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
 
 ## 5. Suggested Settings for the CMO Indicator Family
 
@@ -68,16 +79,16 @@ To use the `CMO_Pro`, `VIDYA_Pro`, and `TDI_CMO_Pro` as a coherent system, their
 
 | Indicator         | Parameter             | **Standard Setting (13)** | **Fast Setting (8)** |
 | ----------------- | --------------------- | :-----------------------: | :------------------: |
-| **CMO_Pro**       | `InpPeriodCMO`        |            **13**             |         **8**          |
+| **CMO_Pro**       | `InpPeriodCMO`        |            **13**         |         **8**        |
 |                   |                       |                           |                      |
-| **VIDYA_Pro**     | `InpPeriodCMO`        |            **13**             |         **8**          |
-|                   | `InpPeriodEMA`        |            `12`             |         `8`          |
+| **VIDYA_Pro**     | `InpPeriodCMO`        |            **13**         |         **8**        |
+|                   | `InpPeriodEMA`        |            `12`           |         `8`          |
 |                   |                       |                           |                      |
-| **TDI_CMO_Pro**   | `InpCmoPeriod`        |            **13**             |         **8**          |
-|                   | `InpPriceLinePeriod`  |             `2`             |         `2`          |
-|                   | `InpSignalLinePeriod` |             `7`             |         `5`          |
-|                   | `InpBaseLinePeriod`   |            `34`             |         `34`         |
-|                   | `InpBandsDeviation`   |           `1.618`           |       `1.618`        |
+| **TDI_CMO_Pro**   | `InpCmoPeriod`        |            **13**         |         **8**        |
+|                   | `InpPriceLinePeriod`  |             `2`           |         `2`          |
+|                   | `InpSignalLinePeriod` |             `7`           |         `5`          |
+|                   | `InpBaseLinePeriod`   |            `34`           |         `34`         |
+|                   | `InpBandsDeviation`   |           `1.618`         |       `1.618`        |
 
 ### Rationale for Settings
 
