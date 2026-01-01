@@ -38,11 +38,23 @@ The calculation is a sequential, three-stage process.
 
 ## 3. MQL5 Implementation Details
 
-* **Modular and Composite Design:** The core logic is encapsulated in the `Stochastic_CMO_Slow_Calculator.mqh`. This calculator uses a composition-based design: it **contains an instance** of our robust `CCMOCalculator` to generate the base CMO data. This ensures mathematical consistency and leverages our modular design principles.
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
 
-* **Reusable Components:** The calculator efficiently reuses our universal `CalculateMA` helper function to apply the selected moving average types for the %K and %D line smoothing.
+* **Full Engine Integration:**
+    The calculator (`Stochastic_CMO_Slow_Calculator.mqh`) orchestrates three powerful engines:
+    1. **CMO Engine:** It reuses the `CMO_Calculator.mqh` to compute the base Chande Momentum Oscillator.
+    2. **Slowing Engine:** It uses the `MovingAverage_Engine.mqh` to smooth the Raw %K.
+    3. **Signal Engine:** It uses another `MovingAverage_Engine.mqh` instance to calculate the %D line.
+    This ensures mathematical consistency and allows for advanced smoothing types (like DEMA or TEMA).
 
-* **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (CMO, Raw %K) persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
+
+* **Object-Oriented Logic:**
+  * The Heikin Ashi version (`CStochasticCMOSlowCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the CMO module.
 
 ## 4. Parameters
 
@@ -51,8 +63,8 @@ The calculation is a sequential, three-stage process.
 * **Slowing Period (`InpSlowingPeriod`):** The period for the first smoothing of the raw %K line.
 * **%D Period (`InpDPeriod`):** The period for smoothing the main %K line to create the signal line.
 * **Applied Price (`InpSourcePrice`):** The source price for the base CMO calculation.
-* **Slowing MA Type (`InpSlowingMAType`):** The type of moving average for the %K slowing.
-* **%D MA Type (`InpDMAType`):** The type of moving average for the %D signal line.
+* **Slowing MA Type (`InpSlowingMAType`):** The MA type for the %K slowing. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
+* **%D MA Type (`InpDMAType`):** The MA type for the %D signal line. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**.
 
 ## 5. Usage and Interpretation
 
