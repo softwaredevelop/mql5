@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "4.01" // Final unified architecture
+#property version   "4.20" // Removed InpPeriod, direct Alpha/Beta control
 #property description "Professional Holt's Linear Trend Method, displaying either the"
 #property description "MA line or a full forecast channel. Supports Standard and Heikin Ashi."
 
@@ -44,10 +44,10 @@ enum ENUM_DISPLAY_MODE
 
 //--- Input Parameters ---
 input group                     "Holt Model Settings"
-input int                       InpPeriod      = 20;
-input double                    InpAlpha       = 0.1;
-input double                    InpBeta        = 0.05;
+input double                    InpAlpha       = 0.1;     // Level Smoothing Factor (0.0 - 1.0)
+input double                    InpBeta        = 0.05;    // Trend Smoothing Factor (0.0 - 1.0)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
+
 input group                     "Display Settings"
 input ENUM_DISPLAY_MODE         InpDisplayMode = DISPLAY_MA_AND_CHANNEL;
 input int                       InpForecastPeriod = 5;     // Forecast period for the channel
@@ -77,16 +77,17 @@ int OnInit()
    if(InpSourcePrice <= PRICE_HA_CLOSE) // Heikin Ashi source selected
      {
       g_calculator = new CHoltMACalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Pro HA(%d)", InpPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Pro HA(%.2f, %.2f)", InpAlpha, InpBeta));
      }
    else // Standard price source selected
      {
       g_calculator = new CHoltMACalculator_Std();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Pro(%d)", InpPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Pro(%.2f, %.2f)", InpAlpha, InpBeta));
      }
 
 //--- Check if creation was successful and initialize
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpAlpha, InpBeta, InpForecastPeriod))
+//--- Note: We pass 0 for period as it is ignored by the engine (uses internal fixed minimum)
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(0, InpAlpha, InpBeta, InpForecastPeriod))
      {
       Print("Failed to initialize Holt MA Calculator.");
       return(INIT_FAILED);
@@ -136,12 +137,13 @@ int OnCalculate(const int rates_total,
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Delegate the entire calculation to our calculator object
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferHoltMA, BufferUpperBand, BufferLowerBand);
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferHoltMA, BufferUpperBand, BufferLowerBand);
 
 //--- Hide buffers based on display mode
    if(InpDisplayMode == DISPLAY_MA_ONLY)
      {
-      for(int i = 0; i < rates_total; i++)
+      int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start; i < rates_total; i++)
         {
          BufferUpperBand[i] = EMPTY_VALUE;
          BufferLowerBand[i] = EMPTY_VALUE;
