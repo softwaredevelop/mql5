@@ -35,10 +35,16 @@ The indicator's logic is a multi-stage process of decomposition, analysis, and s
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Self-Contained Calculator (`Fourier_Series_Calculator.mqh`):** The entire complex, multi-stage calculation is encapsulated within a dedicated, reusable calculator class.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal buffers (for Band-Pass and Quadrature components) persist their state between ticks. This allows the recursive IIR filters to continue seamlessly from the last known values without re-processing the entire history.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Computationally Intensive:** Due to the multiple recursive filters and the internal loop required for power calculation, this is a more CPU-intensive indicator than a simple moving average.
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call to ensure the multiple state-dependent calculations remain perfectly synchronized and stable.
 
 ## 4. Parameters
 
