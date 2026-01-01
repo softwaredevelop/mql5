@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.01" // Final unified architecture
+#property version   "3.00" // Refactored to use Holt Engine
 #property description "Holt's Trend Oscillator. Shows the smoothed trend component."
 #property description "Supports Standard and Heikin Ashi price sources."
 
@@ -25,41 +25,35 @@
 #property indicator_width1  2
 
 //--- Input Parameters ---
-input int                       InpPeriod      = 20;
-input double                    InpAlpha       = 0.1;
-input double                    InpBeta        = 0.05;
+input double                    InpAlpha       = 0.1;     // Level Smoothing Factor (0.0 - 1.0)
+input double                    InpBeta        = 0.05;    // Trend Smoothing Factor (0.0 - 1.0)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferOscillator[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CHoltOscillatorCalculator *g_calculator;
 
-//+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
 //+------------------------------------------------------------------+
 int OnInit()
   {
    SetIndexBuffer(0, BufferOscillator, INDICATOR_DATA);
    ArraySetAsSeries(BufferOscillator, false);
 
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
-      g_calculator = new CHoltOscillatorCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Osc HA(%d)", InpPeriod));
-     }
-   else
-     {
-      g_calculator = new CHoltOscillatorCalculator_Std();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Osc(%d)", InpPeriod));
-     }
+   g_calculator = new CHoltOscillatorCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpAlpha, InpBeta))
+   bool use_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
+
+// Pass 0 for period as it is ignored by the engine
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(0, InpAlpha, InpBeta, use_ha))
      {
       Print("Failed to initialize Holt Oscillator Calculator.");
       return(INIT_FAILED);
      }
+
+   string type = use_ha ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Holt Osc%s(%.2f, %.2f)", type, InpAlpha, InpBeta));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits+2);
@@ -68,8 +62,6 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    if(CheckPointer(g_calculator) != POINTER_INVALID)
@@ -77,9 +69,16 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -90,7 +89,7 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferOscillator);
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferOscillator);
 
    return(rates_total);
   }
