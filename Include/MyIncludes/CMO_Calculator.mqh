@@ -1,206 +1,148 @@
 //+------------------------------------------------------------------+
 //|                                               CMO_Calculator.mqh |
-//|      VERSION 2.00: Optimized for incremental calculation.        |
+//|      VERSION 4.00: Wrapper using CMO_Engine + MA Engine.         |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\CMO_Engine.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
-//|               CLASS 1: CCMOCalculator (Base Class)               |
+//|               CLASS 1: CCMOCalculator (Wrapper)                  |
 //+==================================================================+
 class CCMOCalculator
   {
 protected:
    int               m_cmo_period;
+   int               m_ma_period;
+   double            m_deviation;
 
-   //--- Persistent Buffer for Incremental Calculation
-   double            m_price[];
+   //--- Composition: Core Engine + Signal Engine
+   CCMOEngine        *m_cmo_engine;
+   CMovingAverageCalculator m_ma_engine;
 
-   //--- Updated: Accepts start_index
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Persistent Buffers
+   double            m_cmo_buffer[];
+   double            m_ma_buffer[];
 
 public:
-                     CCMOCalculator(void) {};
-   virtual          ~CCMOCalculator(void) {};
+                     CCMOCalculator(void);
+   virtual          ~CCMOCalculator(void);
 
-   bool              Init(int cmo_p);
+   bool              Init(int cmo_p, int ma_p, ENUM_MA_TYPE ma_m, double dev);
 
-   //--- Updated: Accepts prev_calculated
-   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &cmo_buffer[]);
-
-   //--- NEW: Helper to get a single CMO value
-   // This assumes m_price is already prepared!
-   double            GetCMOValue(int index);
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &cmo_out[], double &ma_out[], double &upper_out[], double &lower_out[]);
   };
+
+//+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CCMOCalculator::CCMOCalculator(void) : m_cmo_engine(NULL)
+  {
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CCMOCalculator::~CCMOCalculator(void)
+  {
+   if(CheckPointer(m_cmo_engine) != POINTER_INVALID)
+      delete m_cmo_engine;
+  }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CCMOCalculator::Init(int cmo_p)
+bool CCMOCalculator::Init(int cmo_p, int ma_p, ENUM_MA_TYPE ma_m, double dev)
   {
-   m_cmo_period = (cmo_p < 1) ? 1 : cmo_p;
+   m_cmo_period = cmo_p;
+   m_ma_period  = ma_p;
+   m_deviation  = dev;
+
+// Instantiate base engine (Standard by default, HA handled by derived class)
+// Wait, we need polymorphism here too!
+// The wrapper itself needs to be polymorphic or handle the engine creation.
+// Let's make this class concrete and instantiate the correct engine in Init?
+// No, Init doesn't know about HA vs Std. The caller (OnInit) decides.
+
+// Solution: The caller instantiates CCMOCalculator or CCMOCalculator_HA.
+// The constructor of CCMOCalculator creates CCMOEngine.
+// The constructor of CCMOCalculator_HA creates CCMOEngine_HA.
+
+   if(CheckPointer(m_cmo_engine) == POINTER_INVALID)
+      m_cmo_engine = new CCMOEngine(); // Default
+
+   if(!m_cmo_engine.Init(m_cmo_period))
+      return false;
+   if(!m_ma_engine.Init(m_ma_period, ma_m))
+      return false;
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Main Calculation                                                 |
 //+------------------------------------------------------------------+
-void CCMOCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &cmo_buffer[])
+void CCMOCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &cmo_out[], double &ma_out[], double &upper_out[], double &lower_out[])
   {
-   if(rates_total <= m_cmo_period)
+   if(CheckPointer(m_cmo_engine) == POINTER_INVALID)
       return;
 
-//--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+// Resize internal buffers
+   if(ArraySize(m_cmo_buffer) != rates_total)
+     {
+      ArrayResize(m_cmo_buffer, rates_total);
+      ArrayResize(m_ma_buffer, rates_total);
+     }
 
-//--- 2. Resize Buffer
-   if(ArraySize(m_price) != rates_total)
-      ArrayResize(m_price, rates_total);
+//--- 1. Calculate CMO (Using Engine)
+   m_cmo_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_cmo_buffer);
 
-//--- 3. Prepare Price (Optimized)
-   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
-      return;
+//--- 2. Calculate Signal Line (Using MA Engine)
+   int cmo_offset = m_cmo_period;
+   m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_cmo_buffer, m_ma_buffer, cmo_offset);
 
-//--- 4. Calculate CMO (Incremental Loop)
-   int loop_start = MathMax(m_cmo_period, start_index);
+//--- 3. Calculate Bollinger Bands
+   int ma_start_pos = cmo_offset + m_ma_period - 1;
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   int loop_start = MathMax(ma_start_pos, start_index);
 
    for(int i = loop_start; i < rates_total; i++)
      {
-      cmo_buffer[i] = GetCMOValue(i);
+      double std_dev_val = 0, sum_sq = 0;
+      for(int j = 0; j < m_ma_period; j++)
+         sum_sq += pow(m_cmo_buffer[i-j] - m_ma_buffer[i], 2);
+
+      std_dev_val = sqrt(sum_sq / m_ma_period);
+
+      // Copy to output buffers
+      cmo_out[i] = m_cmo_buffer[i];
+      ma_out[i] = m_ma_buffer[i];
+      upper_out[i] = m_ma_buffer[i] + m_deviation * std_dev_val;
+      lower_out[i] = m_ma_buffer[i] - m_deviation * std_dev_val;
      }
-  }
-
-//+------------------------------------------------------------------+
-//| Helper: Calculate Single CMO Value                               |
-//+------------------------------------------------------------------+
-double CCMOCalculator::GetCMOValue(int index)
-  {
-   double sum_up = 0.0, sum_down = 0.0;
-
-   for(int j = 0; j < m_cmo_period; j++)
-     {
-      double diff = m_price[index - j] - m_price[index - j - 1];
-      if(diff > 0.0)
-         sum_up += diff;
-      else
-         sum_down += (-diff);
-     }
-
-   double total_sum = sum_up + sum_down;
-   if(total_sum == 0.0)
-      return 0.0;
-   else
-      return 100.0 * (sum_up - sum_down) / total_sum;
-  }
-
-//+------------------------------------------------------------------+
-//| Prepare Price (Standard - Optimized)                             |
-//+------------------------------------------------------------------+
-bool CCMOCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-// Optimized copy loop
-   for(int i = start_index; i < rates_total; i++)
-     {
-      switch(price_type)
-        {
-         case PRICE_CLOSE:
-            m_price[i] = close[i];
-            break;
-         case PRICE_OPEN:
-            m_price[i] = open[i];
-            break;
-         case PRICE_HIGH:
-            m_price[i] = high[i];
-            break;
-         case PRICE_LOW:
-            m_price[i] = low[i];
-            break;
-         case PRICE_MEDIAN:
-            m_price[i] = (high[i]+low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            m_price[i] = (high[i]+low[i]+close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
-            break;
-         default:
-            m_price[i] = close[i];
-            break;
-        }
-     }
-   return true;
   }
 
 //+==================================================================+
-//|             CLASS 2: CCMOCalculator_HA (Heikin Ashi)             |
+//|             CLASS 2: CCMOCalculator_HA (Wrapper)                 |
 //+==================================================================+
 class CCMOCalculator_HA : public CCMOCalculator
   {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
-   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
-protected:
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+public:
+                     CCMOCalculator_HA(void);
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
+//|                                                                  |
 //+------------------------------------------------------------------+
-bool CCMOCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+CCMOCalculator_HA::CCMOCalculator_HA(void)
   {
-// Resize internal HA buffers
-   if(ArraySize(m_ha_open) != rates_total)
-     {
-      ArrayResize(m_ha_open, rates_total);
-      ArrayResize(m_ha_high, rates_total);
-      ArrayResize(m_ha_low, rates_total);
-      ArrayResize(m_ha_close, rates_total);
-     }
-
-//--- STRICT CALL: Use the optimized 10-param HA calculation
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
-
-//--- Copy to m_price (Optimized loop)
-   for(int i = start_index; i < rates_total; i++)
-     {
-      switch(price_type)
-        {
-         case PRICE_CLOSE:
-            m_price[i] = m_ha_close[i];
-            break;
-         case PRICE_OPEN:
-            m_price[i] = m_ha_open[i];
-            break;
-         case PRICE_HIGH:
-            m_price[i] = m_ha_high[i];
-            break;
-         case PRICE_LOW:
-            m_price[i] = m_ha_low[i];
-            break;
-         case PRICE_MEDIAN:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
-            break;
-         default:
-            m_price[i] = m_ha_close[i];
-            break;
-        }
-     }
-   return true;
+   if(CheckPointer(m_cmo_engine) != POINTER_INVALID)
+      delete m_cmo_engine;
+// Use HA version of Engine
+   m_cmo_engine = new CCMOEngine_HA();
   }
 //+------------------------------------------------------------------+
