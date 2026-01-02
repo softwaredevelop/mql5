@@ -41,42 +41,41 @@ Our MQL5 implementation is built on a highly efficient and reusable object-orien
 * **Universal Calculation Engine (`VIDYA_Calculator.mqh`):**
     A single, powerful engine file contains all the core calculation logic. This eliminates code duplication and ensures that both `VIDYA_Pro` and `VIDYA_Color_Pro` produce identical average values.
 
-* **Composition with CMO Engine:** The VIDYA calculator does not re-implement the CMO logic. Instead, it internally instantiates our robust `CMO_Calculator` class. This ensures that the momentum measurement is mathematically identical to the standalone CMO indicator.
+* **Composition with CMO Engine:** The VIDYA calculator does not re-implement the CMO logic. Instead, it internally instantiates our lightweight `CMO_Engine.mqh`. This ensures that the momentum measurement is mathematically identical to the standalone CMO indicator, while maintaining high performance.
 
-* **Optimized Incremental Calculation:**
+* **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (`m_price`, `m_cmo_buffer`) persist their state between ticks. This allows the recursive VIDYA calculation to continue seamlessly from the last known value without re-processing the entire history.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Efficiency:** The recursive VIDYA calculation continues seamlessly from the last known value without re-processing the entire history.
 
 * **Method Overloading:** The `CVIDYACalculator` class features two versions of the `Calculate` method:
-    1. `Calculate(..., double &vidya_buffer[])`: A version that accepts a single output buffer. This is automatically called by `VIDYA_Pro`.
-    2. `Calculate(..., double &vidya_up_buffer[], double &vidya_down_buffer[])`: A version that accepts two output buffers. This is automatically called by `VIDYA_Color_Pro`.
+    1. `Calculate(..., double &vidya_buffer[])`: For `VIDYA_Pro`.
+    2. `Calculate(..., double &vidya_up_buffer[], double &vidya_down_buffer[])`: For `VIDYA_Color_Pro`.
 
-* **Object-Oriented Design (Inheritance):**
-    The engine uses a `CVIDYACalculator` base class and a `CVIDYACalculator_HA` derived class. The child class only overrides the `PreparePriceSeries` method to supply Heikin Ashi data, inheriting the entire complex calculation logic from its parent.
+* **Object-Oriented Design:**
+    The engine uses a `CVIDYACalculator` base class and a `CVIDYACalculator_HA` derived class. The child class only overrides the `PreparePriceSeries` method to supply Heikin Ashi data.
 
 ## 4. Parameters (`VIDYA_Pro` & `VIDYA_Color_Pro`)
 
 The input parameters are identical for both indicators.
 
-* **CMO Period (`InpPeriodCMO`):** The lookback period for the Chande Momentum Oscillator. Default is `9`.
-* **EMA Period (`InpPeriodEMA`):** The base period for the EMA smoothing. Default is `12`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. This unified dropdown menu allows you to select from all standard and Heikin Ashi price types.
+* **CMO Period (`InpPeriodCMO`):** The lookback period for the Chande Momentum Oscillator. (Default: `9`).
+* **EMA Period (`InpPeriodEMA`):** The base period for the EMA smoothing. (Default: `12`).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
 ### `VIDYA_Pro` (Single Color)
 
-* **Adaptive Trend Line:** Use it as a more intelligent, responsive trend line. It hugs the price during strong trends and flattens out during consolidation, helping to reduce whipsaws.
-* **Trend Filter:** A flat or sideways VIDYA line is a strong indication of a ranging market, suggesting that trend-following strategies should be paused.
-* **Dynamic Support/Resistance:** In a trending market, the VIDYA line can act as a dynamic level of support (in an uptrend) or resistance (in a downtrend).
+* **Adaptive Trend Line:** Hugs the price during strong trends and flattens out during consolidation.
+* **Trend Filter:** A flat or sideways VIDYA line indicates a ranging market.
+* **Dynamic Support/Resistance:** Acts as a dynamic level of support/resistance in trending markets.
 
 ### `VIDYA_Color_Pro` (Multi-Color)
 
 This version includes all the benefits of the standard `VIDYA_Pro` but adds an immediate visual cue for momentum direction.
 
-* **Trend Direction at a Glance:**
-  * **Green Line:** Indicates that the underlying momentum is bullish (CMO > 0).
-  * **Red Line:** Indicates that the underlying momentum is bearish (CMO < 0).
-* **Confirmation of Trend Change:** A color change from red to green can act as an early confirmation that bullish momentum is taking over, and vice-versa. This can be particularly useful for timing entries after a pullback. For example, in a larger uptrend, a brief switch to red followed by a return to green can signal a good entry point.
+* **Green Line:** Bullish momentum (CMO > 0).
+* **Red Line:** Bearish momentum (CMO < 0).
+* **Confirmation:** A color change can act as an early confirmation of a trend change.
