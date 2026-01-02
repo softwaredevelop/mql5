@@ -42,7 +42,7 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
 
 * **Full Engine Integration:**
     The calculator (`Stochastic_CMO_Slow_Calculator.mqh`) orchestrates three powerful engines:
-    1. **CMO Engine:** It reuses the `CMO_Calculator.mqh` to compute the base Chande Momentum Oscillator.
+    1. **CMO Engine:** It uses the lightweight `CMO_Engine.mqh` to compute the base Chande Momentum Oscillator efficiently.
     2. **Slowing Engine:** It uses the `MovingAverage_Engine.mqh` to smooth the Raw %K.
     3. **Signal Engine:** It uses another `MovingAverage_Engine.mqh` instance to calculate the %D line.
     This ensures mathematical consistency and allows for advanced smoothing types (like DEMA or TEMA).
