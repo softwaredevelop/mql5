@@ -17,7 +17,7 @@ The calculation combines an EMA with a volatility index:
 ## 3. MQL5 Implementation Details
 
 * **Self-Contained:** Uses direct `Copy...` functions; no external dependencies.
-* **Modular Engine (`VIDYA_Calculator.mqh`):** Reuses the standard VIDYA logic.
+* **Modular Engine (`VIDYA_Calculator.mqh`):** Reuses the standard VIDYA logic, which in turn leverages the lightweight `CMO_Engine.mqh` for efficient momentum calculation.
 
 * **Optimized Incremental Calculation (O(1)):**
   * **HTF State Tracking:** Tracks `htf_prev_calculated` to process only new bars on the higher timeframe.
