@@ -42,9 +42,11 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
   * **`CVortexCalculator`**: The base class that performs the full VI calculation on a given set of High, Low, and Close prices.
   * **`CVortexCalculator_HA`**: A child class that inherits all logic and only overrides the initial data preparation step to use smoothed Heikin Ashi prices.
 
-* **Stability via Full Recalculation:** We employ a "brute-force" full recalculation within `OnCalculate` for maximum stability.
-
-* **Efficient Calculation:** The summation over the lookback period is handled by an efficient **sliding window sum** technique, which is significantly faster than recalculating the sum on every bar.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (TR, VM+, VM-) persist their state between ticks.
+  * **Sliding Window:** The summation over the lookback period is handled by an efficient sliding window logic (`sum += new_value; sum -= old_value;`), which is significantly faster than recalculating the sum on every bar.
 
 ## 4. Parameters
 
