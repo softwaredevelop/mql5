@@ -1,12 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                           TDI_CMO_Calculator.mqh |
 //|        Calculation engine for TDI based on CMO.                  |
-//|      VERSION 2.00: Optimized for incremental calculation.        |
+//|      VERSION 2.10: Fixed Engine usage (CCMOEngine).              |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\CMO_Calculator.mqh>
+// FIX: Use the lightweight Engine, not the full Calculator
+#include <MyIncludes\CMO_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
@@ -19,7 +20,7 @@ protected:
    double            m_std_dev;
 
    //--- Engines
-   CCMOCalculator    *m_cmo_calculator;
+   CCMOEngine        *m_cmo_engine; // FIX: Use Engine
    CMovingAverageCalculator m_price_line_engine;
    CMovingAverageCalculator m_signal_line_engine;
    CMovingAverageCalculator m_base_line_engine;
@@ -31,6 +32,9 @@ protected:
    double            m_base_line[];
 
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+
+   //--- Factory Method for CMO Engine
+   virtual void      CreateCMOEngine(void);
 
 public:
                      CTDICMOCalculator(void);
@@ -50,7 +54,7 @@ public:
 //+------------------------------------------------------------------+
 CTDICMOCalculator::CTDICMOCalculator(void)
   {
-   m_cmo_calculator = new CCMOCalculator();
+   m_cmo_engine = NULL;
   }
 
 //+------------------------------------------------------------------+
@@ -58,8 +62,16 @@ CTDICMOCalculator::CTDICMOCalculator(void)
 //+------------------------------------------------------------------+
 CTDICMOCalculator::~CTDICMOCalculator(void)
   {
-   if(CheckPointer(m_cmo_calculator) != POINTER_INVALID)
-      delete m_cmo_calculator;
+   if(CheckPointer(m_cmo_engine) != POINTER_INVALID)
+      delete m_cmo_engine;
+  }
+
+//+------------------------------------------------------------------+
+//| Factory Method                                                   |
+//+------------------------------------------------------------------+
+void CTDICMOCalculator::CreateCMOEngine(void)
+  {
+   m_cmo_engine = new CCMOEngine();
   }
 
 //+------------------------------------------------------------------+
@@ -73,9 +85,12 @@ bool CTDICMOCalculator::Init(int cmo_p, int price_p, int signal_p, int base_p, d
    m_base_period   = (base_p < 1) ? 1 : base_p;
    m_std_dev       = (dev <= 0) ? 1.618 : dev;
 
-   if(CheckPointer(m_cmo_calculator) == POINTER_INVALID)
+   CreateCMOEngine();
+   if(CheckPointer(m_cmo_engine) == POINTER_INVALID)
       return false;
-   if(!m_cmo_calculator.Init(m_cmo_period))
+
+// FIX: CCMOEngine::Init takes only period
+   if(!m_cmo_engine.Init(m_cmo_period))
       return false;
 
 // Initialize MA Engines (Classic TDI uses SMA, but we allow override)
@@ -99,7 +114,7 @@ void CTDICMOCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
 // Minimum bars check
    if(rates_total <= m_cmo_period + m_base_period)
       return;
-   if(CheckPointer(m_cmo_calculator) == POINTER_INVALID)
+   if(CheckPointer(m_cmo_engine) == POINTER_INVALID)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
@@ -117,7 +132,8 @@ void CTDICMOCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
       return;
 
 //--- 1. Calculate CMO (Incremental)
-   m_cmo_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_cmo_buffer);
+// FIX: CCMOEngine::Calculate takes fewer parameters (no output buffers for MA/Bands)
+   m_cmo_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_cmo_buffer);
 
 //--- 2. Rescale CMO to 0-100 range
    int loop_start_cmo = MathMax(m_cmo_period, start_index);
@@ -138,21 +154,10 @@ void CTDICMOCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
    m_signal_line_engine.CalculateOnArray(rates_total, prev_calculated, m_price_line, signal_line_out, signal_offset);
 
 //--- 5. Calculate Base Line (MA on Price Line)
-// Offset: same as signal line start (based on Price Line)
-// But Base Line usually has longer period, so it starts later validly.
-// The engine handles validity based on period.
    m_base_line_engine.CalculateOnArray(rates_total, prev_calculated, m_price_line, m_base_line, signal_offset);
    ArrayCopy(base_line_out, m_base_line, 0, 0, rates_total);
 
 //--- 6. Calculate Volatility Bands (Bollinger Bands on Base Line)
-// Bands are calculated using StdDev of Price Line around Base Line?
-// Or StdDev of Rescaled CMO around Base Line?
-// Original code used: StdDev of Rescaled CMO around Base Line (where Base Line is MA of Price Line).
-// Wait, original code:
-// base_line_ma_on_cmo = sum_cmo / m_base_period; (This IS the Base Line value at i)
-// sum_sq += MathPow(cmo_rescaled[i-j] - base_line_ma_on_cmo, 2);
-// So it calculates StdDev of CMO around the Base Line.
-
    int bands_start = m_cmo_period + m_base_period - 1; // Approx start
    int loop_start_bands = MathMax(bands_start, start_index);
 
@@ -185,7 +190,7 @@ void CTDICMOCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
 bool CTDICMOCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
 // This method is just a placeholder for the base class.
-// The CMO calculator handles its own data preparation internally.
+// The CMO engine handles its own data preparation internally.
    return true;
   }
 
@@ -194,18 +199,16 @@ bool CTDICMOCalculator::PreparePriceSeries(int rates_total, int start_index, ENU
 //+==================================================================+
 class CTDICMOCalculator_HA : public CTDICMOCalculator
   {
-public:
-                     CTDICMOCalculator_HA(void);
+protected:
+   virtual void      CreateCMOEngine(void) override;
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Factory Method for HA CMO Engine                                 |
 //+------------------------------------------------------------------+
-CTDICMOCalculator_HA::CTDICMOCalculator_HA(void)
+void CTDICMOCalculator_HA::CreateCMOEngine(void)
   {
-   if(CheckPointer(m_cmo_calculator) != POINTER_INVALID)
-      delete m_cmo_calculator;
-// Use HA version of CMO calculator
-   m_cmo_calculator = new CCMOCalculator_HA();
+   m_cmo_engine = new CCMOEngine_HA();
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
