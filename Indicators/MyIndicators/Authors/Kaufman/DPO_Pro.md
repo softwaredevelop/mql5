@@ -15,34 +15,42 @@ The DPO measures the difference between the current price and a past, centered m
 ### Required Components
 
 * **Period (N):** The lookback period for the moving average. This should be chosen to represent the trend you wish to remove.
-* **MA Type:** The type of moving average to be used (SMA, EMA, etc.).
+* **MA Method:** The type of moving average to be used (SMA, EMA, etc.).
 * **Source Price (P)**.
 
 ### Calculation Steps (Algorithm)
 
-1. **Calculate a Standard Moving Average:** First, a standard, lagging moving average (`MA`) is calculated for the entire price history using the selected period `N`.
+1. **Calculate the Moving Average:** Compute the selected Moving Average of the source price over period `N`.
+    $\text{MA}_i = \text{MA}(P, N)_i$
 
-2. **Determine the Shift Amount:** To center the moving average, a backward shift is calculated.
-    * $\text{Shift} = \frac{N}{2} + 1$
+2. **Determine the Shift (Displacement):** Calculate the time shift based on the period.
+    $\text{Shift} = \text{Integer}(\frac{N}{2}) + 1$
 
 3. **Calculate the DPO Value:** The DPO for the current bar `t` is the difference between the current price and the moving average value from `Shift` bars in the past.
-    * $\text{DPO}_t = P_t - \text{MA}_{t - \text{Shift}}$
+    $\text{DPO}_t = P_t - \text{MA}_{t - \text{Shift}}$
 
 This shifting process ensures that the comparison is made against the "centered" trend value, providing a more accurate cyclical oscillation around the zero line.
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
+
 * **Modular Design (Composition):** The `CDPOCalculator` does not recalculate the moving average itself. Instead, it **contains an instance** of our universal `CMovingAverageCalculator`. This is a highly efficient use of our modular toolkit.
 
-* **Two-Step Calculation:** In `OnCalculate`, the indicator first calls the internal `CMovingAverageCalculator` to generate the standard, lagging MA into a temporary buffer. It then performs a second loop to calculate the DPO by subtracting the shifted data from the current price.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Shift Handling:** The algorithm correctly handles the lookback into the past (`i - Shift`) during incremental updates, ensuring that the DPO value is always based on the correct historical MA value.
 
-* **Heikin Ashi Integration:** By leveraging our universal MA engine, the DPO seamlessly supports calculations on Heikin Ashi data.
+* **Correct Heikin Ashi Logic:**
+    In Heikin Ashi mode, the indicator ensures full consistency by calculating both the "Price" component and the "Moving Average" component from the Heikin Ashi data. This prevents "hybrid" errors where standard prices are compared to HA averages.
 
 ## 4. Parameters
 
-* **Period (`InpPeriod`):** The lookback period for the moving average that will be "detrended" from the price. A common starting point is `21`.
-* **MA Type (`InpMAType`):** A dropdown menu to select the desired moving average type (SMA, EMA, etc.).
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
+* **Period (`InpPeriod`):** The lookback period for the moving average that will be "detrended" from the price. (Default: `21`).
+* **MA Method (`InpMAType`):** The type of moving average to use. Supports: **SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA**. (Default: `SMA`).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
