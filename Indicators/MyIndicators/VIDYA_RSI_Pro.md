@@ -34,16 +34,26 @@ VIDYA RSI is a modified Exponential Moving Average where the smoothing factor is
 
 ## 3. MQL5 Implementation Details
 
-* **Modular Calculation Engine (`VIDYA_RSI_Calculator.mqh`):** All mathematical logic is encapsulated in a dedicated include file. The engine first calculates the base RSI using the robust Wilder's smoothing method and then applies the adaptive VIDYA formula.
+Our MQL5 implementation is built on a highly efficient and reusable object-oriented architecture.
 
-* **Object-Oriented Design (Inheritance):** A `CVIDYARSICalculator` base class and a `CVIDYARSICalculator_HA` derived class are used to cleanly separate the logic for standard and Heikin Ashi price sources without code duplication.
+* **Modular Calculation Engine (`VIDYA_RSI_Calculator.mqh`):**
+    All mathematical logic is encapsulated in a dedicated include file.
+  * **RSI Engine Integration:** The calculator internally uses our robust `RSI_Pro_Calculator.mqh` to compute the base RSI. This ensures mathematical consistency with our standalone RSI indicator and benefits from its drift-free logic.
 
-* **Simplified Main Indicator (`VIDYA_RSI_Pro.mq5`):** The main `.mq5` file acts as a clean "wrapper" responsible for handling user inputs, creating the correct calculator object, and delegating the calculation.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Efficiency:** The recursive VIDYA calculation continues seamlessly from the last known value without re-processing the entire history.
+
+* **Object-Oriented Design:**
+  * A base class, `CVIDYARSICalculator`, handles the core logic.
+  * A derived class, `CVIDYARSICalculator_HA`, overrides the data preparation step to use Heikin Ashi prices.
 
 ## 4. Parameters (`VIDYA_RSI_Pro.mq5`)
 
-* **RSI Period (`InpPeriodRSI`):** The lookback period for the underlying RSI calculation. Default is `14`.
-* **EMA Period (`InpPeriodEMA`):** The base period for the EMA smoothing. Default is `20`.
+* **RSI Period (`InpPeriodRSI`):** The lookback period for the underlying RSI calculation. (Default: `14`).
+* **EMA Period (`InpPeriodEMA`):** The base period for the EMA smoothing. (Default: `20`).
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
