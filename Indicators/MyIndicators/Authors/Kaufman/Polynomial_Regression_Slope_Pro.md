@@ -35,16 +35,22 @@ This final `Slope_t` value is what is plotted on the chart for bar `t`.
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained Calculation Engine (`Polynomial_Regression_Slope_Calculator.mqh`):** The entire multi-stage calculation logic is encapsulated within a single, dedicated include file. The engine is a streamlined version of the channel calculator, focused only on calculating the `b` and `c` coefficients to derive the slope.
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
 
-* **Moving Window Calculation:** The calculator iterates through the entire price history. For each bar, it performs a full polynomial regression calculation on the preceding `N` bars to determine the historical slope value at that specific point in time.
+* **Self-Contained Calculation Engine (`Polynomial_Regression_Slope_Calculator.mqh`):** The entire multi-stage calculation logic is encapsulated within a single, dedicated include file.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal price buffer persists its state between ticks.
+  * **Efficiency:** The calculator efficiently updates the regression slope for each new bar without re-processing the entire history.
 
 * **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
 
 ## 4. Parameters
 
 * **Period (`InpPeriod`):** The lookback period for the regression calculation. A larger period will result in a smoother, slower oscillator, while a shorter period will be more responsive. Default is `50`.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation (Standard or Heikin Ashi).
+* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
 
 ## 5. Usage and Interpretation
 
