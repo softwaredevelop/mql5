@@ -28,9 +28,16 @@ The calculation is a recursive process where the current filter value (`f`) is a
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Self-Contained Calculator (`Butterworth_Calculator.mqh`):** The entire complex, recursive calculation for both the 2-pole and 3-pole filters is encapsulated within a dedicated, reusable calculator class.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The indicator buffer itself acts as the persistent memory for the recursive calculation (`Filt[i-1]`, `Filt[i-2]`), ensuring seamless updates without drift or full recalculation.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation is highly state-dependent. To ensure absolute stability and prevent desynchronization errors, the indicator employs a **full recalculation** on every `OnCalculate` call. This is the most robust method for this type of complex IIR filter.
 
 ## 4. Parameters
 
@@ -66,14 +73,3 @@ For more confirmation, two instances of the indicator can be used on the same ch
 * **Sell Signal:** The fast filter crosses below the slow filter.
 
 The key advantage of the Butterworth filter over a standard EMA is its ability to ignore minor, insignificant price fluctuations, allowing the trader to focus on the true, underlying trend.
-
-### **Combined Strategy with Butterworth_Calculator (Advanced)**
-
-The filter's characteristics can be better understood when used with its companion oscillator, the `Butterworth_Momentum_Pro`. A key relationship exists between them:
-
-* **The Momentum Oscillator's zero-cross confirms the Filter's turning point.**
-  * Because the Butterworth filter is designed for maximum smoothing, it has a significant lag. The `Butterworth_Momentum` oscillator's zero-cross will occur **after** the price has already turned, but it serves as a **very smooth and reliable confirmation** that the trend captured by the `Butterworth_Filter` has indeed changed direction.
-  * A cross of the momentum line above zero confirms that the filter has formed a stable **trough (bottom)**.
-  * A cross of the momentum line below zero confirms that the filter has formed a stable **peak (top)**.
-
-This combination is useful for strategies that require a high degree of confirmation before entering a trade based on a major trend change.
