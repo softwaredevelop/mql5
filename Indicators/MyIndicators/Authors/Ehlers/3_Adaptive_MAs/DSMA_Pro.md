@@ -33,9 +33,16 @@ The DSMA is an Exponential Moving Average where the `alpha` is dynamically calcu
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability, reusability, and maintainability.
+
 * **Self-Contained Calculator (`DSMA_Calculator.mqh`):** The entire complex, multi-stage calculation is encapsulated within a dedicated, reusable calculator class.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal buffers (for the Zeros oscillator, the SuperSmoother output, and the final DSMA) persist their state between ticks. This allows the recursive filters to continue seamlessly from the last known values without re-processing the entire history.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The calculation involves multiple chained, state-dependent filters. To ensure absolute stability, the indicator employs a **full recalculation** on every `OnCalculate` call.
 
 ## 4. Parameters
 
