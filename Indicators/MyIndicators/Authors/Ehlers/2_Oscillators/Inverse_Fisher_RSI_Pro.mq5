@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     Inverse_Fisher_RSI_Pro.mq5   |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Optimized for incremental calculation
 #property description "John Ehlers' Inverse Fisher Transform of RSI for clear buy/sell signals."
 
 #property indicator_separate_window
@@ -14,7 +13,7 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrTeal
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  1
+#property indicator_width1  2
 
 #property indicator_minimum -1.1
 #property indicator_maximum 1.1
@@ -75,11 +74,15 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
-   g_calculator.Calculate(rates_total, PRICE_CLOSE, open, high, low, close, BufferIFish);
+
+// We pass PRICE_CLOSE as a dummy because RSI engine uses Close by default (or HA Close)
+// The calculator handles HA switching internally based on object type
+   g_calculator.Calculate(rates_total, prev_calculated, PRICE_CLOSE, open, high, low, close, BufferIFish);
+
    return(rates_total);
   }
 //+------------------------------------------------------------------+
