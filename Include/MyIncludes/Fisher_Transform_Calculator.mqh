@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                 Fisher_Transform_Calculator.mqh  |
 //|      Calculation engine for the John Ehlers' Fisher Transform.   |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
@@ -8,30 +9,35 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|           CLASS 1: CFisherTransformCalculator (Base Class)       |
-//|                                                                  |
 //+==================================================================+
 class CFisherTransformCalculator
   {
 protected:
    int               m_period;
    double            m_alpha;
-   double            m_price[]; // Will hold Median Price (Standard or HA)
 
-   // CORRECTED: Added close[] for the derived class
-   virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Persistent Buffers for Incremental Calculation
+   double            m_price[];
+   double            m_value1[]; // Smoothed normalized price
+   double            m_fish[];   // Fisher Transform value
+
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CFisherTransformCalculator(void) {};
    virtual          ~CFisherTransformCalculator(void) {};
 
    bool              Init(int period, double alpha);
-   // CORRECTED: Added open[] and close[] for the derived class
-   void              Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &fisher_buffer[], double &signal_buffer[]);
   };
 
+//+------------------------------------------------------------------+
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CFisherTransformCalculator::Init(int period, double alpha)
   {
@@ -41,22 +47,40 @@ bool CFisherTransformCalculator::Init(int period, double alpha)
   }
 
 //+------------------------------------------------------------------+
-void CFisherTransformCalculator::Calculate(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[],
+//| Main Calculation (Optimized)                                     |
+//+------------------------------------------------------------------+
+void CFisherTransformCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
       double &fisher_buffer[], double &signal_buffer[])
   {
    if(rates_total < m_period)
       return;
-   if(!PreparePriceSeries(rates_total, open, high, low, close))
+
+//--- 1. Determine Start Index
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+//--- 2. Resize Buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_value1, rates_total);
+      ArrayResize(m_fish, rates_total);
+     }
+
+//--- 3. Prepare Price (Optimized)
+   if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
       return;
 
-   double value1 = 0, value1_prev = 0;
-   double fish = 0, fish_prev = 0;
+//--- 4. Calculate Fisher Transform (Incremental Loop)
+   int loop_start = MathMax(m_period - 1, start_index);
 
-   for(int i = 0; i < rates_total; i++)
+   for(int i = loop_start; i < rates_total; i++)
      {
-      if(i < m_period -1)
-         continue;
-
+      // Find Highest High and Lowest Low over period
+      // Optimization: For small periods (10), loop is fast.
       int high_idx = ArrayMaximum(m_price, i - m_period + 1, m_period);
       int low_idx  = ArrayMinimum(m_price, i - m_period + 1, m_period);
       double maxH = m_price[high_idx];
@@ -66,55 +90,74 @@ void CFisherTransformCalculator::Calculate(int rates_total, const double &open[]
       if(maxH - minL != 0)
          norm_price = 2.0 * ((m_price[i] - minL) / (maxH - minL) - 0.5);
 
-      value1 = m_alpha * norm_price + (1.0 - m_alpha) * value1_prev;
+      // Recursive smoothing
+      // Use persistent buffer [i-1]
+      double value1_prev = (i > 0) ? m_value1[i-1] : 0;
+      m_value1[i] = m_alpha * norm_price + (1.0 - m_alpha) * value1_prev;
 
-      value1 = fmin(0.999, fmax(-0.999, value1));
+      // Clamp value to avoid log error
+      if(m_value1[i] > 0.999)
+         m_value1[i] = 0.999;
+      if(m_value1[i] < -0.999)
+         m_value1[i] = -0.999;
 
-      fish = 0.5 * log((1.0 + value1) / (1.0 - value1)) + 0.5 * fish_prev;
+      // Fisher calculation
+      double fish_prev = (i > 0) ? m_fish[i-1] : 0;
+      m_fish[i] = 0.5 * log((1.0 + m_value1[i]) / (1.0 - m_value1[i])) + 0.5 * fish_prev;
 
-      fisher_buffer[i] = fish;
-      signal_buffer[i] = fish_prev;
-
-      value1_prev = value1;
-      fish_prev = fish;
+      fisher_buffer[i] = m_fish[i];
+      signal_buffer[i] = fish_prev; // Signal is 1-bar delayed Fisher
      }
   }
 
 //+------------------------------------------------------------------+
-bool CFisherTransformCalculator::PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Standard - Optimized)                             |
+//+------------------------------------------------------------------+
+bool CFisherTransformCalculator::PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_price, rates_total);
-   for(int i=0; i<rates_total; i++)
-      m_price[i] = (high[i]+low[i])/2.0;
+   for(int i = start_index; i < rates_total; i++)
+     {
+      // Ehlers uses (High+Low)/2
+      m_price[i] = (high[i] + low[i]) / 2.0;
+     }
    return true;
   }
 
+//+==================================================================+
+//|             CLASS 2: CFisherTransformCalculator_HA               |
 //+==================================================================+
 class CFisherTransformCalculator_HA : public CFisherTransformCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   // Internal HA buffers
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
 protected:
-   // CORRECTED: Signature now matches the base class
-   virtual bool      PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-bool CFisherTransformCalculator_HA::PreparePriceSeries(int rates_total, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Heikin Ashi - Optimized)                          |
+//+------------------------------------------------------------------+
+bool CFisherTransformCalculator_HA::PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
+   if(ArraySize(m_ha_open) != rates_total)
+     {
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
 
-// CORRECTED: Pass the full 'close' array to the calculator
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+//--- STRICT CALL: Use the optimized 10-param HA calculation
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
+                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-   ArrayResize(m_price, rates_total);
-   for(int i=0; i<rates_total; i++)
-      m_price[i] = (ha_high[i]+ha_low[i])/2.0;
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+     }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
