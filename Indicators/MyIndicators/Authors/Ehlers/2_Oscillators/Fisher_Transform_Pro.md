@@ -34,9 +34,17 @@ The indicator follows a multi-step process to transform the price data.
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Self-Contained Calculator (`Fisher_Transform_Calculator.mqh`):** The entire multi-stage calculation is encapsulated within a dedicated, reusable calculator class.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal buffers (for smoothed values and the final Fisher output) persist their state between ticks. This allows the recursive calculation to continue seamlessly from the last known values without re-processing the entire history.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call. This is the most robust method for a state-dependent indicator that involves smoothing and normalization.
+
 * **Definition-True Price Source:** The calculator is hard-coded to use the **Median Price `(High+Low)/2`** as the source, in accordance with John Ehlers' original articles on this specific implementation.
 
 ## 4. Parameters
