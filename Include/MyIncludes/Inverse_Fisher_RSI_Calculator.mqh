@@ -1,132 +1,188 @@
 //+------------------------------------------------------------------+
 //|                               Inverse_Fisher_RSI_Calculator.mqh  |
 //|      Calculation engine for the Inverse Fisher Transform of RSI. |
+//|      VERSION 2.00: Optimized for incremental calculation.        |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\RSI_Pro_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
-//|                                                                  |
 //|         CLASS 1: CInverseFisherRSICalculator (Base)              |
-//|                                                                  |
 //+==================================================================+
 class CInverseFisherRSICalculator
   {
 protected:
    int               m_rsi_period;
    int               m_wma_period;
-   double            m_price[];
 
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   //--- Engines
+   CRSIProCalculator *m_rsi_calculator;
+   CMovingAverageCalculator m_wma_engine;
+
+   //--- Persistent Buffers for Incremental Calculation
+   double            m_price[];
+   double            m_rsi_buffer[];
+   double            m_value1[]; // Scaled RSI
+   double            m_value2[]; // Smoothed Scaled RSI
+
+   //--- Updated: Accepts start_index
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+
+   //--- Factory Method for RSI Engine
+   virtual void      CreateRSIEngine(void);
 
 public:
-                     CInverseFisherRSICalculator(void) {};
-   virtual          ~CInverseFisherRSICalculator(void) {};
+                     CInverseFisherRSICalculator(void);
+   virtual          ~CInverseFisherRSICalculator(void);
 
    bool              Init(int rsi_period, int wma_period);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+
+   //--- Updated: Accepts prev_calculated
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &ifish_buffer[]);
   };
 
+//+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CInverseFisherRSICalculator::CInverseFisherRSICalculator(void)
+  {
+   m_rsi_calculator = NULL;
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CInverseFisherRSICalculator::~CInverseFisherRSICalculator(void)
+  {
+   if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
+      delete m_rsi_calculator;
+  }
+
+//+------------------------------------------------------------------+
+//| Factory Method                                                   |
+//+------------------------------------------------------------------+
+void CInverseFisherRSICalculator::CreateRSIEngine(void)
+  {
+   m_rsi_calculator = new CRSIProCalculator();
+  }
+
+//+------------------------------------------------------------------+
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CInverseFisherRSICalculator::Init(int rsi_period, int wma_period)
   {
    m_rsi_period = (rsi_period < 2) ? 2 : rsi_period;
    m_wma_period = (wma_period < 1) ? 1 : wma_period;
+
+   CreateRSIEngine();
+// Init RSI with dummy MA params (1, SMA, 2.0) as we only need the RSI line
+   if(CheckPointer(m_rsi_calculator) == POINTER_INVALID || !m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
+      return false;
+
+// Init WMA Engine (LWMA)
+   if(!m_wma_engine.Init(m_wma_period, LWMA))
+      return false;
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-void CInverseFisherRSICalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+//| Main Calculation (Optimized)                                     |
+//+------------------------------------------------------------------+
+void CInverseFisherRSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &ifish_buffer[])
   {
-   if(rates_total < m_rsi_period + m_wma_period)
-      return;
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
+   int start_pos = m_rsi_period + m_wma_period;
+   if(rates_total <= start_pos)
       return;
 
-   double rsi_buffer[], value1[], value2[];
-   ArrayResize(rsi_buffer, rates_total);
-   ArrayResize(value1, rates_total);
-   ArrayResize(value2, rates_total);
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
 
-// Step 1: Calculate RSI (Wilder's method)
-   double sum_pos = 0, sum_neg = 0;
-   for(int i = 1; i < rates_total; i++)
+// Resize Buffers
+   if(ArraySize(m_price) != rates_total)
      {
-      double diff = m_price[i] - m_price[i-1];
-      sum_pos = (sum_pos * (m_rsi_period - 1) + (diff > 0 ? diff : 0)) / m_rsi_period;
-      sum_neg = (sum_neg * (m_rsi_period - 1) + (diff < 0 ? -diff : 0)) / m_rsi_period;
-      if(i >= m_rsi_period)
-        {
-         if(sum_neg > 0)
-            rsi_buffer[i] = 100.0 - (100.0 / (1.0 + (sum_pos / sum_neg)));
-         else
-            rsi_buffer[i] = 100.0;
-        }
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_rsi_buffer, rates_total);
+      ArrayResize(m_value1, rates_total);
+      ArrayResize(m_value2, rates_total);
      }
 
-// Step 2 & 3: Scale and Smooth with WMA
-   for(int i = m_rsi_period - 1; i < rates_total; i++)
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
+
+//--- 1. Calculate RSI (Delegated to Engine)
+   double dummy1[], dummy2[], dummy3[];
+// Note: RSI engine handles its own price preparation internally!
+// We pass the raw OHLC arrays and price_type.
+   m_rsi_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                              m_rsi_buffer, dummy1, dummy2, dummy3);
+
+//--- 2. Scale RSI (Incremental)
+// RSI valid from: m_rsi_period
+   int loop_start_scale = MathMax(m_rsi_period, start_index);
+
+   for(int i = loop_start_scale; i < rates_total; i++)
      {
       // Scale RSI from 0..100 to -5..+5
-      value1[i] = 0.1 * (rsi_buffer[i] - 50.0);
-
-      // Smooth with WMA
-      if(i >= m_rsi_period - 1 + m_wma_period - 1)
-        {
-         double wma_sum = 0;
-         double weight_sum = 0;
-         for(int j = 0; j < m_wma_period; j++)
-           {
-            int weight = m_wma_period - j;
-            wma_sum += value1[i-j] * weight;
-            weight_sum += weight;
-           }
-         if(weight_sum > 0)
-            value2[i] = wma_sum / weight_sum;
-        }
+      m_value1[i] = 0.1 * (m_rsi_buffer[i] - 50.0);
      }
 
-// Step 4: Apply Inverse Fisher Transform
-   for(int i = m_rsi_period - 1 + m_wma_period - 1; i < rates_total; i++)
+//--- 3. Smooth with WMA (Using Engine)
+// Offset: m_rsi_period
+   m_wma_engine.CalculateOnArray(rates_total, prev_calculated, m_value1, m_value2, m_rsi_period);
+
+//--- 4. Apply Inverse Fisher Transform (Incremental)
+// Valid from: m_rsi_period + m_wma_period - 1
+   int ifish_start = m_rsi_period + m_wma_period - 1;
+   int loop_start_ifish = MathMax(ifish_start, start_index);
+
+   for(int i = loop_start_ifish; i < rates_total; i++)
      {
-      ifish_buffer[i] = (exp(2.0 * value2[i]) - 1.0) / (exp(2.0 * value2[i]) + 1.0);
+      double x = m_value2[i];
+      // Avoid overflow with exp(2x)
+      if(x > 10)
+         x = 10;
+      if(x < -10)
+         x = -10;
+
+      double exp2x = exp(2.0 * x);
+      ifish_buffer[i] = (exp2x - 1.0) / (exp2x + 1.0);
      }
   }
 
 //+------------------------------------------------------------------+
-bool CInverseFisherRSICalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Standard - Optimized)                             |
+//+------------------------------------------------------------------+
+bool CInverseFisherRSICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_price, rates_total);
-   ArrayCopy(m_price, close, 0, 0, rates_total); // Ehlers' example uses Close for RSI
+// This method is just a placeholder for the base class.
+// The RSI calculator handles its own data preparation internally.
    return true;
   }
 
 //+==================================================================+
+//|             CLASS 2: CInverseFisherRSICalculator_HA              |
+//+==================================================================+
 class CInverseFisherRSICalculator_HA : public CInverseFisherRSICalculator
   {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual void      CreateRSIEngine(void) override;
   };
 
 //+------------------------------------------------------------------+
-bool CInverseFisherRSICalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Factory Method for HA RSI Engine                                 |
+//+------------------------------------------------------------------+
+void CInverseFisherRSICalculator_HA::CreateRSIEngine(void)
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
-
-   ArrayResize(m_price, rates_total);
-   ArrayCopy(m_price, ha_close, 0, 0, rates_total);
-   return true;
+   m_rsi_calculator = new CRSIProCalculator_HA();
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
