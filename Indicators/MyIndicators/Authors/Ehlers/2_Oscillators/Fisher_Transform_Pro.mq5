@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Fixed Heikin Ashi calculation bug
+#property version   "2.00" // Optimized for incremental calculation
 #property description "John Ehlers' Fisher Transform for identifying sharp turning points."
 
 #property indicator_separate_window
@@ -81,13 +81,12 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-// CORRECTED: Pass all required price arrays for the HA calculation
-   g_calculator.Calculate(rates_total, open, high, low, close, BufferFisher, BufferSignal);
+   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferFisher, BufferSignal);
    return(rates_total);
   }
 //+------------------------------------------------------------------+
