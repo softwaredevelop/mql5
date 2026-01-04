@@ -1,62 +1,78 @@
 //+------------------------------------------------------------------+
 //|                                   CG_Oscillator_Calculator.mqh   |
 //|      Calculation engine for the John Ehlers' CG Oscillator.      |
+//|      VERSION 2.10: Added option for Original Ehlers Calculation. |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//+================================----------------==================+
-//|                                                                  |
+//+==================================================================+
 //|           CLASS 1: CCGOscillatorCalculator (Base Class)          |
-//|                                                                  |
 //+==================================================================+
 class CCGOscillatorCalculator
   {
 protected:
    int               m_period;
+   bool              m_original_mode; // New member for mode selection
+
+   //--- Persistent Buffer for Incremental Calculation
    double            m_price[];
 
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CCGOscillatorCalculator(void) {};
    virtual          ~CCGOscillatorCalculator(void) {};
 
-   bool              Init(int period);
-   void              Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+   //--- Updated Init: accepts mode boolean
+   bool              Init(int period, bool original_mode);
+
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &cg_buffer[], double &signal_buffer[]);
   };
 
 //+------------------------------------------------------------------+
-bool CCGOscillatorCalculator::Init(int period)
+//| Init                                                             |
+//+------------------------------------------------------------------+
+bool CCGOscillatorCalculator::Init(int period, bool original_mode)
   {
    m_period = (period < 2) ? 2 : period;
+   m_original_mode = original_mode;
    return true;
   }
 
 //+------------------------------------------------------------------+
-void CCGOscillatorCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+//| Main Calculation (Optimized)                                     |
+//+------------------------------------------------------------------+
+void CCGOscillatorCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                         double &cg_buffer[], double &signal_buffer[])
   {
    if(rates_total < m_period)
       return;
-   if(!PreparePriceSeries(rates_total, price_type, open, high, low, close))
+
+   int start_index;
+   if(prev_calculated == 0)
+      start_index = 0;
+   else
+      start_index = prev_calculated - 1;
+
+   if(ArraySize(m_price) != rates_total)
+      ArrayResize(m_price, rates_total);
+
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-// Full recalculation for stability
-   for(int i = m_period - 1; i < rates_total; i++)
+   int loop_start = MathMax(m_period - 1, start_index);
+
+   for(int i = loop_start; i < rates_total; i++)
      {
       double numerator = 0;
       double denominator = 0;
 
-      // Inner loop to calculate the weighted and simple sums
       for(int j = 0; j < m_period; j++)
         {
-         // Ehlers' code: count from 0 to Length-1, weight is (1+count)
-         // This corresponds to j from 0 to m_period-1, weight is (j+1)
-         // The price is Price[count], which is m_price[i-j] in our chronological array
          double current_price = m_price[i - j];
          numerator += (j + 1) * current_price;
          denominator += current_price;
@@ -64,50 +80,79 @@ void CCGOscillatorCalculator::Calculate(int rates_total, ENUM_APPLIED_PRICE pric
 
       if(denominator != 0)
         {
-         cg_buffer[i] = -numerator / denominator;
+         double raw_cg = -numerator / denominator;
+
+         if(m_original_mode)
+           {
+            // Ehlers Original: Returns negative values representing array index position
+            cg_buffer[i] = raw_cg;
+           }
+         else
+           {
+            // Pro Mode: Centers the oscillator around 0.0
+            // Adds half the period length to offset the negative index
+            cg_buffer[i] = raw_cg + (m_period + 1) / 2.0;
+           }
+        }
+      else
+        {
+         cg_buffer[i] = 0;
         }
      }
 
-// Create the signal line (1-bar delay)
-   for(int i = m_period; i < rates_total; i++)
+//--- Calculate Signal Line (1-bar delay)
+   int signal_start = loop_start;
+   if(signal_start == 0)
+      signal_start = 1;
+
+   for(int i = signal_start; i < rates_total; i++)
      {
       signal_buffer[i] = cg_buffer[i-1];
      }
   }
 
 //+------------------------------------------------------------------+
-bool CCGOscillatorCalculator::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Standard)                                         |
+//+------------------------------------------------------------------+
+bool CCGOscillatorCalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   ArrayResize(m_price, rates_total);
-// Ehlers' example uses Median Price
-   for(int i=0; i<rates_total; i++)
-      m_price[i] = (high[i]+low[i])/2.0;
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_price[i] = (high[i] + low[i]) / 2.0; // Median Price
+     }
    return true;
   }
 
+//+==================================================================+
+//|             CLASS 2: CCGOscillatorCalculator_HA                  |
 //+==================================================================+
 class CCGOscillatorCalculator_HA : public CCGOscillatorCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 protected:
-   virtual bool      PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-bool CCGOscillatorCalculator_HA::PreparePriceSeries(int rates_total, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+//| Prepare Price (Heikin Ashi)                                      |
+//+------------------------------------------------------------------+
+bool CCGOscillatorCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-   double ha_open[], ha_high[], ha_low[], ha_close[];
-   ArrayResize(ha_open, rates_total);
-   ArrayResize(ha_high, rates_total);
-   ArrayResize(ha_low, rates_total);
-   ArrayResize(ha_close, rates_total);
-   m_ha_calculator.Calculate(rates_total, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
+   if(ArraySize(m_ha_open) != rates_total)
+     {
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-   ArrayResize(m_price, rates_total);
-// Use Median Price of Heikin Ashi candles
-   for(int i=0; i<rates_total; i++)
-      m_price[i] = (ha_high[i]+ha_low[i])/2.0;
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0; // Median Price HA
+     }
    return true;
   }
 //+------------------------------------------------------------------+
