@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                            CG_Oscillator_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.10" // Supports Original Ehlers Mode
 #property description "John Ehlers' Center of Gravity (CG) Oscillator."
 
 #property indicator_separate_window
@@ -27,16 +26,16 @@
 
 #include <MyIncludes\CG_Oscillator_Calculator.mqh>
 
-//--- Enum for selecting the candle source for calculation ---
 enum ENUM_CANDLE_SOURCE
   {
-   SOURCE_STANDARD,      // Use standard OHLC data
-   SOURCE_HEIKIN_ASHI    // Use Heikin Ashi smoothed data
+   SOURCE_STANDARD,
+   SOURCE_HEIKIN_ASHI
   };
 
 //--- Input Parameters ---
-input int               InpPeriod = 10;    // Observation Period
-input ENUM_CANDLE_SOURCE InpSource = SOURCE_STANDARD;
+input int                InpPeriod       = 10;               // Observation Period
+input ENUM_CANDLE_SOURCE InpSource       = SOURCE_STANDARD;
+input bool               InpOriginalMode = true;             // True = Ehlers' Raw Values (Negative), False = Center around 0.0
 
 //--- Indicator Buffers ---
 double    BufferCG[];
@@ -56,15 +55,16 @@ int OnInit()
    if(InpSource == SOURCE_HEIKIN_ASHI)
      {
       g_calculator = new CCGOscillatorCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CG HA(%d)", InpPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CG HA(%d)%s", InpPeriod, InpOriginalMode ? " Orig" : " Pro"));
      }
    else
      {
       g_calculator = new CCGOscillatorCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CG(%d)", InpPeriod));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("CG(%d)%s", InpPeriod, InpOriginalMode ? " Orig" : " Pro"));
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod))
+// Pass the Original Mode flag to Init
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpPeriod, InpOriginalMode))
      {
       Print("Failed to initialize CG Oscillator Calculator.");
       return(INIT_FAILED);
@@ -85,13 +85,12 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-// The calculator is hard-coded to use Median Price as per Ehlers' article
-   g_calculator.Calculate(rates_total, PRICE_MEDIAN, open, high, low, close, BufferCG, BufferSignal);
+   g_calculator.Calculate(rates_total, prev_calculated, PRICE_MEDIAN, open, high, low, close, BufferCG, BufferSignal);
    return(rates_total);
   }
 //+------------------------------------------------------------------+
