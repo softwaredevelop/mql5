@@ -38,9 +38,16 @@ This method uses a feedback loop to continuously adjust the filter's responsiven
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Dual-Mode Calculator (`ZeroLag_EMA_Calculator.mqh`):** The calculator class contains both calculation methods, selectable via a boolean flag during initialization.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** The internal buffers (for EMA1/EMA2 or EMA/EC) persist their state between ticks. This allows the recursive calculations to continue seamlessly from the last known values without re-processing the entire history.
+
 * **Heikin Ashi Integration:** An inherited `_HA` class allows both modes to be calculated seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** Both modes are recursive. The indicator employs a full recalculation on every `OnCalculate` call to ensure stability.
 
 ## 4. Parameters
 
