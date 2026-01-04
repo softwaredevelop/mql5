@@ -30,9 +30,21 @@ The indicator follows a multi-step process to transform a standard RSI.
 
 ## 3. MQL5 Implementation Details
 
-* **Self-Contained Calculator (`Inverse_Fisher_RSI_Calculator.mqh`):** The entire multi-stage calculation, including the internal RSI and WMA, is encapsulated within a dedicated, reusable calculator class.
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the initial RSI calculation to be performed seamlessly on smoothed Heikin Ashi data.
-* **Stability via Full Recalculation:** The indicator employs a full recalculation on every `OnCalculate` call to ensure the stateful RSI and WMA calculations are always perfectly synchronized and stable.
+Our MQL5 implementation follows a modern, component-based, object-oriented design.
+
+* **Component-Based Design (Composition):**
+    The calculator (`Inverse_Fisher_RSI_Calculator.mqh`) orchestrates two powerful engines:
+    1. **RSI Engine:** It reuses the `RSI_Pro_Calculator.mqh` to compute the base RSI. This ensures mathematical consistency with our standalone RSI indicator.
+    2. **MA Engine:** It uses the `MovingAverage_Engine.mqh` to perform the WMA smoothing efficiently.
+
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers persist their state between ticks.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
+
+* **Object-Oriented Logic:**
+  * The Heikin Ashi version (`CInverseFisherRSICalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module.
 
 ## 4. Parameters
 
