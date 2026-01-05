@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                     MADH_Pro.mq5 |
 //|                                          Copyright 2025, xxxxxxxx|
-//|                                                                  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Optimized for incremental calculation
 #property description "John Ehlers' MADH (Moving Average Difference - Hann) indicator."
 
 #property indicator_separate_window
@@ -17,8 +16,8 @@
 #property indicator_width1  1
 
 #property indicator_level1 0.0
-#property indicator_levelstyle STYLE_SOLID
-#property indicator_levelcolor clrSilver
+//#property indicator_levelstyle STYLE_SOLID
+//#property indicator_levelcolor clrSilver
 
 #include <MyIncludes\MADH_Calculator.mqh>
 
@@ -71,7 +70,7 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
@@ -82,7 +81,7 @@ int OnCalculate(const int rates_total, const int, const datetime&[], const doubl
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, price_type, open, high, low, close, BufferMADH);
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferMADH);
    return(rates_total);
   }
 //+------------------------------------------------------------------+
