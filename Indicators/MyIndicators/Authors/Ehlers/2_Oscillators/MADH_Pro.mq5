@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00" // Optimized for incremental calculation
+#property version   "2.00" // Refactored to use Windowed MA Engine
 #property description "John Ehlers' MADH (Moving Average Difference - Hann) indicator."
 
 #property indicator_separate_window
@@ -13,11 +13,11 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrSlateBlue
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  1
+#property indicator_width1  2
 
 #property indicator_level1 0.0
-//#property indicator_levelstyle STYLE_SOLID
-//#property indicator_levelcolor clrSilver
+#property indicator_levelstyle STYLE_SOLID
+#property indicator_levelcolor clrSilver
 
 #include <MyIncludes\MADH_Calculator.mqh>
 
