@@ -47,19 +47,21 @@ bool CWindowedMACalculator::Init(int period, ENUM_INPUT_SOURCE source_type)
    m_period = (period < 2) ? 2 : period;
    m_source_type = source_type;
 
-// Pre-calculate Hann Weights
+// Pre-calculate Weights
    ArrayResize(m_weights, m_period);
    m_weight_sum = 0;
 
    for(int j = 0; j < m_period; j++)
      {
-      // Hann Window Formula: 0.5 * (1 - cos(2*pi*j / (N-1)))
-      // Note: j goes from 0 to N-1.
-      // j=0 -> weight=0
-      // j=N-1 -> weight=0
-      // Peak is at j=(N-1)/2
+      // FIX: Changed from Standard Hann to Ehlers' Modified Hann
+      // Standard: 0.5 * (1 - cos(2*pi*j / (N-1))) -> Edges are ZERO.
+      // Ehlers:   1.0 - cos(2*pi*(j+1) / (N+1))   -> Edges are NON-ZERO.
 
-      double weight = 0.5 * (1.0 - cos(2.0 * M_PI * j / (m_period - 1.0)));
+      // Ehlers uses 1-based indexing in formula (count), we use 0-based (j).
+      // So (count) becomes (j + 1.0).
+
+      double weight = 1.0 - cos(2.0 * M_PI * (j + 1.0) / (m_period + 1.0));
+
       m_weights[j] = weight;
       m_weight_sum += weight;
      }
