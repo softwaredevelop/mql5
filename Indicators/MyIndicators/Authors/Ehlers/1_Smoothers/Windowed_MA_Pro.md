@@ -4,20 +4,21 @@
 
 The Windowed MA Pro is an indicator based on John Ehlers' research into advanced **Finite Impulse Response (FIR) filters**. It serves as a superior alternative to the Simple Moving Average (SMA) by employing a **Hann Window** function to create a smoother, more responsive output.
 
-A standard SMA uses a "rectangular window," giving equal weight to all prices in the lookback period, which results in poor filtering characteristics. This indicator applies a mathematically superior cosine-based weighting scheme (Hann Window) that provides excellent smoothing and is Ehlers' recommended choice for most trading applications.
+A standard SMA uses a "rectangular window," giving equal weight to all prices in the lookback period, which results in poor filtering characteristics (sidelobe leakage). This indicator applies a mathematically superior cosine-based weighting scheme (Hann Window) that provides excellent smoothing and is Ehlers' recommended choice for most trading applications.
 
 The result is a high-fidelity moving average that produces a cleaner representation of the trend with less noise than a standard SMA.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-The indicator is a weighted moving average, where the weights are determined by the Hann window function.
+The indicator is a weighted moving average, where the weights are determined by a modified Hann window function optimized for trading data.
 
 ### Calculation Steps (Algorithm)
 
 For each bar, the indicator looks back over the last `N` periods.
 
-1. **Calculate Weights:** For each position `j` within the `N`-period window, a specific weight is calculated using a cosine formula, creating a smooth, bell-shaped curve:
-    $W_j = 0.5 \times (1 - \cos(\frac{2\pi \times j}{N-1}))$
+1. **Calculate Weights:** For each position `j` within the `N`-period window, a specific weight is calculated using a cosine formula, creating a smooth, bell-shaped curve.
+    * *Note:* We use Ehlers' modified formula which ensures that the weights at the edges of the window are small but non-zero, maximizing data usage for short periods.
+    $$ W_j = 1 - \cos(\frac{2\pi \times (j+1)}{N+1}) $$
 2. **Calculate Weighted Sum:** The source price at each position is multiplied by its corresponding weight and summed up.
 3. **Normalize:** The final indicator value is the weighted sum divided by the sum of all weights.
 
