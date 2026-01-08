@@ -39,17 +39,27 @@ The indicator first calculates a volatility ratio and then uses it to determine 
 
 ## 3. MQL5 Implementation Details
 
+Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+
 * **Self-Contained Calculation Engine (`RSI_Adaptive_Calculator.mqh`):** The entire multi-stage calculation logic is encapsulated within a single, dedicated include file.
 
-* **Stable RSI Calculation:** Due to the constantly changing lookback period, the calculator uses a non-recursive, "brute-force" Simple RSI calculation on each bar. This is computationally more intensive than Wilder's smoothed RSI but guarantees stability and prevents artifacts that could arise from a recursive formula with a variable period.
+* **Optimized Incremental Calculation (O(1)):**
+    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
+  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
+  * **Persistent Buffers:** Internal buffers (Volatility Sum, Avg, NSP) persist their state between ticks.
+  * **Dynamic Lookback Handling:** The algorithm correctly handles the variable lookback period during incremental updates.
 
-* **Object-Oriented Design (Inheritance):** The standard `_HA` derived class architecture is used to seamlessly support calculations on Heikin Ashi price data.
+* **Hybrid Heikin Ashi Logic:**
+    When using Heikin Ashi prices, the indicator offers a unique "Hybrid" mode via the `Adaptive Source` parameter.
+  * **Standard (Recommended):** Calculates RSI on Heikin Ashi, but measures Volatility (market noise) on Standard prices. This prevents the HA smoothing from artificially inflating the volatility ratio.
+  * **Heikin Ashi:** Calculates both RSI and Volatility on Heikin Ashi prices (Pure HA).
 
 ## 4. Parameters
 
-* **Pivotal Period (`InpPivotalPeriod`):** The central RSI period. The adaptive period will be shorter than this in high volatility and longer in low volatility. Default is `14`.
-* **Volatility Short (`InpVolaShort`):** The short-term lookback period for measuring the "current" volatility. Default is `5`.
-* **Volatility Long (`InpVolaLong`):** The long-term lookback period for calculating the average volatility. Default is `10`.
+* **Pivotal Period (`InpPivotalPeriod`):** The central RSI period. (Default: `14`).
+* **Volatility Short (`InpVolaShort`):** The short-term lookback period for measuring the "current" volatility. (Default: `5`).
+* **Volatility Long (`InpVolaLong`):** The long-term lookback period for calculating the average volatility. (Default: `10`).
+* **Adaptive Source (`InpAdaptiveSource`):** Selects the source for Volatility calculation in HA mode (`Standard` or `Heikin Ashi`).
 * **Applied Price (`InpSourcePrice`):** The source price for the calculation.
 
 ## 5. Usage and Interpretation
@@ -63,5 +73,3 @@ The Adaptive RSI offers a different "feel" compared to the classic RSI, which is
 * **Strategy:**
   * Use it to identify potential trend exhaustion. The sharp, deep moves into the >70 or <30 zones during a strong trend can provide earlier warnings than a classic RSI.
   * Use it as a range filter. When the Adaptive RSI becomes very flat and stays near the 50 level, it's a strong indication of a low-volatility, consolidating market, where breakout strategies might be prepared.
-
-It is an excellent tool for traders who find the classic RSI too slow in fast markets but too noisy in slow markets.
