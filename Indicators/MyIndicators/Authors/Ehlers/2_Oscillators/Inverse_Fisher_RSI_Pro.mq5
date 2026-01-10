@@ -13,13 +13,14 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrTeal
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 #property indicator_minimum -1.1
 #property indicator_maximum 1.1
-#property indicator_level1 0.5
-#property indicator_level2 -0.5
-#property indicator_levelcolor clrGray
+#property indicator_level1 0.75
+#property indicator_level2 0.5
+#property indicator_level3 -0.5
+#property indicator_level4 -0.75
 #property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Inverse_Fisher_RSI_Calculator.mqh>
