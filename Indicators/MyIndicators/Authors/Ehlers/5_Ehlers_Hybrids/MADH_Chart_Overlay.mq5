@@ -14,16 +14,16 @@
 //--- Plot 1: Fast HWMA
 #property indicator_label1  "Fast HWMA"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrGold
+#property indicator_color1  clrSeaGreen
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Plot 2: Slow HWMA
 #property indicator_label2  "Slow HWMA"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrFireBrick
 #property indicator_style2  STYLE_SOLID
-#property indicator_width2  2
+#property indicator_width2  1
 
 #include <MyIncludes\Windowed_MA_Calculator.mqh>
 
