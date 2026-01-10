@@ -17,12 +17,14 @@
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrOrangeRed
-#property indicator_style2  STYLE_DOT
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
-#property indicator_level1 1.5
-#property indicator_level2 -1.5
-#property indicator_levelcolor clrGray
+#property indicator_level1  1.5
+#property indicator_level2  0.75
+#property indicator_level3  0.0
+#property indicator_level4 -0.75
+#property indicator_level5 -1.5
 #property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Fisher_Transform_Calculator.mqh>
