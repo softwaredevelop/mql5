@@ -14,9 +14,9 @@ The underlying calculation is identical to the standard Gann HiLo Activator, bas
 
 ### Calculation Steps (Algorithm)
 
-1. **Fetch Higher Timeframe Data:** The indicator retrieves the OHLC price data for the user-selected higher timeframe (`htf`).
+1. **Fetch Higher Timeframe Data:** The indicator retrieves the OHLC data for the user-selected higher timeframe (`htf`).
 2. **Calculate Gann HiLo on the Higher Timeframe:** The complete calculation (MA of Highs, MA of Lows, Trend Logic) is performed using the `htf` price data.
-3. **Project to Current Chart:** The calculated `htf` values (both the price level and the trend color) are mapped to the current chart, creating a characteristic "step-like" line that represents the higher timeframe's trend.
+3. **Project to Current Chart:** The calculated `htf` values (both the price level and the trend color) are mapped to the current chart using precise time-based alignment (`iBarShift`), creating a characteristic "step-like" line that represents the higher timeframe's trend.
 
 ## 3. MQL5 Implementation Details
 
@@ -24,12 +24,13 @@ The underlying calculation is identical to the standard Gann HiLo Activator, bas
 
 * **Modular Calculation Engine (`Gann_HiLo_Calculator.mqh`):** The indicator reuses the exact same calculation engine as the standard `Gann_HiLo_Pro`. This ensures mathematical consistency across all versions.
 
+* **Engine Integration (`MovingAverage_Engine.mqh`):** Since the core calculator now uses the unified MA engine, the MTF version automatically benefits from all supported MA types (SMA, EMA, SMMA, LWMA, DEMA, TEMA, TMA).
+
 * **Optimized Incremental Calculation (O(1)):**
     Unlike basic MTF indicators that recalculate the entire history on every tick, this indicator employs a sophisticated incremental algorithm:
   * **HTF State Tracking:** It tracks the calculation state of the higher timeframe separately (`g_htf_prev_calculated`).
   * **Persistent Buffers:** The internal buffers for the higher timeframe (HiAvg, LoAvg, Trend) are maintained globally, preserving the state between ticks.
   * **Efficient Mapping:** The projection loop only updates the bars corresponding to the new data.
-  * This ensures the indicator remains lightweight and high-performance even on heavy load.
 
 * **Dual-Mode Logic:** The `OnCalculate` function contains a smart branching logic.
   * If a higher timeframe is selected, it performs the optimized MTF data fetching and projection process.
@@ -39,7 +40,7 @@ The underlying calculation is identical to the standard Gann HiLo Activator, bas
 
 * **Upper Timeframe (`InpUpperTimeframe`):** The higher timeframe on which the Gann HiLo will be calculated. If set to `PERIOD_CURRENT`, the indicator will run on the current chart's timeframe.
 * **Period (`InpPeriod`):** The lookback period for the high and low moving averages. (Default: `10`).
-* **MA Method (`InpMAMethod`):** The type of moving average to use (Simple, Exponential, etc.). (Default: `MODE_SMA`).
+* **MA Method (`InpMAMethod`):** The type of moving average to use. Supports all standard and advanced types (SMA, EMA, DEMA, TEMA, etc.). (Default: `SMA`).
 * **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the calculation.
   * `CANDLE_STANDARD`: Uses the standard chart's High, Low, and Close.
   * `CANDLE_HEIKIN_ASHI`: Uses the smoothed Heikin Ashi High, Low, and Close.
