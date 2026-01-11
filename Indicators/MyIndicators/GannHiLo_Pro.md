@@ -15,7 +15,7 @@ The Gann HiLo Activator is based on two separate moving averages: one calculated
 ### Required Components
 
 * **Period (N):** The lookback period for the high and low moving averages.
-* **MA Method:** The type of moving average to use (Simple, Exponential, etc.).
+* **MA Method:** The type of moving average to use (SMA, EMA, SMMA, LWMA, DEMA, TEMA, TMA).
 * **Source Prices:** The `High[]`, `Low[]`, and `Close[]` price series.
 
 ### Calculation Steps (Algorithm)
@@ -42,7 +42,10 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
 * **Modular Calculation Engine (`Gann_HiLo_Calculator.mqh`):**
     The entire calculation logic is encapsulated within a reusable include file.
   * **`CGannHiLoCalculator`**: The base class that performs the full, state-dependent calculation on a given set of High, Low, and Close prices.
-  * **`CGannHiLoCalculator_HA`**: A child class that inherits from the base class and overrides only the data preparation step. Its sole responsibility is to calculate Heikin Ashi candles and provide the `HA_High`, `HA_Low`, and `HA_Close` prices to the base class's shared calculation algorithm. This object-oriented approach eliminates code duplication.
+  * **`CGannHiLoCalculator_HA`**: A child class that inherits from the base class and overrides only the data preparation step. Its sole responsibility is to calculate Heikin Ashi candles and provide the `HA_High`, `HA_Low`, and `HA_Close` prices to the base class's shared calculation algorithm.
+
+* **Engine Integration (`MovingAverage_Engine.mqh`):**
+    The calculator internally uses two instances of our universal `MovingAverage_Engine` to handle the smoothing of the Highs and Lows. This eliminates code duplication and ensures that all supported MA types (including advanced ones like DEMA and TEMA) are available and mathematically consistent across the suite.
 
 * **Optimized Incremental Calculation:**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
@@ -50,12 +53,10 @@ Our MQL5 implementation follows a modern, object-oriented design to ensure stabi
   * **Persistent State:** The internal buffers (`m_hi_avg`, `m_lo_avg`, `m_trend`) persist their state between ticks. This allows recursive smoothing methods (like EMA) and the trend state logic to continue seamlessly from the last known value without re-processing the entire history.
   * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
-* **Fully Manual MA Calculations:** To guarantee 100% accuracy and consistency, all moving average types (**SMA, EMA, SMMA, LWMA**) are implemented **manually** within the calculator engine.
-
 ## 4. Parameters
 
 * **Period (`InpPeriod`):** The lookback period for the high and low moving averages. Default is `10`.
-* **MA Method (`InpMAMethod`):** The type of moving average to use for the high and low calculations. Default is `MODE_SMA`.
+* **MA Method (`InpMAMethod`):** The type of moving average to use for the high and low calculations. Supports SMA, EMA, SMMA, LWMA, DEMA, TEMA, TMA. Default is `SMA`.
 * **Candle Source (`InpCandleSource`):** Allows the user to select the candle type for the calculation.
   * `CANDLE_STANDARD`: Uses the standard chart's High, Low, and Close.
   * `CANDLE_HEIKIN_ASHI`: Uses the smoothed Heikin Ashi High, Low, and Close.
