@@ -54,26 +54,23 @@ The ADX calculation is a complex, multi-stage process that relies heavily on Wil
 
 ## 3. MQL5 Implementation Details
 
-Our MQL5 implementation follows a modern, object-oriented design pattern to ensure stability, reusability, and maintainability. The logic is separated into a main indicator file and a dedicated calculator engine.
+Our MQL5 implementation follows a modern, object-oriented design pattern to ensure stability, reusability, and maintainability. The logic is separated into a main indicator file, a dedicated calculator engine, and a shared core engine.
+
+* **Shared Core Engine (`DMI_Engine.mqh`):**
+    The fundamental calculation of Directional Movement (+DI, -DI) is outsourced to a shared engine. This ensures that both the ADX and the DMI Stochastic indicators use the exact same, validated mathematical core, eliminating code duplication and potential inconsistencies.
 
 * **Modular Calculator Engine (`ADX_Calculator.mqh`):**
-    All core calculation logic is encapsulated within a reusable include file. This separates the mathematical complexity from the indicator's user interface and buffer management. All intermediate calculation buffers are managed internally by the class, keeping the main indicator file clean.
+    The ADX-specific logic (calculating the DX and smoothing it to get the ADX) is encapsulated here. This calculator orchestrates the `DMI_Engine` to get the raw data and then performs the final steps.
 
-* **Object-Oriented Design (Inheritance):**
-  * A base class, `CADXCalculator`, handles the **entire shared calculation chain** from Step 2 to Step 5 (smoothing, DI, DX, and ADX calculation).
-  * A derived class, `CADXCalculator_HA`, inherits from the base class and **overrides** only one specific function: the initial calculation of raw +DM, -DM, and TR (Step 1). Its sole responsibility is to use Heikin Ashi candles for this first step and pass the results to the base class's shared calculation pipeline. This is a clean and efficient use of polymorphism.
+* **Object-Oriented Design (Composition & Inheritance):**
+  * The `CADXCalculator` uses **Composition** to include the `CDMIEngine`.
+  * The Heikin Ashi support is implemented via a **Factory Pattern** in the `CADXCalculator_HA` subclass, which instantiates a specialized `CDMIEngine_HA`. This keeps the main logic clean and agnostic of the data source.
 
 * **Optimized Incremental Calculation:**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
   * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * The internal buffers (`m_smoothed_pdm`, etc.) persist their state between ticks, allowing the recursive Wilder's Smoothing algorithm to continue seamlessly from the last known value.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
-
-* **Simplified Main Indicator (`ADX_Pro.mq5`):**
-    The main indicator file is now extremely clean. Its primary roles are:
-    1. Handling user inputs (`input` variables).
-    2. Instantiating the correct calculator object (`CADXCalculator` or `CADXCalculator_HA`) in `OnInit()` based on the user's choice.
-    3. Delegating the calculation process to the calculator object, passing the `prev_calculated` parameter for optimization.
+  * The internal buffers persist their state between ticks, allowing the recursive Wilder's Smoothing algorithm to continue seamlessly from the last known value.
+  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag.
 
 ## 4. Parameters (`ADX_Pro.mq5`)
 
