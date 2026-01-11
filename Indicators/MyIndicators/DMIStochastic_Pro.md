@@ -51,19 +51,23 @@ The calculation is a three-stage process: first building the DMI components, the
 
 Our MQL5 implementation follows the same modern, object-oriented design as our other professional indicators.
 
-* **Modular Calculation Engine (`DMIStochastic_Calculator.mqh`):**
-    All mathematical logic is encapsulated in a dedicated include file. This engine manages all intermediate calculations (DM, TR, DI, DMI Oscillator, Fast %K) internally.
+* **Shared Core Engine (`DMI_Engine.mqh`):**
+    Just like the ADX Pro, this indicator leverages the shared `DMI_Engine` to perform the initial heavy lifting (calculating +DI and -DI). This guarantees mathematical consistency across the suite.
 
-* **Engine Integration:** The calculator internally uses two instances of our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Slow %K and the %D Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
+* **Modular Calculation Engine (`DMIStochastic_Calculator.mqh`):**
+    This engine acts as a coordinator. It:
+    1. Delegates the DMI calculation to the `DMI_Engine`.
+    2. Calculates the DMI Oscillator from the engine's output.
+    3. Delegates the Stochastic smoothing to two instances of the `MovingAverage_Engine`.
+
+* **Engine Integration:**
+    The calculator internally uses two instances of our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Slow %K and the %D Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
 
 * **Optimized Incremental Calculation (O(1)):**
-    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
-  * **Persistent Buffers:** Internal buffers (DM, TR, Smoothed DM/TR, DMI Osc, Fast %K) persist their state between ticks.
-  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
+    The entire chain of engines (DMI Engine -> DMI Stoch Calculator -> MA Engines) is fully optimized for incremental calculation using `prev_calculated`. State is preserved across all layers.
 
 * **Object-Oriented Design:**
-  * The Heikin Ashi version (`CDMIStochasticCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the data preparation module.
+  * The Heikin Ashi version (`CDMIStochasticCalculator_HA`) works by injecting the Heikin Ashi version of the DMI Engine (`CDMIEngine_HA`) into the calculation pipeline.
 
 ## 4. Parameters
 
