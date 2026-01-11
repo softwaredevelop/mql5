@@ -3,7 +3,7 @@
 //|                                          Copyright 2025, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.20" // Unified MTF Engine Pattern
+#property version   "3.30" // Updated to use ENUM_MA_TYPE
 #property description "Multi-Timeframe (MTF) Gann HiLo Activator."
 
 #property indicator_chart_window
@@ -15,7 +15,7 @@
 #property indicator_type1   DRAW_COLOR_LINE
 #property indicator_color1  clrMediumSeaGreen, clrCrimson
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Include the calculator engine ---
 #include <MyIncludes\GannHiLo_Calculator.mqh>
@@ -33,7 +33,8 @@ input ENUM_TIMEFRAMES    InpUpperTimeframe = PERIOD_H1;     // Target Timeframe
 
 input group "Gann HiLo Settings"
 input int                InpPeriod       = 10;              // Period for High/Low averages
-input ENUM_MA_METHOD     InpMAMethod     = MODE_SMA;        // Method for High/Low averages
+// UPDATED: Use ENUM_MA_TYPE
+input ENUM_MA_TYPE       InpMAMethod     = SMA;             // Method for High/Low averages
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD; // Candle source
 
 //--- Indicator Buffers ---
@@ -98,8 +99,9 @@ int OnInit()
 //--- 4. Set Shortname
    string type = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
+   string ma_str = EnumToString(InpMAMethod);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("GannHiLo%s%s(%d)", type, tf_str, InpPeriod));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("GannHiLo%s%s(%d,%s)", type, tf_str, InpPeriod, ma_str));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
@@ -176,7 +178,6 @@ int OnCalculate(const int rates_total,
      }
 
 //--- E. Calculate HTF Gann HiLo (Incremental)
-// Step back 1 bar to ensure the open candle is always updated
    int htf_calc_start = (g_htf_prev_calculated > 0) ? g_htf_prev_calculated - 1 : 0;
 
    g_calculator.Calculate(htf_rates_total, htf_calc_start,
@@ -186,12 +187,8 @@ int OnCalculate(const int rates_total,
    g_htf_prev_calculated = htf_rates_total;
 
 //--- F. Map HTF Values to Current Chart (The "Staircase")
-
-// CRITICAL: Set HTF buffers as SERIES for mapping
    ArraySetAsSeries(g_htf_hilo, true);
    ArraySetAsSeries(g_htf_color, true);
-
-// Ensure 'time' array is NOT series for our loop (0 = Oldest)
    ArraySetAsSeries(time, false);
 
    int limit = (prev_calculated > 0) ? prev_calculated - 1 : 0;
@@ -199,8 +196,6 @@ int OnCalculate(const int rates_total,
    for(int i = limit; i < rates_total; i++)
      {
       datetime current_time = time[i];
-
-      // iBarShift returns the index relative to the newest bar (0 = Newest)
       int htf_index = iBarShift(_Symbol, g_calc_timeframe, current_time, false);
 
       if(htf_index >= 0 && htf_index < htf_rates_total)
@@ -215,7 +210,6 @@ int OnCalculate(const int rates_total,
         }
      }
 
-// CRITICAL: Restore HTF buffers to non-series for next calculation cycle
    ArraySetAsSeries(g_htf_hilo, false);
    ArraySetAsSeries(g_htf_color, false);
 
