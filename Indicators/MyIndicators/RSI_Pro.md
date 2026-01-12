@@ -42,16 +42,23 @@ All indicators in this family are derived from the same core components: the RSI
 
 Our MQL5 suite is built on a single, shared, modular, and robust calculation engine to ensure consistency and maintainability across the entire indicator family.
 
-* **Unified, Reusable Calculation Engine (`RSI_Pro_Calculator.mqh`):**
-    The entire calculation logic is encapsulated within this powerful include file.
-  * **Composition Pattern:** The calculator internally uses our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
-  * **Drift-Free RSI:** We implemented a robust internal buffering system for the Wilder's Smoothing components (Average Gain/Loss). This prevents the common "RSI Drift" issue seen in many incremental implementations, ensuring that the indicator values remain stable and accurate over time.
+* **Shared Core Engine (`RSI_Engine.mqh`):**
+    The fundamental calculation of Wilder's RSI is outsourced to a shared engine. This ensures that all indicators in the suite (RSI Pro, TDI, StochRSI, etc.) use the exact same, validated mathematical core, eliminating code duplication and potential inconsistencies.
+
+* **Modular Calculator Engine (`RSI_Pro_Calculator.mqh`):**
+    This calculator orchestrates the `RSI_Engine` to get the raw RSI data and then adds the advanced layers: the Signal Line (using `MovingAverage_Engine`) and the Bollinger Bands.
+
+* **Composition Pattern:**
+    The `CRSIProCalculator` uses **Composition** to include the `CRSIEngine` and the `CMovingAverageCalculator`. This modular approach allows us to easily swap or upgrade components without breaking the entire system.
+
+* **Drift-Free RSI:**
+    We implemented a robust internal buffering system for the Wilder's Smoothing components (Average Gain/Loss) within the `RSI_Engine`. This prevents the common "RSI Drift" issue seen in many incremental implementations, ensuring that the indicator values remain stable and accurate over time.
 
 * **Optimized Incremental Calculation (O(1)):**
     All indicators employ an intelligent incremental algorithm.
   * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
   * **Persistent Buffers:** Internal buffers persist their state between ticks.
-  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> Signal Line -> Bands), ensuring that each step starts only when valid data is available.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> Signal Line -> Bands).
 
 * **Object-Oriented Design:**
   * An elegant inheritance model (`CRSIProCalculator` and `CRSIProCalculator_HA`) allows all indicators in the family to dynamically choose the correct calculation engine at runtime based on user input.
