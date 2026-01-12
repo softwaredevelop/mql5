@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                         VIDYA_RSI_Calculator.mqh |
-//|      VERSION 2.00: Integrated with RSI Engine.                   |
+//|      VERSION 3.00: Refactored to use RSI_Engine.                 |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
-#include <MyIncludes\RSI_Pro_Calculator.mqh>
+#include <MyIncludes\RSI_Engine.mqh>
 
 //+==================================================================+
 //|             CLASS 1: CVIDYARSICalculator (Base Class)            |
@@ -17,7 +17,7 @@ protected:
    int               m_rsi_period, m_ema_period;
 
    //--- Composition: Use dedicated RSI engine
-   CRSIProCalculator *m_rsi_calculator;
+   CRSIEngine        *m_rsi_engine;
 
    //--- Persistent Buffers
    double            m_price[];
@@ -45,7 +45,7 @@ public:
 //+------------------------------------------------------------------+
 CVIDYARSICalculator::CVIDYARSICalculator(void)
   {
-   m_rsi_calculator = NULL;
+   m_rsi_engine = NULL;
   }
 
 //+------------------------------------------------------------------+
@@ -53,8 +53,8 @@ CVIDYARSICalculator::CVIDYARSICalculator(void)
 //+------------------------------------------------------------------+
 CVIDYARSICalculator::~CVIDYARSICalculator(void)
   {
-   if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
-      delete m_rsi_calculator;
+   if(CheckPointer(m_rsi_engine) != POINTER_INVALID)
+      delete m_rsi_engine;
   }
 
 //+------------------------------------------------------------------+
@@ -62,7 +62,7 @@ CVIDYARSICalculator::~CVIDYARSICalculator(void)
 //+------------------------------------------------------------------+
 void CVIDYARSICalculator::CreateRSIEngine(void)
   {
-   m_rsi_calculator = new CRSIProCalculator();
+   m_rsi_engine = new CRSIEngine();
   }
 
 //+------------------------------------------------------------------+
@@ -74,8 +74,11 @@ bool CVIDYARSICalculator::Init(int rsi_p, int ema_p)
    m_ema_period = (ema_p < 1) ? 1 : ema_p;
 
    CreateRSIEngine();
-// Init RSI with dummy MA params (1, SMA, 2.0) as we only need the RSI line
-   if(CheckPointer(m_rsi_calculator) == POINTER_INVALID || !m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
+
+   if(CheckPointer(m_rsi_engine) == POINTER_INVALID)
+      return false;
+
+   if(!m_rsi_engine.Init(m_rsi_period))
       return false;
 
    return true;
@@ -109,10 +112,7 @@ void CVIDYARSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_A
 
 // 2. Calculate RSI (Delegated to Engine)
 // Note: RSI engine handles its own price preparation internally!
-// We pass the raw OHLC arrays and price_type.
-   double dummy1[], dummy2[], dummy3[];
-   m_rsi_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                              m_rsi_buffer, dummy1, dummy2, dummy3);
+   m_rsi_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_rsi_buffer);
 
 // 3. Calculate VIDYA (Incremental Loop)
    double alpha = 2.0 / (m_ema_period + 1.0);
@@ -196,7 +196,7 @@ protected:
 //+------------------------------------------------------------------+
 void CVIDYARSICalculator_HA::CreateRSIEngine(void)
   {
-   m_rsi_calculator = new CRSIProCalculator_HA();
+   m_rsi_engine = new CRSIEngine_HA();
   }
 
 //+------------------------------------------------------------------+
