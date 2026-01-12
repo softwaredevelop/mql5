@@ -43,7 +43,7 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
 
 * **Full Engine Integration:**
     The calculator (`Stochastic_Adaptive_RSI_Calculator.mqh`) orchestrates three powerful engines:
-    1. **RSI Engine:** Calculates the base RSI.
+    1. **RSI Engine:** Calculates the base RSI using the shared `RSI_Engine.mqh`.
     2. **Slowing Engine:** Smooths the Raw %K using `MovingAverage_Engine.mqh`.
     3. **Signal Engine:** Calculates the %D line using `MovingAverage_Engine.mqh`.
 
