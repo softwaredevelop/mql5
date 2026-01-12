@@ -1,14 +1,14 @@
 //+------------------------------------------------------------------+
 //|                           Stochastic_Adaptive_RSI_Calculator.mqh |
-//|      VERSION 3.10: Fixed Enum Type Mismatch.                     |
+//|      VERSION 4.00: Refactored to use RSI_Engine.                 |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\RSI_Pro_Calculator.mqh>
+#include <MyIncludes\RSI_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
-//--- New Enum for ER Source
+//--- Enum for ER Source
 enum ENUM_ADAPTIVE_SOURCE
   {
    ADAPTIVE_SOURCE_STANDARD,    // Calculate ER on Standard Price (Recommended)
@@ -22,10 +22,10 @@ class CStochasticAdaptiveRSICalculator
   {
 protected:
    int               m_rsi_period, m_er_period, m_min_period, m_max_period;
-   ENUM_ADAPTIVE_SOURCE m_adaptive_source; // Store the user preference
+   ENUM_ADAPTIVE_SOURCE m_adaptive_source;
 
    //--- Engines
-   CRSIProCalculator *m_rsi_calculator;
+   CRSIEngine        *m_rsi_engine;
    CMovingAverageCalculator m_slowing_engine;
    CMovingAverageCalculator m_signal_engine;
 
@@ -36,13 +36,15 @@ protected:
    double            m_nsp_buffer[];
    double            m_raw_k[];
 
+   //--- Factory Method for RSI Engine
+   virtual void      CreateRSIEngine(void);
+
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
                      CStochasticAdaptiveRSICalculator(void);
    virtual          ~CStochasticAdaptiveRSICalculator(void);
 
-   //--- Init now takes ENUM_ADAPTIVE_SOURCE
    bool              Init(int rsi_p, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma, ENUM_ADAPTIVE_SOURCE adapt_src);
 
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
@@ -54,7 +56,7 @@ public:
 //+------------------------------------------------------------------+
 CStochasticAdaptiveRSICalculator::CStochasticAdaptiveRSICalculator(void)
   {
-   m_rsi_calculator = new CRSIProCalculator();
+   m_rsi_engine = NULL;
   }
 
 //+------------------------------------------------------------------+
@@ -62,8 +64,16 @@ CStochasticAdaptiveRSICalculator::CStochasticAdaptiveRSICalculator(void)
 //+------------------------------------------------------------------+
 CStochasticAdaptiveRSICalculator::~CStochasticAdaptiveRSICalculator(void)
   {
-   if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
-      delete m_rsi_calculator;
+   if(CheckPointer(m_rsi_engine) != POINTER_INVALID)
+      delete m_rsi_engine;
+  }
+
+//+------------------------------------------------------------------+
+//| Factory Method                                                   |
+//+------------------------------------------------------------------+
+void CStochasticAdaptiveRSICalculator::CreateRSIEngine(void)
+  {
+   m_rsi_engine = new CRSIEngine();
   }
 
 //+------------------------------------------------------------------+
@@ -77,11 +87,12 @@ bool CStochasticAdaptiveRSICalculator::Init(int rsi_p, int er_p, int min_p, int 
    m_max_period = (max_p <= m_min_period) ? m_min_period + 1 : max_p;
    m_adaptive_source = adapt_src;
 
-   if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
+   CreateRSIEngine();
+
+   if(CheckPointer(m_rsi_engine) == POINTER_INVALID)
       return false;
 
-// FIX: Use 'SMA' (from ENUM_MA_TYPE) instead of 'MODE_SMA'
-   if(!m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
+   if(!m_rsi_engine.Init(m_rsi_period))
       return false;
 
    if(!m_slowing_engine.Init(slow_p, slow_ma))
@@ -98,10 +109,7 @@ bool CStochasticAdaptiveRSICalculator::Init(int rsi_p, int er_p, int min_p, int 
 void CStochasticAdaptiveRSICalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
   {
-// Minimum bars check
    if(rates_total <= m_rsi_period + m_er_period + m_max_period)
-      return;
-   if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
@@ -119,10 +127,9 @@ void CStochasticAdaptiveRSICalculator::Calculate(int rates_total, int prev_calcu
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-//--- 1. Calculate RSI (Incremental)
-   double dummy1[], dummy2[], dummy3[];
-   m_rsi_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                              m_rsi_buffer, dummy1, dummy2, dummy3);
+//--- 1. Calculate RSI (Using Engine)
+// The engine handles its own data preparation internally!
+   m_rsi_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_rsi_buffer);
 
 //--- 2. Calculate Efficiency Ratio (ER) on Price
    int loop_start_er = MathMax(m_er_period, start_index);
@@ -224,24 +231,21 @@ class CStochasticAdaptiveRSICalculator_HA : public CStochasticAdaptiveRSICalcula
 private:
    CHeikinAshi_Calculator m_ha_calculator;
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-public:
-                     CStochasticAdaptiveRSICalculator_HA(void);
 protected:
+   virtual void      CreateRSIEngine(void) override;
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Factory Method (Heikin Ashi)                                     |
 //+------------------------------------------------------------------+
-CStochasticAdaptiveRSICalculator_HA::CStochasticAdaptiveRSICalculator_HA(void)
+void CStochasticAdaptiveRSICalculator_HA::CreateRSIEngine(void)
   {
-   if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
-      delete m_rsi_calculator;
-   m_rsi_calculator = new CRSIProCalculator_HA();
+   m_rsi_engine = new CRSIEngine_HA();
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Prepare Price (Heikin Ashi)                                      |
 //+------------------------------------------------------------------+
 bool CStochasticAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -253,18 +257,15 @@ bool CStochasticAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, in
       ArrayResize(m_ha_close, rates_total);
      }
 
-// We always need HA candles for the RSI calculation (handled internally by m_rsi_calculator)
-// But we also need them here if m_adaptive_source is HEIKIN_ASHI
+// We need HA candles for ER calculation if selected
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
    if(ArraySize(m_price) != rates_total)
       if(ArrayResize(m_price, rates_total) != rates_total)
          return false;
 
-// Decision Logic: Which price to use for ER?
    if(m_adaptive_source == ADAPTIVE_SOURCE_HEIKIN_ASHI)
      {
-      // Use HA prices for ER
       for(int i = start_index; i < rates_total; i++)
         {
          switch(price_type)
@@ -298,7 +299,6 @@ bool CStochasticAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, in
      }
    else // ADAPTIVE_SOURCE_STANDARD
      {
-      // Use Standard prices for ER
       for(int i = start_index; i < rates_total; i++)
         {
          switch(price_type)
@@ -332,4 +332,5 @@ bool CStochasticAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, in
      }
    return true;
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
