@@ -33,7 +33,7 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
 
 * **Component-Based Design (Composition):**
     The StochRSI calculator (`StochRSI_Slow_Calculator.mqh`) is a powerful orchestrator that reuses three of our core engines:
-    1. **RSI Engine:** It delegates the RSI calculation to the robust `RSI_Pro_Calculator.mqh`.
+    1. **RSI Engine:** It delegates the RSI calculation to the shared `RSI_Engine.mqh`. This ensures that the underlying RSI values are identical to those of the standard RSI indicator.
     2. **Slowing Engine:** It uses a `MovingAverage_Engine.mqh` instance to smooth the Raw %K.
     3. **Signal Engine:** It uses another `MovingAverage_Engine.mqh` instance to calculate the %D line.
     This ensures mathematical consistency across the entire suite and eliminates code duplication.
@@ -45,10 +45,10 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
   * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
   * **Persistent Buffers:** Internal buffers persist their state between ticks.
-  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> Raw %K -> Slow %K -> %D), ensuring that each step starts only when valid data is available. This prevents artifacts and "INF" errors at the beginning of the chart.
+  * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations (RSI -> Raw %K -> Slow %K -> %D), ensuring that each step starts only when valid data is available.
 
 * **Object-Oriented Logic:**
-  * The Heikin Ashi version (`CStochRSI_Slow_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module.
+  * The Heikin Ashi version (`CStochRSI_Slow_Calculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI Engine (`CRSIEngine_HA`).
 
 ## 4. Parameters
 
