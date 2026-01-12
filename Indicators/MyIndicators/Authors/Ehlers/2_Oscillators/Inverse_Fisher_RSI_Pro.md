@@ -34,7 +34,7 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
 
 * **Component-Based Design (Composition):**
     The calculator (`Inverse_Fisher_RSI_Calculator.mqh`) orchestrates two powerful engines:
-    1. **RSI Engine:** It reuses the `RSI_Pro_Calculator.mqh` to compute the base RSI. This ensures mathematical consistency with our standalone RSI indicator.
+    1. **RSI Engine:** It delegates the RSI calculation to the shared `RSI_Engine.mqh`. This ensures that the underlying RSI values are identical to those of the standard RSI indicator.
     2. **MA Engine:** It uses the `MovingAverage_Engine.mqh` to perform the WMA smoothing efficiently.
 
 * **Optimized Incremental Calculation (O(1)):**
@@ -44,7 +44,7 @@ Our MQL5 implementation follows a modern, component-based, object-oriented desig
   * **Robust Offset Handling:** The engine correctly handles the initialization periods of the chained calculations.
 
 * **Object-Oriented Logic:**
-  * The Heikin Ashi version (`CInverseFisherRSICalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI module.
+  * The Heikin Ashi version (`CInverseFisherRSICalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the RSI Engine (`CRSIEngine_HA`).
 
 ## 4. Parameters
 
