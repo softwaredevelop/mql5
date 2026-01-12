@@ -38,7 +38,7 @@ Our MQL5 implementation is built on a highly efficient and reusable object-orien
 
 * **Modular Calculation Engine (`VIDYA_RSI_Calculator.mqh`):**
     All mathematical logic is encapsulated in a dedicated include file.
-  * **RSI Engine Integration:** The calculator internally uses our robust `RSI_Pro_Calculator.mqh` to compute the base RSI. This ensures mathematical consistency with our standalone RSI indicator and benefits from its drift-free logic.
+  * **RSI Engine Integration:** The calculator internally uses our robust `RSI_Engine.mqh` to compute the base RSI. This ensures mathematical consistency with our standalone RSI indicator and benefits from its drift-free logic.
 
 * **Optimized Incremental Calculation (O(1)):**
     Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
