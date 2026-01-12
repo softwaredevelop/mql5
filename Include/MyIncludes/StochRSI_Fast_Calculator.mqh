@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                      StochRSI_Fast_Calculator.mqh|
-//|  VERSION 2.10: Fixed Enum Type Mismatch.                         |
+//|  VERSION 3.00: Refactored to use RSI_Engine.                     |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
 
-#include <MyIncludes\RSI_Pro_Calculator.mqh>
+#include <MyIncludes\RSI_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
@@ -17,11 +17,14 @@ protected:
    int               m_rsi_period, m_k_period;
 
    //--- Composition: RSI Engine + MA Engine
-   CRSIProCalculator *m_rsi_calculator;
+   CRSIEngine        *m_rsi_engine;
    CMovingAverageCalculator m_ma_engine; // For %D smoothing
 
    //--- Persistent Buffers
    double            m_rsi_buffer[];
+
+   //--- Factory Method for RSI Engine
+   virtual void      CreateRSIEngine(void);
 
    double            Highest(const double &array[], int period, int current_pos);
    double            Lowest(const double &array[], int period, int current_pos);
@@ -30,7 +33,6 @@ public:
                      CStochRSI_Fast_Calculator(void);
    virtual          ~CStochRSI_Fast_Calculator(void);
 
-   //--- Init now takes ENUM_MA_TYPE for %D
    bool              Init(int rsi_p, int k_p, int d_p, ENUM_MA_TYPE d_ma);
 
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
@@ -42,7 +44,7 @@ public:
 //+------------------------------------------------------------------+
 CStochRSI_Fast_Calculator::CStochRSI_Fast_Calculator(void)
   {
-   m_rsi_calculator = new CRSIProCalculator();
+   m_rsi_engine = NULL;
   }
 
 //+------------------------------------------------------------------+
@@ -50,8 +52,16 @@ CStochRSI_Fast_Calculator::CStochRSI_Fast_Calculator(void)
 //+------------------------------------------------------------------+
 CStochRSI_Fast_Calculator::~CStochRSI_Fast_Calculator(void)
   {
-   if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
-      delete m_rsi_calculator;
+   if(CheckPointer(m_rsi_engine) != POINTER_INVALID)
+      delete m_rsi_engine;
+  }
+
+//+------------------------------------------------------------------+
+//| Factory Method                                                   |
+//+------------------------------------------------------------------+
+void CStochRSI_Fast_Calculator::CreateRSIEngine(void)
+  {
+   m_rsi_engine = new CRSIEngine();
   }
 
 //+------------------------------------------------------------------+
@@ -62,15 +72,14 @@ bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_TYPE d
    m_rsi_period = (rsi_p < 1) ? 1 : rsi_p;
    m_k_period   = (k_p < 1) ? 1 : k_p;
 
-   if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
+   CreateRSIEngine();
+
+   if(CheckPointer(m_rsi_engine) == POINTER_INVALID)
       return false;
 
-// Init RSI calculator (MA params for RSI bands are dummy here as we only need RSI line)
-// FIX: Use 'SMA' (from ENUM_MA_TYPE) instead of 'MODE_SMA'
-   if(!m_rsi_calculator.Init(m_rsi_period, 1, SMA, 2.0))
+   if(!m_rsi_engine.Init(m_rsi_period))
       return false;
 
-// Init MA Engine for %D
    return m_ma_engine.Init(d_p, d_ma);
   }
 
@@ -80,12 +89,8 @@ bool CStochRSI_Fast_Calculator::Init(int rsi_p, int k_p, int d_p, ENUM_MA_TYPE d
 void CStochRSI_Fast_Calculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
   {
-// Minimum bars check
    int min_bars = m_rsi_period + m_k_period + m_ma_engine.GetPeriod();
    if(rates_total <= min_bars)
-      return;
-
-   if(CheckPointer(m_rsi_calculator) == POINTER_INVALID)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
@@ -93,16 +98,11 @@ void CStochRSI_Fast_Calculator::Calculate(int rates_total, int prev_calculated, 
    if(ArraySize(m_rsi_buffer) != rates_total)
       ArrayResize(m_rsi_buffer, rates_total);
 
-//--- 1. Calculate RSI (Incremental)
-   double dummy1[], dummy2[], dummy3[];
-// Note: RSI Calculator handles its own incremental logic
-   m_rsi_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                              m_rsi_buffer, dummy1, dummy2, dummy3);
+//--- 1. Calculate RSI (Using Engine)
+// The engine handles its own data preparation internally!
+   m_rsi_engine.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_rsi_buffer);
 
 //--- 2. Calculate %K (StochRSI)
-// RSI is valid from index: m_rsi_period
-// StochRSI needs 'm_k_period' of RSI data.
-// So StochRSI starts at: m_rsi_period + m_k_period - 1
    int k_start_offset = m_rsi_period + m_k_period - 1;
    int loop_start_k = MathMax(k_start_offset, start_index);
 
@@ -118,8 +118,7 @@ void CStochRSI_Fast_Calculator::Calculate(int rates_total, int prev_calculated, 
          k_buffer[i] = (i > 0) ? k_buffer[i-1] : 50.0;
      }
 
-//--- 3. Calculate %D (Signal Line) using MA Engine
-// Pass the correct offset to avoid smoothing invalid data
+//--- 3. Calculate %D (Signal Line)
    m_ma_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, k_start_offset);
   }
 
@@ -162,18 +161,16 @@ double CStochRSI_Fast_Calculator::Lowest(const double &array[], int period, int 
 //+==================================================================+
 class CStochRSI_Fast_Calculator_HA : public CStochRSI_Fast_Calculator
   {
-public:
-                     CStochRSI_Fast_Calculator_HA(void);
+protected:
+   virtual void      CreateRSIEngine(void) override;
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Factory Method (Heikin Ashi)                                     |
 //+------------------------------------------------------------------+
-CStochRSI_Fast_Calculator_HA::CStochRSI_Fast_Calculator_HA(void)
+void CStochRSI_Fast_Calculator_HA::CreateRSIEngine(void)
   {
-   if(CheckPointer(m_rsi_calculator) != POINTER_INVALID)
-      delete m_rsi_calculator;
-// Use HA version of RSI calculator
-   m_rsi_calculator = new CRSIProCalculator_HA();
+   m_rsi_engine = new CRSIEngine_HA();
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
