@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
 //|                                                 DSMA_MTF_Pro.mq5 |
-//|                      Copyright 2025, Professional MQL5 Suite     |
+//|                                     Copyright 2025, xxxxxxxx     |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, Professional MQL5 Suite"
+#property copyright "Copyright 2025, xxxxxxxx"
 #property version   "1.00"
 #property description "Multi-Timeframe (MTF) Deviation Scaled Moving Average (DSMA)."
 
