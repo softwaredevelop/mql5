@@ -28,8 +28,8 @@
 //--- Plot 2: DMI Stoch %D (Signal line)
 #property indicator_label2  "%D"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrOrangeRed
-#property indicator_style2  STYLE_DOT
+#property indicator_color2  clrCoral
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 //--- Include the calculator engine ---
