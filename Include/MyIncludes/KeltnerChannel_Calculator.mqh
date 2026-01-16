@@ -8,13 +8,6 @@
 #include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\ATR_Calculator.mqh>
 
-//--- Define the Enum here, BEFORE the class uses it ---
-enum ENUM_ATR_SOURCE
-  {
-   ATR_SOURCE_STANDARD,    // Calculate ATR from standard candles
-   ATR_SOURCE_HEIKIN_ASHI  // Calculate ATR from Heikin Ashi candles
-  };
-
 //+==================================================================+
 //|           CLASS 1: CKeltnerChannelCalculator (Base Class)        |
 //+==================================================================+
