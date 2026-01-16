@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     Bollinger_Band_Width_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.20" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.00" // Updated to use new Calculator with ENUM_MA_TYPE
 #property description "Professional Bollinger Band Width oscillator with selectable analysis modes."
 
 #property indicator_separate_window
@@ -50,9 +50,9 @@ enum ENUM_BBW_MODE
 
 //--- Input Parameters ---
 input group "Base Bollinger Bands Settings"
-input int                      InpPeriod    = 20;
-input double                   InpDeviation = 2.0;
-input ENUM_MA_METHOD           InpMethodMA  = MODE_SMA;
+input int                       InpPeriod      = 20;
+input double                    InpDeviation   = 2.0;
+input ENUM_MA_TYPE              InpMAType      = SMA; // Updated type
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 
 input group "Analysis Mode"
@@ -80,6 +80,8 @@ double    BufferMA_Internal[];
 CBollingerBandsCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
+//| OnInit                                                           |
+//+------------------------------------------------------------------+
 int OnInit()
   {
    SetIndexBuffer(0, BufferBandWidth,    INDICATOR_DATA);
@@ -92,6 +94,7 @@ int OnInit()
    ArraySetAsSeries(BufferLowerChannel, false);
    ArraySetAsSeries(BufferCenterline,   false);
 
+//--- Factory Logic
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CBollingerBandsCalculator_HA();
@@ -103,8 +106,9 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("BBW Pro(%d)", InpPeriod));
      }
 
+//--- Initialize with new Enum
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpPeriod, InpDeviation, InpMethodMA))
+      !g_calculator.Init(InpPeriod, InpDeviation, InpMAType))
      {
       Print("Failed to initialize Bollinger Bands Calculator.");
       return(INIT_FAILED);
@@ -116,12 +120,13 @@ int OnInit()
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, draw_begin + InpBandsOnWidth_Period);
 
-//--- UPDATED: Use 4 digits for precision (like ATR Percent)
    IndicatorSetInteger(INDICATOR_DIGITS, 4);
 
    return(INIT_SUCCEEDED);
   }
 
+//+------------------------------------------------------------------+
+//| OnDeinit                                                         |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
@@ -133,6 +138,8 @@ void OnDeinit(const int reason)
    ArrayFree(BufferMA_Internal);
   }
 
+//+------------------------------------------------------------------+
+//| OnCalculate                                                      |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
@@ -147,11 +154,9 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
       ArrayResize(BufferMA_Internal, rates_total);
      }
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Step 1: Run the main calculation (Incremental)
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
@@ -170,7 +175,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
      }
 
 //--- Step 3: Calculate Overlays (Optimized Loop)
-// Initialize unused buffers on full recalc
    if(prev_calculated == 0)
      {
       ArrayInitialize(BufferUpperChannel, EMPTY_VALUE);
