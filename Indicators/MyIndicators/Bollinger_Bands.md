@@ -4,7 +4,7 @@
 
 The Bollinger Bands®, developed by John Bollinger, are one of the most widely used and versatile technical analysis tools. They consist of a moving average (centerline) and two trading bands set at a certain number of standard deviations above and below the centerline. Because standard deviation is a measure of volatility, the bands automatically widen when volatility increases and narrow when volatility decreases.
 
-This document covers our comprehensive, professionally coded MQL5 implementation of the Bollinger Bands family. Our suite goes beyond the standard indicator, offering a **`Bollinger_Bands_Pro`** version with full Heikin Ashi support, and two powerful derivative oscillators: **`Bollinger_Bands_PercentB`** and the **`Bollinger_Band_Width_Pro`**. Together, these tools provide a complete framework for analyzing price volatility and its relationship to the trend.
+This document covers our comprehensive, professionally coded MQL5 implementation of the Bollinger Bands family. Our suite goes beyond the standard indicator, offering a **`Bollinger_Bands_Pro`** version with full Heikin Ashi support and extended Moving Average types, along with two powerful derivative oscillators: **`Bollinger_Bands_PercentB`** and the **`Bollinger_Band_Width_Pro`**. Together, these tools provide a complete framework for analyzing price volatility and its relationship to the trend.
 
 **Additionally, this document briefly covers two related, hybrid indicators in our collection: the `Bollinger_Bands_Fibonacci` and the `Bollinger_ATR_Oscillator`.**
 
@@ -16,16 +16,16 @@ All indicators in this family are derived from the same core statistical concept
 
 - **Period (N):** The lookback period for the moving average and standard deviation calculation.
 - **Deviation (D):** The number of standard deviations to set the bands away from the centerline.
-- **MA Method:** The type of moving average to use for the centerline.
+- **MA Type:** The type of moving average to use for the centerline (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA).
 - **Source Price:** The price series used for calculation (e.g., `PRICE_CLOSE`).
 
 ### Calculation Steps (Algorithm)
 
-1. **Calculate the Centerline:** First, a moving average (typically an SMA) of the `Source Price` is calculated over the period `N`.
-    - $\text{Centerline}_t = \text{MA}(\text{Price}, N)_t$
+1. **Calculate the Centerline:** First, a moving average of the `Source Price` is calculated over the period `N` using the selected **MA Type**.
+    - $\text{Centerline}_t = \text{MA}(\text{Price}, N, \text{Type})_t$
 
-2. **Calculate the Standard Deviation:** The standard deviation of the `Source Price` over the same period `N` is calculated.
-    - $\text{StdDev}_t = \text{StandardDeviation}(\text{Price}, N)_t$
+2. **Calculate the Standard Deviation:** The standard deviation of the `Source Price` over the same period `N` is calculated relative to the centerline.
+    - $\text{StdDev}_t = \sqrt{\frac{\sum_{i=0}^{N-1} (\text{Price}_{t-i} - \text{Centerline}_t)^2}{N}}$
 
 3. **Calculate the Main Bands:** The upper and lower bands are calculated by adding and subtracting the multiplied standard deviation from the centerline.
     - $\text{Upper Band}_t = \text{Centerline}_t + (D \times \text{StdDev}_t)$
@@ -41,12 +41,14 @@ All indicators in this family are derived from the same core statistical concept
 
 Our MQL5 suite is built on a shared, modular, and robust calculation engine to ensure consistency and maintainability across the entire indicator family.
 
-- **Modular, Reusable Calculation Engine (`Bollinger_Bands_Calculator.mqh`):** The entire calculation logic for both standard and Heikin Ashi versions is encapsulated within a single, powerful include file. This object-oriented, polymorphic design allows all indicators in the family to dynamically choose the correct calculation engine at runtime based on user input.
+- **Modular, Reusable Calculation Engine (`Bollinger_Bands_Calculator.mqh`):** The entire calculation logic is encapsulated within a single, powerful include file.
+  - **Composition:** The calculator internally uses our `MovingAverage_Engine` to compute the centerline. This allows seamless support for advanced MA types like **TMA (Triangular MA)**, **DEMA**, and **TEMA**, which are rarely found in standard Bollinger implementations.
+  - **Polymorphism:** The design allows all indicators in the family to dynamically choose the correct calculation engine (Standard or Heikin Ashi) at runtime based on user input.
 
 - **Optimized Incremental Calculation:**
     All indicators employ an intelligent incremental algorithm.
   - They utilize the `prev_calculated` state to determine the exact starting point for updates.
-  - **Persistent State:** The internal buffers (like `m_price` and `m_ma_buffer`) persist their state between ticks. This allows recursive smoothing methods (like EMA and SMMA for the centerline) and the standard deviation calculation to continue seamlessly from the last known value without re-processing the entire history.
+  - **Persistent State:** The internal buffers persist their state between ticks. This allows recursive smoothing methods (like EMA, DEMA) to continue seamlessly from the last known value without re-processing the entire history.
   - This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
 
 - **Unified "Pro" Indicators:** Instead of creating numerous separate files, we have consolidated functionality into powerful "Pro" versions.
@@ -57,7 +59,14 @@ Our MQL5 suite is built on a shared, modular, and robust calculation engine to e
 
 - **Period (`InpPeriod`):** The lookback period for the MA and standard deviation. Default is `20`.
 - **Deviation (`InpDeviation`):** The standard deviation multiplier. Default is `2.0`.
-- **MA Method (`InpMethodMA`):** The type of moving average for the centerline. Default is `MODE_SMA`.
+- **MA Type (`InpMAType`):** The type of moving average for the centerline. Options include:
+  - `SMA` (Simple) - The classic Bollinger standard.
+  - `EMA` (Exponential) - More responsive.
+  - `SMMA` (Smoothed)
+  - `LWMA` (Linear Weighted)
+  - `TMA` (Triangular) - Very smooth.
+  - `DEMA` (Double Exponential) - Low lag.
+  - `TEMA` (Triple Exponential) - Extremely low lag.
 - **Source Price (`InpSourcePrice`):** A comprehensive list of price sources, including all standard prices and a full range of Heikin Ashi prices. Default is `PRICE_CLOSE_STD`.
 - **Analysis Mode (`InpDisplayMode`):** (Only for `Bollinger_Band_Width_Pro`) Allows the user to switch between the three display modes.
 
