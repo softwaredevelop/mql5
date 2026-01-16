@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                     Bollinger_Bands_PercentB.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.00" // Updated to use new Calculator with ENUM_MA_TYPE
 #property description "Bollinger Bands %B. Shows the position of price relative to the bands."
-#property description "Includes a selectable price source with Heikin Ashi options."
+#property description "Includes extended MA types and Heikin Ashi options."
 
 #property indicator_separate_window
 #property indicator_buffers 1
@@ -25,9 +25,9 @@
 #property indicator_width1  1
 
 //--- Input Parameters ---
-input int                      InpPeriod    = 20;
-input double                   InpDeviation = 2.0;
-input ENUM_MA_METHOD           InpMethodMA  = MODE_SMA;
+input int                       InpPeriod      = 20;
+input double                    InpDeviation   = 2.0;
+input ENUM_MA_TYPE              InpMAType      = SMA; // Updated type
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
@@ -44,13 +44,14 @@ double    BufferPrice_Internal[]; // To store the price from calculator
 CBollingerBandsCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
+//| OnInit                                                           |
 //+------------------------------------------------------------------+
 int OnInit()
   {
    SetIndexBuffer(0, BufferPercentB, INDICATOR_DATA);
    ArraySetAsSeries(BufferPercentB, false);
 
+//--- Factory Logic
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CBollingerBandsCalculator_HA();
@@ -62,8 +63,9 @@ int OnInit()
       IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("%%B(%d, %.2f)", InpPeriod, InpDeviation));
      }
 
+//--- Initialize with new Enum
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpPeriod, InpDeviation, InpMethodMA))
+      !g_calculator.Init(InpPeriod, InpDeviation, InpMAType))
      {
       Print("Failed to initialize Bollinger Bands Calculator.");
       return(INIT_FAILED);
@@ -76,7 +78,7 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
+//| OnDeinit                                                         |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
@@ -90,7 +92,7 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
+//| OnCalculate                                                      |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
@@ -105,18 +107,15 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
       ArrayResize(BufferMA_Internal, rates_total);
      }
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Step 1: Run the main calculation (Incremental)
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
                           BufferMA_Internal, BufferUpper_Internal, BufferLower_Internal);
 
 //--- Step 2: Get the source price array from the calculator
-// This is already calculated incrementally inside the calculator
    g_calculator.GetPriceBuffer(BufferPrice_Internal);
 
 //--- Step 3: Calculate the final %B value (Optimized Loop)
@@ -140,5 +139,4 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
