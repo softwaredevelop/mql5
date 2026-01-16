@@ -1,17 +1,22 @@
 //+------------------------------------------------------------------+
 //|                                               ATR_Calculator.mqh |
-//|         VERSION 2.21: Fixed ATR Percent incremental bug.         |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|         VERSION 2.30: Added ENUM_ATR_SOURCE definition.          |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//--- CORRECTED: Moved enum here to be accessible by other calculators ---
+//--- Enums needed for ATR logic ---
 enum ENUM_CANDLE_SOURCE { CANDLE_STANDARD, CANDLE_HEIKIN_ASHI };
-
-//--- NEW: Enum for display mode ---
 enum ENUM_ATR_DISPLAY_MODE { ATR_POINTS, ATR_PERCENT };
+
+//--- MOVED HERE: Common enum for selecting ATR source type ---
+enum ENUM_ATR_SOURCE
+  {
+   ATR_SOURCE_STANDARD,    // Calculate ATR from standard candles
+   ATR_SOURCE_HEIKIN_ASHI  // Calculate ATR from Heikin Ashi candles
+  };
 
 //+==================================================================+
 //|             CLASS 1: CATRCalculator (Base Class)                 |
@@ -26,7 +31,6 @@ protected:
    double            m_tr[];
    double            m_atr_raw[]; // Stores ATR in points for recursion
 
-   //--- Updated: Accepts start_index
    virtual bool      PrepareTrueRange(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -36,7 +40,6 @@ public:
    bool              Init(int period, ENUM_ATR_DISPLAY_MODE mode);
    int               GetPeriod(void) const { return m_atr_period; }
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], double &atr_buffer[]);
   };
 
@@ -58,25 +61,21 @@ void CATRCalculator::Calculate(int rates_total, int prev_calculated, const doubl
    if(rates_total <= m_atr_period)
       return;
 
-//--- 1. Determine Start Index
    int start_index;
    if(prev_calculated == 0)
       start_index = 0;
    else
       start_index = prev_calculated - 1;
 
-//--- 2. Resize Buffers
    if(ArraySize(m_tr) != rates_total)
      {
       ArrayResize(m_tr, rates_total);
       ArrayResize(m_atr_raw, rates_total);
      }
 
-//--- 3. Prepare True Range (Optimized)
    if(!PrepareTrueRange(rates_total, start_index, open, high, low, close))
       return;
 
-//--- 4. Calculate ATR (Wilder's Smoothing) using Internal Raw Buffer
    int loop_start = MathMax(m_atr_period, start_index);
 
    for(int i = loop_start; i < rates_total; i++)
@@ -89,12 +88,9 @@ void CATRCalculator::Calculate(int rates_total, int prev_calculated, const doubl
          m_atr_raw[i] = sum_tr / m_atr_period;
         }
       else
-         // Recursive calculation uses m_atr_raw[i-1] which is always in POINTS
          m_atr_raw[i] = (m_atr_raw[i-1] * (m_atr_period - 1) + m_tr[i]) / m_atr_period;
      }
 
-//--- 5. Output to Buffer (Convert if needed)
-// We must update the output buffer from loop_start
    for(int i = loop_start; i < rates_total; i++)
      {
       if(m_display_mode == ATR_PERCENT)
@@ -112,7 +108,7 @@ void CATRCalculator::Calculate(int rates_total, int prev_calculated, const doubl
   }
 
 //+------------------------------------------------------------------+
-//| Prepare True Range (Standard - Optimized)                        |
+//| Prepare True Range (Standard)                                    |
 //+------------------------------------------------------------------+
 bool CATRCalculator::PrepareTrueRange(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -135,7 +131,6 @@ class CATRCalculator_HA : public CATRCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
@@ -143,11 +138,10 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//| Prepare True Range (Heikin Ashi - Optimized)                     |
+//| Prepare True Range (Heikin Ashi)                                 |
 //+------------------------------------------------------------------+
 bool CATRCalculator_HA::PrepareTrueRange(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
@@ -156,11 +150,9 @@ bool CATRCalculator_HA::PrepareTrueRange(int rates_total, int start_index, const
       ArrayResize(m_ha_close, rates_total);
      }
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-//--- Calculate TR using HA candles (Optimized loop)
    int i = (start_index < 1) ? 1 : start_index;
 
    for(; i < rates_total; i++)
