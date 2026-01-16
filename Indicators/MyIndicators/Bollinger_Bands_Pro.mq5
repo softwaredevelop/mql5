@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                          Bollinger_Bands_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Optimized for incremental calculation
-#property description "A professional, unified Bollinger Bands indicator with a selectable"
-#property description "price source, including a full range of Heikin Ashi prices."
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.00" // Refactored to use MovingAverage_Engine
+#property description "Professional Bollinger Bands with extended MA types"
+#property description "(SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA) and Heikin Ashi support."
 
 #property indicator_chart_window
 #property indicator_buffers 3
@@ -35,19 +35,19 @@
 #property indicator_width3  1
 
 //--- Input Parameters ---
-input int                      InpPeriod    = 20;
-input double                   InpDeviation = 2.0;
-input ENUM_MA_METHOD           InpMethodMA  = MODE_SMA;
+input int                       InpPeriod      = 20;
+input double                    InpDeviation   = 2.0;
+input ENUM_MA_TYPE              InpMAType      = SMA; // Updated to support all engine types
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_CLOSE_STD;
 
 //--- Indicator Buffers ---
 double    BufferUpperBand[], BufferLowerBand[], BufferCenterLine[];
 
-//--- Global calculator object (as a base class pointer) ---
+//--- Global calculator object ---
 CBollingerBandsCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
+//| OnInit                                                           |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -59,24 +59,23 @@ int OnInit()
    ArraySetAsSeries(BufferLowerBand,  false);
    ArraySetAsSeries(BufferCenterLine, false);
 
-//--- Dynamic Calculator Instantiation ---
-   if(InpSourcePrice <= PRICE_HA_CLOSE) // Check if it's any of the HA prices
-     {
+//--- Factory Logic
+   if(InpSourcePrice <= PRICE_HA_CLOSE)
       g_calculator = new CBollingerBandsCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("BB Pro HA(%d, %.2f)", InpPeriod, InpDeviation));
-     }
    else
-     {
       g_calculator = new CBollingerBandsCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("BB Pro(%d, %.2f)", InpPeriod, InpDeviation));
-     }
 
+//--- Initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpPeriod, InpDeviation, InpMethodMA))
+      !g_calculator.Init(InpPeriod, InpDeviation, InpMAType))
      {
       Print("Failed to initialize Bollinger Bands Calculator.");
       return(INIT_FAILED);
      }
+
+//--- Shortname
+   string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("BB Pro%s(%d, %.2f, %s)", type, InpPeriod, InpDeviation, EnumToString(InpMAType)));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod - 1);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpPeriod - 1);
@@ -86,7 +85,7 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
+//| OnDeinit                                                         |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
@@ -95,10 +94,10 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
+//| OnCalculate                                                      |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -108,19 +107,16 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(CheckPointer(g_calculator) != POINTER_INVALID)
-     {
-      ENUM_APPLIED_PRICE price_type;
-      if(InpSourcePrice <= PRICE_HA_CLOSE)
-         price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-      else
-         price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+   if(rates_total < InpPeriod)
+      return(0);
 
-      //--- Delegate calculation with prev_calculated optimization
-      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                             BufferCenterLine, BufferUpperBand, BufferLowerBand);
-     }
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+                          BufferCenterLine, BufferUpperBand, BufferLowerBand);
+
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
