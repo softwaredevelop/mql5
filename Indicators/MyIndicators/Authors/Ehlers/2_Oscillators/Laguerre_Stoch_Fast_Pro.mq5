@@ -28,8 +28,11 @@
 //--- Levels
 #property indicator_minimum 0
 #property indicator_maximum 100
-#property indicator_level1 20.0
-#property indicator_level2 80.0
+#property indicator_level1 10.0
+#property indicator_level2 20.0
+#property indicator_level3 50.0
+#property indicator_level4 80.0
+#property indicator_level5 90.0
 #property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Laguerre_Stoch_Fast_Calculator.mqh>
