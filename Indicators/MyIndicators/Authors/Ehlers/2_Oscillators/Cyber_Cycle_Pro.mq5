@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.00" // Optimized for incremental calculation
+#property version   "3.00" // Updated with flexible Signal Line
 #property description "John Ehlers' Cyber Cycle indicator for identifying market cycles."
-#property description "Features O(1) calculation and full Heikin Ashi support."
+#property description "Features O(1) calculation and flexible Signal Line options."
 
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -26,13 +26,18 @@
 #property indicator_width2  1
 
 #property indicator_level1 0.0
-#property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Cyber_Cycle_Calculator.mqh>
 
 //--- Input Parameters ---
-input double                    InpAlpha       = 0.07;            // Smoothing factor
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice = PRICE_MEDIAN_STD; // Price Source (Default: Median)
+input group                     "Cyber Cycle Settings"
+input double                    InpAlpha        = 0.07;            // Smoothing factor
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_MEDIAN_STD; // Price Source
+
+input group                     "Signal Line Settings"
+input ENUM_CYBER_SIGNAL_TYPE    InpSignalType   = SIGNAL_DELAY_1BAR; // Signal Type
+input int                       InpSignalPeriod = 3;                 // Period (if MA)
+input ENUM_MA_TYPE              InpSignalMethod = SMA;               // Method (if MA)
 
 //--- Indicator Buffers ---
 double    BufferCycle[];
@@ -58,7 +63,8 @@ int OnInit()
       g_calculator = new CCyberCycleCalculator();
 
 //--- Initialize
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpAlpha))
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpAlpha, InpSignalType, InpSignalPeriod, InpSignalMethod))
      {
       Print("Failed to initialize Cyber Cycle Calculator.");
       return(INIT_FAILED);
@@ -66,7 +72,8 @@ int OnInit()
 
 //--- Shortname
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Cyber Cycle%s(%.2f)", type, InpAlpha));
+   string sigStr = (InpSignalType == SIGNAL_DELAY_1BAR) ? "Delay" : EnumToString(InpSignalMethod);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Cyber Cycle%s(%.2f, %s)", type, InpAlpha, sigStr));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 7);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 9);
