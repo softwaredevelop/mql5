@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     MACD_SuperSmoother_Pro.mq5   |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.00" // Updated to support extended Signal types
 #property description "MACD with SuperSmoother base lines and a selectable signal line."
 
 #property indicator_separate_window
@@ -35,7 +35,7 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group "Signal Line Settings"
 input int                       InpSignalPeriod = 9;
-input ENUM_SMOOTHING_METHOD     InpSignalMAType = SMOOTH_SuperSmoother; // Default to SuperSmoother
+input ENUM_SMOOTHING_METHOD_SS  InpSignalMAType = SMOOTH_SuperSmoother; // Updated Enum
 
 //--- Indicator Buffers ---
 double    BufferMACD_Histogram[], BufferMACDLine[], BufferSignalLine[];
@@ -65,7 +65,9 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   string short_name = StringFormat("MACD SS%s(%d,%d,%d)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpFastPeriod, InpSlowPeriod, InpSignalPeriod);
+   string ma_name = EnumToString(InpSignalMAType);
+   StringReplace(ma_name, "SMOOTH_", "");
+   string short_name = StringFormat("MACD SS%s(%d,%d,%s %d)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpFastPeriod, InpSlowPeriod, ma_name, InpSignalPeriod);
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
 
    int draw_begin = InpSlowPeriod + InpSignalPeriod;
@@ -81,10 +83,8 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -99,11 +99,9 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type,
                           BufferMACDLine, BufferSignalLine, BufferMACD_Histogram);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
