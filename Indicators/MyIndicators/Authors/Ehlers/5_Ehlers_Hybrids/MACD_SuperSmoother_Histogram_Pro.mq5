@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                               MACD_SuperSmoother_Histogram_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.00" // Updated to support extended Signal types
 #property description "Histogram for the SuperSmoother MACD with a selectable signal line."
 
 #property indicator_separate_window
@@ -14,10 +14,8 @@
 #property indicator_type1   DRAW_HISTOGRAM
 #property indicator_color1  clrSilver
 #property indicator_width1  1
-#property indicator_level1  0.0
-#property indicator_levelstyle STYLE_DOT
 
-#include <MyIncludes\MACD_SuperSmoother_Histogram_Calculator.mqh>
+#include <MyIncludes\MACD_SuperSmoother_Calculator.mqh>
 
 //--- Input Parameters ---
 input group "SuperSmoother MACD Settings"
@@ -26,7 +24,7 @@ input int                       InpSlowPeriod   = 26;
 
 input group "Signal Line Settings"
 input int                       InpSignalPeriod = 9;
-input ENUM_SMOOTHING_METHOD     InpSignalMAType = SMOOTH_SuperSmoother;
+input ENUM_SMOOTHING_METHOD_SS  InpSignalMAType = SMOOTH_SuperSmoother; // Updated Enum
 
 input group "Price Source"
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
@@ -35,7 +33,7 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 double    BufferHistogram[];
 
 //--- Global calculator object ---
-CMACDSuperSmootherHistogramCalculator *g_calculator;
+CMACDSuperSmootherCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -44,9 +42,9 @@ int OnInit()
    ArraySetAsSeries(BufferHistogram, false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-      g_calculator = new CMACDSuperSmootherHistogramCalculator_HA();
+      g_calculator = new CMACDSuperSmootherCalculator_HA();
    else
-      g_calculator = new CMACDSuperSmootherHistogramCalculator();
+      g_calculator = new CMACDSuperSmootherCalculator();
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastPeriod, InpSlowPeriod, InpSignalPeriod, InpSignalMAType))
      {
@@ -68,10 +66,8 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -86,10 +82,8 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferHistogram);
+   g_calculator.CalculateHistogramOnly(rates_total, prev_calculated, open, high, low, close, price_type, BufferHistogram);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
