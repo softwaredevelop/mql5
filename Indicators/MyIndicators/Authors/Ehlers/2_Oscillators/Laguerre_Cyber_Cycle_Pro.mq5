@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Updated with flexible Signal Line
 #property description "Laguerre Cyber Cycle. Uses a standard Laguerre Filter for"
 #property description "pre-smoothing before applying the Cyber Cycle algorithm."
 
@@ -22,7 +22,7 @@
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrOrangeRed
-#property indicator_style2  STYLE_DOT
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 #property indicator_level1 0.0
@@ -36,6 +36,11 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_MEDIAN_STD; // Price Sou
 
 input group                     "Cyber Cycle Settings"
 input double                    InpAlpha        = 0.07;            // Cyber Cycle Alpha
+
+input group                     "Signal Line Settings"
+input ENUM_CYBER_SIGNAL_TYPE    InpSignalType   = SIGNAL_DELAY_1BAR; // Signal Type
+input int                       InpSignalPeriod = 3;                 // Period (if MA)
+input ENUM_MA_TYPE              InpSignalMethod = SMA;               // Method (if MA)
 
 //--- Buffers
 double    BufferCycle[];
@@ -62,7 +67,7 @@ int OnInit()
 
 //--- Initialize
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpGamma, InpAlpha))
+      !g_calculator.Init(InpGamma, InpAlpha, InpSignalType, InpSignalPeriod, InpSignalMethod))
      {
       Print("Failed to initialize Laguerre Cyber Cycle Calculator.");
       return(INIT_FAILED);
@@ -70,7 +75,8 @@ int OnInit()
 
 //--- Shortname
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Cyber Cycle%s(%.2f, %.2f)", type, InpGamma, InpAlpha));
+   string sigStr = (InpSignalType == SIGNAL_DELAY_1BAR) ? "Delay" : EnumToString(InpSignalMethod);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Cyber Cycle%s(%.2f, %.2f, %s)", type, InpGamma, InpAlpha, sigStr));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 10);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 11);
