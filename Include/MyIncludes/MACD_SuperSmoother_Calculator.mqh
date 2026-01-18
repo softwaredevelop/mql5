@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                               MACD_SuperSmoother_Calculator.mqh  |
-//|      VERSION 1.40: Fixed buffer persistence for recursive calc.  |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 2.00: Unified calculator for ALL SS MACD inds.      |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
 
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
@@ -18,6 +18,8 @@ enum ENUM_SMOOTHING_METHOD
   };
 
 //+==================================================================+
+//|           CLASS 1: CMACDSuperSmootherCalculator (Base)           |
+//+==================================================================+
 class CMACDSuperSmootherCalculator
   {
 protected:
@@ -30,9 +32,12 @@ protected:
    CEhlersSmootherCalculator *m_signal_smoother;
    CMovingAverageCalculator  *m_signal_ma_engine;
 
-   //--- CRITICAL FIX: Persistent buffers for intermediate calculations
+   //--- Persistent Internal Buffers
    double            m_fast_buffer[];
    double            m_slow_buffer[];
+   double            m_macd_internal[];
+   double            m_signal_internal[];
+   double            m_hist_internal[];
 
    virtual CEhlersSmootherCalculator *CreateSmootherInstance(void);
 
@@ -41,10 +46,22 @@ public:
    virtual          ~CMACDSuperSmootherCalculator(void);
 
    bool              Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type);
+
+   //--- Main Calculation
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
-                               double &macd_line[], double &signal_line[], double &histogram[]);
+                               double &macd_out[], double &signal_out[], double &hist_out[]);
+
+   //--- Wrapper for Histogram Only
+   void              CalculateHistogramOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+         double &hist_out[]);
+
+   //--- Wrapper for MACD Line Only
+   void              CalculateMACDLineOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+                                           double &macd_out[]);
   };
 
+//+------------------------------------------------------------------+
+//|           CLASS 2: CMACDSuperSmootherCalculator_HA               |
 //+------------------------------------------------------------------+
 class CMACDSuperSmootherCalculator_HA : public CMACDSuperSmootherCalculator
   {
@@ -57,7 +74,7 @@ protected:
 //+==================================================================+
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
 CMACDSuperSmootherCalculator::CMACDSuperSmootherCalculator(void)
   {
@@ -68,7 +85,7 @@ CMACDSuperSmootherCalculator::CMACDSuperSmootherCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Destructor                                                       |
 //+------------------------------------------------------------------+
 CMACDSuperSmootherCalculator::~CMACDSuperSmootherCalculator(void)
   {
@@ -83,13 +100,13 @@ CMACDSuperSmootherCalculator::~CMACDSuperSmootherCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Factory Method                                                   |
 //+------------------------------------------------------------------+
 CEhlersSmootherCalculator *CMACDSuperSmootherCalculator::CreateSmootherInstance(void) { return new CEhlersSmootherCalculator(); }
 CEhlersSmootherCalculator *CMACDSuperSmootherCalculator_HA::CreateSmootherInstance(void) { return new CEhlersSmootherCalculator_HA(); }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type)
   {
@@ -129,47 +146,76 @@ bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, EN
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Main Calculation                                                 |
 //+------------------------------------------------------------------+
 void CMACDSuperSmootherCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
-      double &macd_line[], double &signal_line[], double &histogram[])
+      double &macd_out[], double &signal_out[], double &hist_out[])
   {
    if(rates_total < m_slow_period + m_signal_period)
       return;
 
-//--- Resize persistent internal buffers
+// Resize persistent internal buffers
    if(ArraySize(m_fast_buffer) != rates_total)
+     {
       ArrayResize(m_fast_buffer, rates_total);
-   if(ArraySize(m_slow_buffer) != rates_total)
       ArrayResize(m_slow_buffer, rates_total);
+      ArrayResize(m_macd_internal, rates_total);
+      ArrayResize(m_signal_internal, rates_total);
+      ArrayResize(m_hist_internal, rates_total);
+     }
 
-//--- Calculate Fast and Slow Smoothers (Incremental)
-// Now passing persistent buffers, so history is preserved!
+// 1. Calculate Fast and Slow Smoothers
    m_fast_smoother.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_fast_buffer);
    m_slow_smoother.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_slow_buffer);
 
-//--- Calculate MACD Line
+// 2. Calculate MACD Line
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
    for(int i = start_index; i < rates_total; i++)
-      macd_line[i] = m_fast_buffer[i] - m_slow_buffer[i];
+      m_macd_internal[i] = m_fast_buffer[i] - m_slow_buffer[i];
 
-//--- Calculate Signal Line
+// 3. Calculate Signal Line
    if(m_signal_ma_type == SMOOTH_SuperSmoother)
      {
       m_signal_smoother.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
-                                  macd_line, macd_line, macd_line, macd_line,
-                                  signal_line);
+                                  m_macd_internal, m_macd_internal, m_macd_internal, m_macd_internal,
+                                  m_signal_internal);
      }
    else
      {
-      m_signal_ma_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
-                                   macd_line, macd_line, macd_line, macd_line,
-                                   signal_line);
+      m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_macd_internal, m_signal_internal, m_slow_period);
      }
 
-//--- Calculate Histogram
+// 4. Calculate Histogram & Output
    for(int i = start_index; i < rates_total; i++)
-      histogram[i] = macd_line[i] - signal_line[i];
+     {
+      m_hist_internal[i] = m_macd_internal[i] - m_signal_internal[i];
+
+      if(ArraySize(macd_out) == rates_total)
+         macd_out[i] = m_macd_internal[i];
+      if(ArraySize(signal_out) == rates_total)
+         signal_out[i] = m_signal_internal[i];
+      if(ArraySize(hist_out) == rates_total)
+         hist_out[i] = m_hist_internal[i];
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate Histogram Only                                         |
+//+------------------------------------------------------------------+
+void CMACDSuperSmootherCalculator::CalculateHistogramOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+      double &hist_out[])
+  {
+   double dummy_macd[], dummy_signal[];
+   Calculate(rates_total, prev_calculated, open, high, low, close, price_type, dummy_macd, dummy_signal, hist_out);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate MACD Line Only                                         |
+//+------------------------------------------------------------------+
+void CMACDSuperSmootherCalculator::CalculateMACDLineOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+      double &macd_out[])
+  {
+   double dummy_signal[], dummy_hist[];
+   Calculate(rates_total, prev_calculated, open, high, low, close, price_type, macd_out, dummy_signal, dummy_hist);
   }
 //+------------------------------------------------------------------+
