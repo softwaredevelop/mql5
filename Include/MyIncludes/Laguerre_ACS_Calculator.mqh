@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                      Laguerre_ACS_Calculator.mqh |
 //|      Adaptive Cyber Cycle: Adaptive Laguerre -> Cyber Cycle.     |
+//|      VERSION 2.00: Added flexible Signal Line support.           |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
@@ -27,7 +28,8 @@ public:
                      CLaguerreACSCalculator(void);
    virtual          ~CLaguerreACSCalculator(void);
 
-   bool              Init(double cyber_alpha);
+   //--- Updated Init
+   bool              Init(double cyber_alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method);
 
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &cycle_out[], double &signal_out[]);
@@ -65,14 +67,14 @@ void CLaguerreACSCalculator::CreateEngines(void)
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CLaguerreACSCalculator::Init(double cyber_alpha)
+bool CLaguerreACSCalculator::Init(double cyber_alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method)
   {
    CreateEngines();
 
    if(CheckPointer(m_adaptive_engine) == POINTER_INVALID || !m_adaptive_engine.Init())
       return false;
 
-   if(CheckPointer(m_cyber_engine) == POINTER_INVALID || !m_cyber_engine.Init(cyber_alpha))
+   if(CheckPointer(m_cyber_engine) == POINTER_INVALID || !m_cyber_engine.Init(cyber_alpha, sig_type, sig_period, sig_method))
       return false;
 
    return true;
@@ -113,6 +115,6 @@ protected:
 void CLaguerreACSCalculator_HA::CreateEngines(void)
   {
    m_adaptive_engine = new CLaguerreFilterAdaptiveCalculator_HA();
-   m_cyber_engine = new CCyberCycleCalculator(); // Cyber engine works on array, so base class is fine
+   m_cyber_engine = new CCyberCycleCalculator();
   }
 //+------------------------------------------------------------------+
