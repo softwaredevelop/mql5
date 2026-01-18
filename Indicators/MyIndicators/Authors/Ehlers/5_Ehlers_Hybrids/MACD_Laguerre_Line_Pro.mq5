@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                     MACD_Laguerre_Line_Pro.mq5   |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.00" // Updated to use unified calculator
 #property description "MACD Line calculated from two Laguerre filters."
-#property description "Designed for applying external moving averages for testing."
 
 #property indicator_separate_window
 #property indicator_buffers 1
@@ -19,18 +18,18 @@
 #property indicator_level1  0.0
 #property indicator_levelstyle STYLE_DOT
 
-#include <MyIncludes\MACD_Laguerre_Line_Calculator.mqh>
+#include <MyIncludes\MACD_Laguerre_Calculator.mqh>
 
-//--- Input Parameters (Renamed for clarity) ---
-input double                    InpGamma1       = 0.2; // Fast Laguerre Gamma (smaller value)
-input double                    InpGamma2       = 0.8; // Slow Laguerre Gamma (larger value)
+//--- Input Parameters
+input double                    InpGamma1       = 0.2; // Fast Laguerre Gamma
+input double                    InpGamma2       = 0.8; // Slow Laguerre Gamma
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
-//--- Indicator Buffers ---
+//--- Indicator Buffers
 double    BufferMACDLine[];
 
-//--- Global calculator object ---
-CMACDLaguerreLineCalculator *g_calculator;
+//--- Global calculator object
+CMACDLaguerreCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -39,14 +38,15 @@ int OnInit()
    ArraySetAsSeries(BufferMACDLine, false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-      g_calculator = new CMACDLaguerreLineCalculator_HA();
+      g_calculator = new CMACDLaguerreCalculator_HA();
    else
-      g_calculator = new CMACDLaguerreLineCalculator();
+      g_calculator = new CMACDLaguerreCalculator();
 
-//--- Pass the two gamma values directly ---
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma1, InpGamma2))
+// Initialize with dummy signal parameters (not used for Line Only)
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpGamma1, InpGamma2, 0.5, 9, SMOOTH_SMA))
      {
-      Print("Failed to create or initialize MACD Laguerre Line Calculator.");
+      Print("Failed to create or initialize MACD Laguerre Calculator.");
       return(INIT_FAILED);
      }
 
@@ -63,10 +63,8 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -81,10 +79,9 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferMACDLine);
+// Use the MACD Line only wrapper
+   g_calculator.CalculateMACDLineOnly(rates_total, prev_calculated, open, high, low, close, price_type, BufferMACDLine);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
