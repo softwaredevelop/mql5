@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "2.00" // Updated with flexible Signal Line
 #property description "Laguerre Adaptive Cyber Cycle (ACS). Combines Adaptive Laguerre"
 #property description "filtering with the Cyber Cycle for superior cycle detection."
 
@@ -22,7 +22,7 @@
 #property indicator_label2  "Signal"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrOrangeRed
-#property indicator_style2  STYLE_DOT
+#property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 #property indicator_level1 0.0
@@ -32,6 +32,11 @@
 //--- Input Parameters
 input double                    InpAlpha        = 0.07;            // Cyber Cycle Alpha
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_MEDIAN_STD; // Price Source
+
+input group                     "Signal Line Settings"
+input ENUM_CYBER_SIGNAL_TYPE    InpSignalType   = SIGNAL_DELAY_1BAR; // Signal Type
+input int                       InpSignalPeriod = 3;                 // Period (if MA)
+input ENUM_MA_TYPE              InpSignalMethod = SMA;               // Method (if MA)
 
 //--- Buffers
 double    BufferCycle[];
@@ -57,7 +62,8 @@ int OnInit()
       g_calculator = new CLaguerreACSCalculator();
 
 //--- Initialize
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpAlpha))
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpAlpha, InpSignalType, InpSignalPeriod, InpSignalMethod))
      {
       Print("Failed to initialize Laguerre ACS Calculator.");
       return(INIT_FAILED);
@@ -65,7 +71,8 @@ int OnInit()
 
 //--- Shortname
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre ACS%s(%.2f)", type, InpAlpha));
+   string sigStr = (InpSignalType == SIGNAL_DELAY_1BAR) ? "Delay" : EnumToString(InpSignalMethod);
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre ACS%s(%.2f, %s)", type, InpAlpha, sigStr));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 10);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 11);
