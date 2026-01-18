@@ -1,12 +1,20 @@
 //+------------------------------------------------------------------+
 //|                                        Cyber_Cycle_Calculator.mqh|
 //|      Calculation engine for the John Ehlers' Cyber Cycle.        |
-//|      VERSION 2.10: Added CalculateOnArray support.               |
+//|      VERSION 3.00: Added flexible Signal Line support.           |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
+
+//--- Enum for Signal Line Type
+enum ENUM_CYBER_SIGNAL_TYPE
+  {
+   SIGNAL_DELAY_1BAR, // Classic Ehlers (Cycle[i-1])
+   SIGNAL_MA          // Custom Moving Average
+  };
 
 //+==================================================================+
 //|           CLASS 1: CCyberCycleCalculator (Base Class)            |
@@ -15,6 +23,14 @@ class CCyberCycleCalculator
   {
 protected:
    double            m_alpha;
+
+   //--- Signal Settings
+   ENUM_CYBER_SIGNAL_TYPE m_signal_type;
+   int                    m_signal_period;
+   ENUM_MA_TYPE           m_signal_method;
+
+   //--- Engines
+   CMovingAverageCalculator *m_signal_engine;
 
    //--- Persistent Buffers
    double            m_price[];
@@ -25,10 +41,10 @@ protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
-                     CCyberCycleCalculator(void) {};
-   virtual          ~CCyberCycleCalculator(void) {};
+                     CCyberCycleCalculator(void);
+   virtual          ~CCyberCycleCalculator(void);
 
-   bool              Init(double alpha);
+   bool              Init(double alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method);
 
    //--- Standard Calculation (OHLC)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
@@ -39,11 +55,37 @@ public:
   };
 
 //+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CCyberCycleCalculator::CCyberCycleCalculator(void)
+  {
+   m_signal_engine = new CMovingAverageCalculator();
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CCyberCycleCalculator::~CCyberCycleCalculator(void)
+  {
+   if(CheckPointer(m_signal_engine) != POINTER_INVALID)
+      delete m_signal_engine;
+  }
+
+//+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CCyberCycleCalculator::Init(double alpha)
+bool CCyberCycleCalculator::Init(double alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method)
   {
    m_alpha = alpha;
+   m_signal_type = sig_type;
+   m_signal_period = sig_period;
+   m_signal_method = sig_method;
+
+   if(m_signal_type == SIGNAL_MA)
+     {
+      if(!m_signal_engine.Init(m_signal_period, m_signal_method))
+         return false;
+     }
    return true;
   }
 
@@ -96,7 +138,7 @@ void CCyberCycleCalculator::CalculateOnArray(int rates_total, int prev_calculate
          m_smooth[k] = src_buffer[k];
          m_cycle[k] = 0;
          cycle_out[k] = 0;
-         signal_out[k] = 0;
+         // Signal init handled later or by engine
         }
      }
 
@@ -114,9 +156,19 @@ void CCyberCycleCalculator::CalculateOnArray(int rates_total, int prev_calculate
 
       // Output
       cycle_out[i] = m_cycle[i];
+     }
 
-      // Step 3: Signal Line (1 bar delay)
-      signal_out[i] = m_cycle[i-1];
+// Step 3: Signal Line
+   if(m_signal_type == SIGNAL_DELAY_1BAR)
+     {
+      for(int i = loop_start; i < rates_total; i++)
+         signal_out[i] = m_cycle[i-1];
+     }
+   else // SIGNAL_MA
+     {
+      // Use MA Engine on the Cycle Line
+      // Offset: Cyber Cycle needs ~6 bars to start, so offset 6 is safe
+      m_signal_engine.CalculateOnArray(rates_total, prev_calculated, m_cycle, signal_out, 6);
      }
   }
 
