@@ -24,8 +24,6 @@
 #property indicator_color3  clrOrangeRed
 #property indicator_style3  STYLE_SOLID
 #property indicator_width3  1
-#property indicator_level1  0.0
-#property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\MACD_Laguerre_Calculator.mqh>
 
