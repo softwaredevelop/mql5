@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                              Laguerre_Cyber_Cycle_Calculator.mqh |
 //|      Standard Laguerre Filter -> Cyber Cycle.                    |
+//|      VERSION 2.00: Added flexible Signal Line support.           |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
@@ -27,7 +28,8 @@ public:
                      CLaguerreCyberCycleCalculator(void);
    virtual          ~CLaguerreCyberCycleCalculator(void);
 
-   bool              Init(double gamma, double cyber_alpha);
+   //--- Updated Init with Signal params
+   bool              Init(double gamma, double cyber_alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method);
 
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &cycle_out[], double &signal_out[]);
@@ -65,14 +67,15 @@ void CLaguerreCyberCycleCalculator::CreateEngines(void)
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CLaguerreCyberCycleCalculator::Init(double gamma, double cyber_alpha)
+bool CLaguerreCyberCycleCalculator::Init(double gamma, double cyber_alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method)
   {
    CreateEngines();
 
    if(CheckPointer(m_laguerre_engine) == POINTER_INVALID || !m_laguerre_engine.Init(gamma, SOURCE_PRICE))
       return false;
 
-   if(CheckPointer(m_cyber_engine) == POINTER_INVALID || !m_cyber_engine.Init(cyber_alpha))
+// Pass signal params to Cyber Engine
+   if(CheckPointer(m_cyber_engine) == POINTER_INVALID || !m_cyber_engine.Init(cyber_alpha, sig_type, sig_period, sig_method))
       return false;
 
    return true;
@@ -92,7 +95,6 @@ void CLaguerreCyberCycleCalculator::Calculate(int rates_total, int prev_calculat
       ArrayResize(m_filter_buffer, rates_total);
 
 // 1. Calculate Standard Laguerre Filter
-// Note: Laguerre Engine handles its own price preparation (Standard or HA)
    m_laguerre_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, m_filter_buffer);
 
 // 2. Calculate Cyber Cycle on the Filter output
