@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                               MACD_SuperSmoother_Calculator.mqh  |
-//|      VERSION 2.00: Unified calculator for ALL SS MACD inds.      |
+//|      VERSION 3.00: Extended Signal Line types (TMA, DEMA, TEMA). |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
@@ -8,13 +8,17 @@
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
-enum ENUM_SMOOTHING_METHOD
+//--- Extended enum for smoothing types
+enum ENUM_SMOOTHING_METHOD_SS
   {
+   SMOOTH_SuperSmoother,
    SMOOTH_SMA,
    SMOOTH_EMA,
    SMOOTH_SMMA,
    SMOOTH_LWMA,
-   SMOOTH_SuperSmoother
+   SMOOTH_TMA,
+   SMOOTH_DEMA,
+   SMOOTH_TEMA
   };
 
 //+==================================================================+
@@ -24,7 +28,7 @@ class CMACDSuperSmootherCalculator
   {
 protected:
    int               m_fast_period, m_slow_period, m_signal_period;
-   ENUM_SMOOTHING_METHOD m_signal_ma_type;
+   ENUM_SMOOTHING_METHOD_SS m_signal_ma_type;
 
    //--- Engines
    CEhlersSmootherCalculator *m_fast_smoother;
@@ -45,17 +49,15 @@ public:
                      CMACDSuperSmootherCalculator(void);
    virtual          ~CMACDSuperSmootherCalculator(void);
 
-   bool              Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type);
+   bool              Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD_SS signal_type);
 
    //--- Main Calculation
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                double &macd_out[], double &signal_out[], double &hist_out[]);
 
-   //--- Wrapper for Histogram Only
+   //--- Wrappers
    void              CalculateHistogramOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
          double &hist_out[]);
-
-   //--- Wrapper for MACD Line Only
    void              CalculateMACDLineOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
                                            double &macd_out[]);
   };
@@ -108,7 +110,7 @@ CEhlersSmootherCalculator *CMACDSuperSmootherCalculator_HA::CreateSmootherInstan
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD signal_type)
+bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, ENUM_SMOOTHING_METHOD_SS signal_type)
   {
    if(fast_p > slow_p)
      {
@@ -116,6 +118,7 @@ bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, EN
       fast_p=slow_p;
       slow_p=temp;
      }
+
    m_fast_period = fast_p;
    m_slow_period = slow_p;
    m_signal_period = (signal_p < 1) ? 1 : signal_p;
@@ -137,7 +140,8 @@ bool CMACDSuperSmootherCalculator::Init(int fast_p, int slow_p, int signal_p, EN
    else
      {
       m_signal_ma_engine = new CMovingAverageCalculator();
-      ENUM_MA_TYPE ma_type = (ENUM_MA_TYPE)m_signal_ma_type;
+      // Map custom enum to engine enum (offset by 1 because SuperSmoother is 0)
+      ENUM_MA_TYPE ma_type = (ENUM_MA_TYPE)(m_signal_ma_type - 1);
       if(!m_signal_ma_engine.Init(m_signal_period, ma_type))
          return false;
      }
@@ -182,6 +186,8 @@ void CMACDSuperSmootherCalculator::Calculate(int rates_total, int prev_calculate
      }
    else
      {
+      // Use MA Engine on the MACD Line
+      // Offset: SuperSmoother needs a few bars to stabilize, let's use m_slow_period as a safe offset
       m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_macd_internal, m_signal_internal, m_slow_period);
      }
 
@@ -200,7 +206,7 @@ void CMACDSuperSmootherCalculator::Calculate(int rates_total, int prev_calculate
   }
 
 //+------------------------------------------------------------------+
-//| Calculate Histogram Only                                         |
+//| Wrappers                                                         |
 //+------------------------------------------------------------------+
 void CMACDSuperSmootherCalculator::CalculateHistogramOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &hist_out[])
@@ -210,7 +216,7 @@ void CMACDSuperSmootherCalculator::CalculateHistogramOnly(int rates_total, int p
   }
 
 //+------------------------------------------------------------------+
-//| Calculate MACD Line Only                                         |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CMACDSuperSmootherCalculator::CalculateMACDLineOnly(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &macd_out[])
