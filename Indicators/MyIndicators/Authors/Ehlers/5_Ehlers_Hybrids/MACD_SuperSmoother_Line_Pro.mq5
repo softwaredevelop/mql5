@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                 MACD_SuperSmoother_Line_Pro.mq5  |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.00" // Updated to use unified calculator
 #property description "Plots only the MACD Line from the SuperSmoother MACD."
-#property description "Designed for applying external moving averages for testing."
 
 #property indicator_separate_window
 #property indicator_buffers 1
@@ -20,7 +19,7 @@
 #property indicator_level1  0.0
 #property indicator_levelstyle STYLE_DOT
 
-#include <MyIncludes\MACD_SuperSmoother_Line_Calculator.mqh>
+#include <MyIncludes\MACD_SuperSmoother_Calculator.mqh>
 
 //--- Input Parameters ---
 input int                       InpFastPeriod   = 12;
@@ -31,7 +30,7 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 double    BufferMACDLine[];
 
 //--- Global calculator object ---
-CMACDSuperSmootherLineCalculator *g_calculator;
+CMACDSuperSmootherCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -40,13 +39,14 @@ int OnInit()
    ArraySetAsSeries(BufferMACDLine, false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-      g_calculator = new CMACDSuperSmootherLineCalculator_HA();
+      g_calculator = new CMACDSuperSmootherCalculator_HA();
    else
-      g_calculator = new CMACDSuperSmootherLineCalculator();
+      g_calculator = new CMACDSuperSmootherCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastPeriod, InpSlowPeriod))
+// Initialize with dummy signal parameters
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastPeriod, InpSlowPeriod, 9, SMOOTH_SMA))
      {
-      Print("Failed to create or initialize MACD SuperSmoother Line Calculator.");
+      Print("Failed to create or initialize MACD SuperSmoother Calculator.");
       return(INIT_FAILED);
      }
 
@@ -63,10 +63,8 @@ int OnInit()
 void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
-//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -81,10 +79,8 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferMACDLine);
+   g_calculator.CalculateMACDLineOnly(rates_total, prev_calculated, open, high, low, close, price_type, BufferMACDLine);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
