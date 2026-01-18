@@ -9,7 +9,7 @@ The output is a smooth, sine-wave-like oscillator whose amplitude varies with th
 The indicator plots two lines:
 
 * **Cycle Line:** The main filtered value.
-* **Signal Line:** The Cycle line delayed by one bar, used for generating crossover signals.
+* **Signal Line:** A trigger line used for generating crossover signals. This version offers flexible signal line calculation methods.
 
 ## 2. Mathematical Foundations
 
@@ -17,11 +17,11 @@ The indicator uses a two-pole Butterworth band-pass filter to isolate the cyclic
 
 ### Calculation Steps
 
-1. **Pre-Smoothing:** The source price is first lightly smoothed using a 4-bar weighted FIR filter `(P + 2*P[1] + 2*P[2] + P[3]) / 6`. This reduces noise before the main filter is applied.
+1. **Pre-Smoothing:** The source price is first lightly smoothed using a 4-bar weighted FIR filter.
 2. **Cycle Calculation:** The core is a recursive Butterworth filter applied to the smoothed price.
-    * $\text{Cycle}_i = (1 - 0.5\alpha)^2 \times (\text{Smooth}_i - 2\text{Smooth}_{i-1} + \text{Smooth}_{i-2}) + 2(1-\alpha)\text{Cycle}_{i-1} - (1-\alpha)^2\text{Cycle}_{i-2}$
-3. **Signal Line Generation:** The Signal Line is the Cycle line's value from the previous bar:
-    * $\text{Signal}_i = \text{Cycle}_{i-1}$
+3. **Signal Line Generation:** The Signal Line can be calculated in two ways:
+    * **Delay (Classic):** The Cycle line's value from the previous bar (`Cycle[i-1]`).
+    * **Moving Average:** A smoothing (SMA, EMA, etc.) applied to the Cycle line.
 
 ## 3. MQL5 Implementation Details
 
@@ -31,10 +31,18 @@ The indicator uses a two-pole Butterworth band-pass filter to isolate the cyclic
 
 ## 4. Parameters
 
+### Cyber Cycle Settings
+
 * **Alpha (`InpAlpha`):** The smoothing factor for the Butterworth filter. Ehlers' recommendation is **0.07**.
-  * Lower value (e.g., 0.05) = Smoother, slower (longer cycles).
-  * Higher value (e.g., 0.10) = Faster, more volatile (shorter cycles).
-* **Source Price (`InpSourcePrice`):** Selects the input data. Default is `PRICE_MEDIAN_STD` (Median Price), as recommended by Ehlers.
+* **Source Price (`InpSourcePrice`):** Selects the input data. Default is `PRICE_MEDIAN_STD`.
+
+### Signal Line Settings
+
+* **Signal Type (`InpSignalType`):**
+  * `SIGNAL_DELAY_1BAR`: The classic Ehlers method (fastest trigger).
+  * `SIGNAL_MA`: Allows using a moving average as the signal line.
+* **Signal Period (`InpSignalPeriod`):** The period for the MA signal line (if `SIGNAL_MA` is selected).
+* **Signal Method (`InpSignalMethod`):** The averaging method (SMA, EMA, etc.).
 
 ## 5. Usage and Interpretation
 
@@ -42,12 +50,10 @@ The Cyber Cycle is a **timing tool for cycle reversals**.
 
 ### Signal Line Crossover
 
-* **Buy Signal:** The **Cycle line crosses above the Signal line**. This indicates the cycle has turned up.
-* **Sell Signal:** The **Cycle line crosses below the Signal line**. This indicates the cycle has turned down.
+* **Buy Signal:** The **Cycle line crosses above the Signal line**.
+* **Sell Signal:** The **Cycle line crosses below the Signal line**.
+* *Tip:* Using an SMA Signal Line (e.g., Period 3) can provide smoother crossovers than the classic 1-bar delay, reducing false signals in choppy markets.
 
 ### Trend Filter Rule (Critical)
 
-The Cyber Cycle removes the trend component. Therefore, trading its signals against a strong trend is risky.
-
-* **Uptrend:** Only take **Buy signals** when price is above a long-term MA (e.g., 200 EMA).
-* **Downtrend:** Only take **Sell signals** when price is below a long-term MA.
+The Cyber Cycle removes the trend component. Therefore, trading its signals against a strong trend is risky. Always trade in the direction of the higher timeframe trend.
