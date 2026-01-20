@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                     MACD_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // Refactored to use MovingAverage_Engine
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "4.00" // Updated to use unified V4 calculator
 #property description "Professional MACD with selectable MA types and price source"
 #property description "(Standard and Heikin Ashi)."
 
@@ -40,7 +40,6 @@ input int                       InpFastPeriod   = 12;
 input int                       InpSlowPeriod   = 26;
 input int                       InpSignalPeriod = 9;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
-// UPDATED: Use ENUM_MA_TYPE
 input ENUM_MA_TYPE              InpSourceMAType = EMA; // MA Type for Fast and Slow lines
 input ENUM_MA_TYPE              InpSignalMAType = EMA; // MA Type for Signal line
 
