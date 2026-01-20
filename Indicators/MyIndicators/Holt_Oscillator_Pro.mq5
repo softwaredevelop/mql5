@@ -10,9 +10,9 @@
 #property indicator_separate_window
 #property indicator_buffers 1
 #property indicator_plots   1
-#property indicator_level1 0.0
-#property indicator_levelstyle STYLE_DOT
-#property indicator_levelcolor clrGray
+//#property indicator_level1 0.0
+//#property indicator_levelstyle STYLE_DOT
+//#property indicator_levelcolor clrGray
 
 //--- Include the calculator engine ---
 #include <MyIncludes\Holt_Oscillator_Calculator.mqh>
@@ -22,7 +22,7 @@
 #property indicator_type1   DRAW_HISTOGRAM
 #property indicator_color1  clrSeaGreen, clrTomato
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Input Parameters ---
 input double                    InpAlpha       = 0.1;     // Level Smoothing Factor (0.0 - 1.0)
