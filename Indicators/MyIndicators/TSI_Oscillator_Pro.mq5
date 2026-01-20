@@ -15,8 +15,6 @@
 #property indicator_color1  clrSilver
 #property indicator_width1  1
 #property indicator_label1  "TSI Oscillator"
-#property indicator_level1  0.0
-#property indicator_levelstyle STYLE_DOT
 
 //--- Include the calculator engine ---
 #include <MyIncludes\TSI_Oscillator_Calculator.mqh>
