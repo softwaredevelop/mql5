@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       TSI_Pro.mq5|
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "4.00" // Full Engine Integration
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "5.00" // Updated to use unified calculator
 #property description "Professional True Strength Index (TSI) with fully customizable"
 #property description "smoothing methods and selectable price source."
 
@@ -36,9 +36,9 @@
 //--- Input Parameters ---
 input group                     "TSI Calculation Settings"
 input int                       InpSlowPeriod   = 25;
-input ENUM_MA_TYPE              InpSlowMAType   = EMA; // Default: EMA (Classic TSI)
+input ENUM_MA_TYPE              InpSlowMAType   = EMA;
 input int                       InpFastPeriod   = 13;
-input ENUM_MA_TYPE              InpFastMAType   = EMA; // Default: EMA (Classic TSI)
+input ENUM_MA_TYPE              InpFastMAType   = EMA;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group                     "Signal Line Settings"
@@ -53,8 +53,6 @@ double    BufferSignal[];
 CTSICalculator *g_calculator;
 
 //+------------------------------------------------------------------+
-//| Custom indicator initialization function.                        |
-//+------------------------------------------------------------------+
 int OnInit()
   {
    SetIndexBuffer(0, BufferTSI,    INDICATOR_DATA);
@@ -63,15 +61,9 @@ int OnInit()
    ArraySetAsSeries(BufferSignal, false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
       g_calculator = new CTSICalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI HA(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
-     }
    else
-     {
       g_calculator = new CTSICalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI(%d,%d,%d)", InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
-     }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
       !g_calculator.Init(InpSlowPeriod, InpSlowMAType, InpFastPeriod, InpFastMAType, InpSignalPeriod, InpSignalMAType))
@@ -79,6 +71,9 @@ int OnInit()
       Print("Failed to create or initialize TSI Calculator object.");
       return(INIT_FAILED);
      }
+
+   string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("TSI%s(%d,%d,%d)", type, InpSlowPeriod, InpFastPeriod, InpSignalPeriod));
 
    int tsi_draw_begin = InpSlowPeriod + InpFastPeriod;
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, tsi_draw_begin);
@@ -89,31 +84,20 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator deinitialization function.                      |
-//+------------------------------------------------------------------+
-void OnDeinit(const int reason)
-  {
-   if(CheckPointer(g_calculator) != POINTER_INVALID)
-      delete g_calculator;
-  }
+void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVALID) delete g_calculator; }
 
-//+------------------------------------------------------------------+
-//| Custom indicator iteration function.                             |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferTSI, BufferSignal);
+// Pass dummy array for oscillator output
+   double dummy_osc[];
+   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferTSI, BufferSignal, dummy_osc);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
