@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 2.10: Fixed CalculateOnArray offset logic.          |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 2.20: Fixed EMA initialization bug on timeframe change.|
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -120,8 +120,6 @@ void CMovingAverageCalculator::CalculateOnArray(int rates_total, int prev_calcul
      }
 
 // Copy source array to internal m_price buffer
-// Optimization: We can start copying from src_start_index, but to be safe with incremental updates,
-// we copy from start_index (or src_start_index if we are at the beginning).
    int copy_start = MathMax(start_index, src_start_index);
 
    for(int i = copy_start; i < rates_total; i++)
@@ -247,21 +245,19 @@ void CMovingAverageCalculator::RunCalculation(int rates_total, int start_index, 
 //+------------------------------------------------------------------+
 void CMovingAverageCalculator::CalculateEMA(int rates_total, int start_index, int period, const double &source[], double &dest[])
   {
-// Note: start_index passed here is already adjusted for offset in RunCalculation
    if(rates_total < period)
       return;
 
    double pr = 2.0 / (double)(period + 1.0);
 
-// Robust initialization check:
-// If the previous value is empty or 0 (and we are not at index 0), we might need to re-initialize.
-// But for strict incremental logic, we trust start_index.
-// The only edge case is the very first calculation.
+// FIX: If starting from 0, force initialization logic regardless of array content
+   bool force_init = (start_index == 0);
 
    for(int i = start_index; i < rates_total; i++)
      {
       // Check if we have a valid previous value to recurse on
-      bool has_prev = (i > 0 && dest[i-1] != 0.0 && dest[i-1] != EMPTY_VALUE);
+      // We only check dest[i-1] if we are NOT forcing initialization
+      bool has_prev = (!force_init && i > 0 && dest[i-1] != 0.0 && dest[i-1] != EMPTY_VALUE);
 
       if(has_prev)
         {
@@ -273,8 +269,13 @@ void CMovingAverageCalculator::CalculateEMA(int rates_total, int start_index, in
       else
         {
          // Initialization (SMA)
-         // We need 'period' valid bars ending at i.
-         // source[i], source[i-1] ... source[i-period+1]
+         // Safety check: can we look back 'period' bars?
+         if(i < period - 1)
+           {
+            dest[i] = EMPTY_VALUE; // Not enough data yet
+            continue;
+           }
+
          double sum=0;
          int count=0;
          for(int j=0; j<period; j++)
@@ -288,7 +289,7 @@ void CMovingAverageCalculator::CalculateEMA(int rates_total, int start_index, in
          if(count > 0)
             dest[i] = sum/count;
          else
-            dest[i] = 0; // Should not happen if start_index is correct
+            dest[i] = source[i]; // Fallback
         }
      }
   }
@@ -392,4 +393,5 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, int start_
      }
    return true;
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
