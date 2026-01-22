@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                          DMIStochastic_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // Separate Signal MA Type
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.20" // Added fixed digits precision
 #property description "Barbara Star's DMI Stochastic Oscillator. Supports Standard and Heikin Ashi sources."
 
 //--- Indicator Window and Plot Properties ---
@@ -43,7 +43,6 @@ input int                InpFastKPeriod  = 10;                  // Stochastic %K
 input int                InpSlowKPeriod  = 3;                   // Stochastic %K Slowing
 input ENUM_MA_TYPE       InpStochMethod  = SMA;                 // MA Method for %K
 input int                InpSmoothPeriod = 3;                   // Stochastic %D Period (Signal)
-// NEW: Separate MA Type for Signal
 input ENUM_MA_TYPE       InpSignalMethod = SMA;                 // MA Method for %D
 
 //--- Indicator Buffers ---
@@ -70,7 +69,6 @@ int OnInit()
       g_calculator = new CDMIStochasticCalculator();
      }
 
-// Pass both MA types to Init
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpDMIPeriod, InpFastKPeriod, InpSlowKPeriod, InpSmoothPeriod, InpStochMethod, InpSignalMethod, InpOscType))
      {
       Print("Failed to create or initialize DMI Stochastic Calculator.");
@@ -85,6 +83,9 @@ int OnInit()
    int draw_begin = InpDMIPeriod + InpFastKPeriod + InpSlowKPeriod + InpSmoothPeriod - 2;
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
+
+//--- Set fixed precision for oscillator (0-100 range)
+   IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
    return(INIT_SUCCEEDED);
   }
