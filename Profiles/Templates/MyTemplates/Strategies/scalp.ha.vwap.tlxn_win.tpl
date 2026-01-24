@@ -161,7 +161,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=TSE
+InpMarketName=TSE-winter
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
