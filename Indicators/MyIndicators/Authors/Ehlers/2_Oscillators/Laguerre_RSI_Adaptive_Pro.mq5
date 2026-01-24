@@ -40,7 +40,7 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
 input group "Signal Line Settings"
 input ENUM_LRSI_DISPLAY_MODE InpDisplayMode  = DISPLAY_LRSI_AND_SIGNAL;
-input int                    InpSignalPeriod = 9;
+input int                    InpSignalPeriod = 3;
 input ENUM_MA_TYPE           InpSignalMAType = EMA;
 
 //--- Indicator Buffers ---
