@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                     RSI_Adaptive_Calculator.mqh  |
 //|      Engine for a variable-length RSI (Dynamic Momentum Index).  |
-//|      VERSION 3.01: Safety checks refined.                        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 4.00: Optimized price preparation logic.            |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -23,7 +23,7 @@ protected:
    int               m_pivotal_period, m_vola_short, m_vola_long;
    ENUM_ADAPTIVE_SOURCE_RSI m_adaptive_source;
 
-   //--- Persistent Buffers
+   //--- Persistent Buffers (Non-Series)
    double            m_price[];      // Used for Volatility calculation
    double            m_rsi_source[]; // Used for RSI calculation
    double            m_vola_sum[];
@@ -60,8 +60,7 @@ bool CAdaptiveRSICalculator::Init(int pivotal_p, int vola_s, int vola_l, ENUM_AD
 void CAdaptiveRSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                        double &rsi_buffer[])
   {
-// Safety Check: Ensure we have enough bars for the longest possible lookback
-// Max lookback = VolaLong + Max possible RSI Period (approx 2 * Pivotal)
+// Safety Check
    if(rates_total <= m_vola_long + m_pivotal_period * 2)
       return;
 
@@ -80,10 +79,13 @@ void CAdaptiveRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
       ArrayResize(m_nsp_buffer, rates_total);
      }
 
+   if(ArraySize(rsi_buffer) != rates_total)
+      ArrayResize(rsi_buffer, rates_total);
+
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-//--- 4. Calculate Volatility Sum (Incremental)
+//--- 1. Calculate Volatility Sum (Incremental)
    int loop_start_vola = MathMax(m_vola_short, start_index);
 
    for(int i = loop_start_vola; i < rates_total; i++)
@@ -94,7 +96,7 @@ void CAdaptiveRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
       m_vola_sum[i] = sum;
      }
 
-//--- 5. Calculate Volatility Avg and Adaptive Period (NSP)
+//--- 2. Calculate Volatility Avg and Adaptive Period (NSP)
    int loop_start_nsp = MathMax(m_vola_short + m_vola_long - 1, start_index);
 
    for(int i = loop_start_nsp; i < rates_total; i++)
@@ -109,19 +111,17 @@ void CAdaptiveRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
       // Calculate adaptive period
       int period = (int)round(m_pivotal_period / vola_ratio);
 
-      // Clamp period between 2 and 2*Pivotal to prevent extreme noise or flatness
+      // Clamp period
       m_nsp_buffer[i] = fmax(2, fmin(m_pivotal_period * 2, period));
      }
 
-//--- 6. Calculate Simple RSI using m_rsi_source
-// Start where we have valid NSP data
+//--- 3. Calculate Simple RSI using m_rsi_source
    int loop_start_rsi = MathMax(m_vola_short + m_vola_long, start_index);
 
    for(int i = loop_start_rsi; i < rates_total; i++)
      {
       int current_nsp = (int)m_nsp_buffer[i];
 
-      // Safety check: Ensure we don't look back before the start of the array
       if(i <= current_nsp)
         {
          rsi_buffer[i] = 50.0;
@@ -130,7 +130,7 @@ void CAdaptiveRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
 
       double sum_pos = 0, sum_neg = 0;
 
-      // Brute force loop is required here because 'current_nsp' changes per bar
+      // Brute force loop (Simple RSI logic)
       for(int j = 0; j < current_nsp; j++)
         {
          double diff = m_rsi_source[i-j] - m_rsi_source[i-j-1];
@@ -216,6 +216,7 @@ bool CAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, int start_in
 
    for(int i = start_index; i < rates_total; i++)
      {
+      // 1. Calculate HA Price for RSI Source
       double ha_p;
       switch(price_type)
         {
@@ -244,16 +245,15 @@ bool CAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, int start_in
             ha_p = m_ha_close[i];
             break;
         }
+      m_rsi_source[i] = ha_p;
 
-      m_rsi_source[i] = ha_p; // RSI uses HA
-
+      // 2. Calculate Price for Volatility (ER)
       if(m_adaptive_source == ADAPTIVE_SOURCE_RSI_HEIKIN_ASHI)
         {
          m_price[i] = ha_p;
         }
-      else
+      else // ADAPTIVE_SOURCE_RSI_STANDARD
         {
-         // Recalculate standard price for volatility
          double std_p;
          switch(price_type)
            {
@@ -287,5 +287,4 @@ bool CAdaptiveRSICalculator_HA::PreparePriceSeries(int rates_total, int start_in
      }
    return true;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
