@@ -17,6 +17,8 @@
 #property indicator_level4 80.0
 #property indicator_level5 90.0
 #property indicator_levelstyle STYLE_DOT
+#property indicator_minimum 0
+#property indicator_maximum 100
 
 //--- Plot 1: DMI Stoch %K (Main line)
 #property indicator_label1  "%K"
