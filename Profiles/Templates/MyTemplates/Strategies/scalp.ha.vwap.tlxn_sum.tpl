@@ -12,7 +12,7 @@ scale_fix11=0
 scale_bar=0
 scale_bar_val=1.000000
 scale=4
-mode=1
+mode=2
 fore=0
 grid=0
 volume=0
@@ -50,7 +50,7 @@ barup_color=0
 bardown_color=0
 bullcandle_color=16777215
 bearcandle_color=0
-chartline_color=0
+chartline_color=4294967295
 volumes_color=32768
 grid_color=12632256
 bidline_color=12632256
@@ -82,9 +82,42 @@ fixed_height=-1
 
 <indicator>
 name=Custom Indicator
+path=Indicators\MyIndicators\Chart_HeikinAshi.ex5
+apply=0
+show_data=0
+scale_inherit=0
+scale_line=0
+scale_line_percent=50
+scale_line_value=0.000000
+scale_fix_min=0
+scale_fix_min_val=0.000000
+scale_fix_max=0
+scale_fix_max_val=0.000000
+expertmode=4
+fixed_height=-1
+
+<graph>
+name=HA Open;HA High;HA Low;HA Close
+draw=17
+style=0
+width=1
+color=15570276,1993170
+</graph>
+
+<graph>
+name=OHLC
+draw=0
+style=0
+width=1
+color=
+</graph>
+</indicator>
+
+<indicator>
+name=Custom Indicator
 path=Indicators\MyIndicators\Session_Analysis_Single_Pro.ex5
 apply=0
-show_data=1
+show_data=0
 scale_inherit=0
 scale_line=0
 scale_line_percent=50
@@ -212,7 +245,7 @@ InpFull_ShowLinReg=false
 name=Custom Indicator
 path=Indicators\MyIndicators\Session_Analysis_Single_Pro.ex5
 apply=0
-show_data=1
+show_data=0
 scale_inherit=0
 scale_line=0
 scale_line_percent=50
@@ -332,7 +365,7 @@ InpFull_ShowLinReg=false
 name=Custom Indicator
 path=Indicators\MyIndicators\Session_Analysis_Single_Pro.ex5
 apply=0
-show_data=1
+show_data=0
 scale_inherit=0
 scale_line=0
 scale_line_percent=50
@@ -452,7 +485,7 @@ InpFull_ShowLinReg=false
 name=Custom Indicator
 path=Indicators\MyIndicators\Session_Analysis_Single_Pro.ex5
 apply=0
-show_data=1
+show_data=0
 scale_inherit=0
 scale_line=0
 scale_line_percent=50
