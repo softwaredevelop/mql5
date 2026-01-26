@@ -1,0 +1,26 @@
+InpUseMarketWatch=false
+InpSymbols=EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD
+; Chart Configuration 1
+InpPeriod_1=15
+InpTemplate_1=MyTemplates\Common\Default.tpl
+; Chart Configuration 2
+InpPeriod_2=15
+InpTemplate_2=MyTemplates\Strategies\trend.ha.base.tpl
+; Chart Configuration 3
+InpPeriod_3=0
+InpTemplate_3=
+; Chart Configuration 4
+InpPeriod_4=0
+InpTemplate_4=
+; Chart Configuration 5
+InpPeriod_5=0
+InpTemplate_5=
+; Chart Configuration 6
+InpPeriod_6=0
+InpTemplate_6=
+; Chart Configuration 7
+InpPeriod_7=0
+InpTemplate_7=
+; Chart Configuration 8
+InpPeriod_8=0
+InpTemplate_8=
