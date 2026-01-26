@@ -16,8 +16,8 @@
 #property indicator_level3 50.0
 #property indicator_level4 80.0
 #property indicator_level5 90.0
-#property indicator_minimum -10.0
-#property indicator_maximum 110.0
+#property indicator_minimum 0.0
+#property indicator_maximum 100.0
 
 //--- Plot 1: %K line
 #property indicator_label1  "%K"
