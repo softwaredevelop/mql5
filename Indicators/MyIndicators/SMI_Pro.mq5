@@ -19,6 +19,8 @@
 #property indicator_level6 -60.0
 #property indicator_level7 -80.0
 #property indicator_levelstyle STYLE_DOT
+#property indicator_minimum -100.0
+#property indicator_maximum 100.0
 
 //--- Plot 1: SMI line
 #property indicator_label1  "SMI"
