@@ -46,9 +46,6 @@ public:
 
    bool              Init(ENUM_PIVOT_TYPE type, ENUM_PIVOT_SOURCE source);
    bool              CalculateLevels(datetime current_time, ENUM_TIMEFRAMES tf, PivotLevels &out_levels);
-
-private:
-   void              GetHTFData(datetime time, ENUM_TIMEFRAMES tf, double &open, double &high, double &low, double &close);
   };
 
 //+------------------------------------------------------------------+
@@ -81,7 +78,6 @@ bool CPivotPointCalculator::CalculateLevels(datetime current_time, ENUM_TIMEFRAM
 
    double O, H, L, C;
 
-// FIX 1: Use arrays for Copy functions
    double o_arr[1], h_arr[1], l_arr[1], c_arr[1];
 
    if(CopyOpen(_Symbol, tf, htf_index, 1, o_arr)<=0 ||
@@ -100,7 +96,6 @@ bool CPivotPointCalculator::CalculateLevels(datetime current_time, ENUM_TIMEFRAM
      {
       double ha_close = (O + H + L + C) / 4.0;
 
-      // FIX 3: Removed unused variables prev_o, prev_c
       double po_arr[1], pc_arr[1];
       CopyOpen(_Symbol, tf, htf_index+1, 1, po_arr);
       CopyClose(_Symbol, tf, htf_index+1, 1, pc_arr);
@@ -162,7 +157,6 @@ bool CPivotPointCalculator::CalculateLevels(datetime current_time, ENUM_TIMEFRAM
 
       case PIVOT_DEMARK:
         {
-         // FIX 2: Added braces for scope
          double X;
          if(C < O)
             X = H + 2 * L + C;
@@ -189,12 +183,5 @@ bool CPivotPointCalculator::CalculateLevels(datetime current_time, ENUM_TIMEFRAM
 
    return true;
   }
-
 //+------------------------------------------------------------------+
-//| Get HTF Data (Helper)                                            |
-//+------------------------------------------------------------------+
-void CPivotPointCalculator::GetHTFData(datetime time, ENUM_TIMEFRAMES tf, double &open, double &high, double &low, double &close)
-  {
-// Implemented inline above
-  }
 //+------------------------------------------------------------------+
