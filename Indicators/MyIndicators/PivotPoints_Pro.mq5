@@ -3,16 +3,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Current Period Only + Full Visual Customization
+#property version   "3.02" // Fixed: Strict visual masking for current period
 #property description "Professional Pivot Points (Current Period Only)."
-#property description "Fully customizable colors, styles, and calculation modes."
 
 #property indicator_chart_window
 #property indicator_buffers 14
 #property indicator_plots   13
 
-//--- Default Plot definitions
-// Main Levels (0-6)
+//--- Plot definitions
 #property indicator_label1  "Pivot Point"
 #property indicator_type1   DRAW_LINE
 #property indicator_style1  STYLE_SOLID
@@ -55,7 +53,7 @@
 #property indicator_width7  1
 #property indicator_color7  clrFireBrick
 
-// Median Levels (7-12)
+// Median Levels
 #property indicator_label8  "S1-S2"
 #property indicator_type8   DRAW_LINE
 #property indicator_style8  STYLE_DOT
@@ -107,18 +105,12 @@ input color             InpColorPP        = clrGold;        // PP Color
 input ENUM_LINE_STYLE   InpStylePP        = STYLE_SOLID;    // PP Style
 input int               InpWidthPP        = 2;              // PP Width
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-input group             "Visual Settings - Resistance (R1-R3)"
+input group             "Visual Settings - Resistance"
 input color             InpColorRes       = clrDodgerBlue;  // Resistance Color
 input ENUM_LINE_STYLE   InpStyleRes       = STYLE_SOLID;    // Resistance Style
 input int               InpWidthRes       = 1;              // Resistance Width
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-input group             "Visual Settings - Support (S1-S3)"
+input group             "Visual Settings - Support"
 input color             InpColorSup       = clrFireBrick;   // Support Color
 input ENUM_LINE_STYLE   InpStyleSup       = STYLE_SOLID;    // Support Style
 input int               InpWidthSup       = 1;              // Support Width
@@ -139,7 +131,6 @@ double BufferPP[];
 double BufferR1[], BufferS1[];
 double BufferR2[], BufferS2[];
 double BufferR3[], BufferS3[];
-// Medians: M1(S1-S2), M2(PP-S1), M3(PP-R1), M4(R1-R2), M5(R2-R3), M6(S2-S3)
 double BufferM1[], BufferM2[], BufferM3[], BufferM4[], BufferM5[], BufferM6[];
 
 //--- Global Objects
@@ -150,7 +141,6 @@ CPivotPointCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Indicator Buffers Mapping
    SetIndexBuffer(0, BufferPP, INDICATOR_DATA);
    SetIndexBuffer(1, BufferR1, INDICATOR_DATA);
    SetIndexBuffer(2, BufferS1, INDICATOR_DATA);
@@ -159,20 +149,48 @@ int OnInit()
    SetIndexBuffer(5, BufferR3, INDICATOR_DATA);
    SetIndexBuffer(6, BufferS3, INDICATOR_DATA);
 
-   SetIndexBuffer(7, BufferM1, INDICATOR_DATA); // S1-S2
-   SetIndexBuffer(8, BufferM2, INDICATOR_DATA); // PP-S1
-   SetIndexBuffer(9, BufferM3, INDICATOR_DATA); // PP-R1
-   SetIndexBuffer(10, BufferM4, INDICATOR_DATA); // R1-R2
-   SetIndexBuffer(11, BufferM5, INDICATOR_DATA); // R2-R3
-   SetIndexBuffer(12, BufferM6, INDICATOR_DATA); // S2-S3
+   SetIndexBuffer(7, BufferM1, INDICATOR_DATA);
+   SetIndexBuffer(8, BufferM2, INDICATOR_DATA);
+   SetIndexBuffer(9, BufferM3, INDICATOR_DATA);
+   SetIndexBuffer(10, BufferM4, INDICATOR_DATA);
+   SetIndexBuffer(11, BufferM5, INDICATOR_DATA);
+   SetIndexBuffer(12, BufferM6, INDICATOR_DATA);
 
-//--- Apply Visual Styles Dynamically
-// PP
+// Important: Initialize with EMPTY_VALUE to avoid connecting zero lines
+   ArrayInitialize(BufferPP, EMPTY_VALUE);
+   ArrayInitialize(BufferR1, EMPTY_VALUE);
+   ArrayInitialize(BufferS1, EMPTY_VALUE);
+   ArrayInitialize(BufferR2, EMPTY_VALUE);
+   ArrayInitialize(BufferS2, EMPTY_VALUE);
+   ArrayInitialize(BufferR3, EMPTY_VALUE);
+   ArrayInitialize(BufferS3, EMPTY_VALUE);
+   ArrayInitialize(BufferM1, EMPTY_VALUE);
+   ArrayInitialize(BufferM2, EMPTY_VALUE);
+   ArrayInitialize(BufferM3, EMPTY_VALUE);
+   ArrayInitialize(BufferM4, EMPTY_VALUE);
+   ArrayInitialize(BufferM5, EMPTY_VALUE);
+   ArrayInitialize(BufferM6, EMPTY_VALUE);
+
+// Set as Non-Series (Normal Chronological Order: 0 is Oldest)
+   ArraySetAsSeries(BufferPP, false);
+   ArraySetAsSeries(BufferR1, false);
+   ArraySetAsSeries(BufferS1, false);
+   ArraySetAsSeries(BufferR2, false);
+   ArraySetAsSeries(BufferS2, false);
+   ArraySetAsSeries(BufferR3, false);
+   ArraySetAsSeries(BufferS3, false);
+   ArraySetAsSeries(BufferM1, false);
+   ArraySetAsSeries(BufferM2, false);
+   ArraySetAsSeries(BufferM3, false);
+   ArraySetAsSeries(BufferM4, false);
+   ArraySetAsSeries(BufferM5, false);
+   ArraySetAsSeries(BufferM6, false);
+
+// Styling Logic
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, InpColorPP);
    PlotIndexSetInteger(0, PLOT_LINE_STYLE, InpStylePP);
    PlotIndexSetInteger(0, PLOT_LINE_WIDTH, InpWidthPP);
 
-// Resistance
    int res_indices[] = {1, 3, 5};
    for(int i=0; i<ArraySize(res_indices); i++)
      {
@@ -181,7 +199,6 @@ int OnInit()
       PlotIndexSetInteger(res_indices[i], PLOT_LINE_WIDTH, InpWidthRes);
      }
 
-// Support
    int sup_indices[] = {2, 4, 6};
    for(int i=0; i<ArraySize(sup_indices); i++)
      {
@@ -190,7 +207,6 @@ int OnInit()
       PlotIndexSetInteger(sup_indices[i], PLOT_LINE_WIDTH, InpWidthSup);
      }
 
-// Medians
    for(int i=7; i<=12; i++)
      {
       if(InpShowMedians)
@@ -216,7 +232,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
      }
 
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("PivotPro(%s, %s)", EnumToString(InpTimeframe), EnumToString(InpPivotType)));
+   string label = StringFormat("PivotPro(%s)", EnumToString(InpTimeframe));
+   IndicatorSetString(INDICATOR_SHORTNAME, label);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
@@ -249,132 +266,122 @@ int OnCalculate(const int rates_total,
    if(rates_total < 2)
       return 0;
 
-//--- 1. Calculate Levels for the CURRENT moment
+// 1. Identify the start time of the CURRENT HTF Period
+   datetime current_time = time[rates_total - 1]; // Use the latest time on chart
+
+// This gives us the opening time of the HTF bar that 'current_time' belongs to (e.g., today 00:00)
+   datetime pivot_period_start = iTime(_Symbol, InpTimeframe, 0);
+
+   if(pivot_period_start == 0)
+      return 0;
+
+// 2. Calculate Levels for this period
    PivotLevels levels;
-   datetime current_time = time[rates_total - 1];
-
    if(!g_calculator.CalculateLevels(current_time, InpTimeframe, levels))
-      return 0; // Data not ready
+      return 0;
 
-//--- 2. Determine the start time of the current HTF bar
-   int shift = iBarShift(_Symbol, InpTimeframe, current_time);
-   datetime htf_start_time = iTime(_Symbol, InpTimeframe, shift);
-
-// Find the index in the current chart corresponding to htf_start_time
-   int start_index = iBarShift(_Symbol, Period(), htf_start_time);
-   if(start_index < 0)
-      start_index = 0;
-
-//--- 3. Handle New Period (Clear old lines)
-   static int prev_start_index = -1;
-
+// 3. STRICT VISUAL MASKING LOOP
+// We iterate through a relevant portion of the chart (e.g. from prev_calculated).
+// Logic: If the bar's time is >= pivot_period_start, draw line.
+//        If the bar's time is < pivot_period_start, FORCE EMPTY_VALUE.
+   int limit;
    if(prev_calculated == 0)
-     {
-      // Full init
-      ArrayInitialize(BufferPP, EMPTY_VALUE);
-      ArrayInitialize(BufferR1, EMPTY_VALUE);
-      ArrayInitialize(BufferS1, EMPTY_VALUE);
-      ArrayInitialize(BufferR2, EMPTY_VALUE);
-      ArrayInitialize(BufferS2, EMPTY_VALUE);
-      ArrayInitialize(BufferR3, EMPTY_VALUE);
-      ArrayInitialize(BufferS3, EMPTY_VALUE);
-      ArrayInitialize(BufferM1, EMPTY_VALUE);
-      ArrayInitialize(BufferM2, EMPTY_VALUE);
-      ArrayInitialize(BufferM3, EMPTY_VALUE);
-      ArrayInitialize(BufferM4, EMPTY_VALUE);
-      ArrayInitialize(BufferM5, EMPTY_VALUE);
-      ArrayInitialize(BufferM6, EMPTY_VALUE);
-      prev_start_index = start_index;
-     }
+      limit = 0;
    else
-      if(start_index != prev_start_index)
+      limit = prev_calculated - 1;
+
+// Iterate strictly chronologically (index 0 is oldest)
+   for(int i = limit; i < rates_total; i++)
+     {
+      // CONDITIONAL DRAWING
+      if(time[i] >= pivot_period_start)
         {
-         // New period started! Clear the previous period's lines to avoid clutter
-         // We clear a safe range backwards
-         int clear_from = MathMax(0, start_index - 500);
-         for(int k = clear_from; k < start_index; k++)
+         // Inside the current period -> DRAW
+         BufferPP[i] = levels.PP;
+         BufferR1[i] = levels.R1;
+         BufferS1[i] = levels.S1;
+         BufferR2[i] = levels.R2;
+         BufferS2[i] = levels.S2;
+         BufferR3[i] = levels.R3;
+         BufferS3[i] = levels.S3;
+
+         if(InpShowMedians)
            {
-            BufferPP[k] = EMPTY_VALUE;
-            BufferR1[k] = EMPTY_VALUE;
-            BufferS1[k] = EMPTY_VALUE;
-            BufferR2[k] = EMPTY_VALUE;
-            BufferS2[k] = EMPTY_VALUE;
-            BufferR3[k] = EMPTY_VALUE;
-            BufferS3[k] = EMPTY_VALUE;
-            BufferM1[k] = EMPTY_VALUE;
-            BufferM2[k] = EMPTY_VALUE;
-            BufferM3[k] = EMPTY_VALUE;
-            BufferM4[k] = EMPTY_VALUE;
-            BufferM5[k] = EMPTY_VALUE;
-            BufferM6[k] = EMPTY_VALUE;
+            BufferM1[i] = (levels.S1 + levels.S2)/2;
+            BufferM2[i] = (levels.S1 + levels.PP)/2;
+            BufferM3[i] = (levels.PP + levels.R1)/2;
+            BufferM4[i] = (levels.R1 + levels.R2)/2;
+            BufferM5[i] = (levels.R2 + levels.R3)/2;
+            BufferM6[i] = (levels.S2 + levels.S3)/2;
            }
-         prev_start_index = start_index;
         }
-
-//--- 4. Fill Current Period Buffers
-   for(int i = start_index; i < rates_total; i++)
-     {
-      BufferPP[i] = levels.PP;
-      BufferR1[i] = levels.R1;
-      BufferS1[i] = levels.S1;
-      BufferR2[i] = levels.R2;
-      BufferS2[i] = levels.S2;
-      BufferR3[i] = levels.R3;
-      BufferS3[i] = levels.S3;
-
-      if(InpShowMedians)
+      else
         {
-         BufferM1[i] = (levels.S1 + levels.S2)/2; // S1-S2
-         BufferM2[i] = (levels.S1 + levels.PP)/2; // PP-S1
-         BufferM3[i] = (levels.PP + levels.R1)/2; // PP-R1
-         BufferM4[i] = (levels.R1 + levels.R2)/2; // R1-R2
-         BufferM5[i] = (levels.R2 + levels.R3)/2; // R2-R3
-         BufferM6[i] = (levels.S2 + levels.S3)/2; // S2-S3
+         // Before the current period -> CLEANUP
+         BufferPP[i] = EMPTY_VALUE;
+         BufferR1[i] = EMPTY_VALUE;
+         BufferS1[i] = EMPTY_VALUE;
+         BufferR2[i] = EMPTY_VALUE;
+         BufferS2[i] = EMPTY_VALUE;
+         BufferR3[i] = EMPTY_VALUE;
+         BufferS3[i] = EMPTY_VALUE;
+
+         BufferM1[i] = EMPTY_VALUE;
+         BufferM2[i] = EMPTY_VALUE;
+         BufferM3[i] = EMPTY_VALUE;
+         BufferM4[i] = EMPTY_VALUE;
+         BufferM5[i] = EMPTY_VALUE;
+         BufferM6[i] = EMPTY_VALUE;
         }
      }
 
-//--- 5. Update Labels
+// 4. Update Labels
    if(InpShowLabels)
-     {
-      UpdateLabel("PP", levels.PP, InpColorPP);
-
-      UpdateLabel("R1", levels.R1, InpColorRes);
-      UpdateLabel("R2", levels.R2, InpColorRes);
-      UpdateLabel("R3", levels.R3, InpColorRes);
-
-      UpdateLabel("S1", levels.S1, InpColorSup);
-      UpdateLabel("S2", levels.S2, InpColorSup);
-      UpdateLabel("S3", levels.S3, InpColorSup);
-
-      if(InpShowMedians)
-        {
-         UpdateLabel("S1-S2", (levels.S1 + levels.S2)/2, InpColorMed, true);
-         UpdateLabel("PP-S1", (levels.S1 + levels.PP)/2, InpColorMed, true);
-         UpdateLabel("PP-R1", (levels.PP + levels.R1)/2, InpColorMed, true);
-         UpdateLabel("R1-R2", (levels.R1 + levels.R2)/2, InpColorMed, true);
-         UpdateLabel("R2-R3", (levels.R2 + levels.R3)/2, InpColorMed, true);
-         UpdateLabel("S2-S3", (levels.S2 + levels.S3)/2, InpColorMed, true);
-        }
-     }
+      UpdateLabels(levels);
 
    return(rates_total);
   }
 
 //+------------------------------------------------------------------+
-//| Helper: Update Text Label                                        |
+//| Helper: Update Labels                                            |
 //+------------------------------------------------------------------+
-void UpdateLabel(string name, double price, color col, bool small=false)
+void UpdateLabels(const PivotLevels &levels)
+  {
+   CreateLabel("PP", levels.PP, InpColorPP);
+   CreateLabel("R1", levels.R1, InpColorRes);
+   CreateLabel("R2", levels.R2, InpColorRes);
+   CreateLabel("R3", levels.R3, InpColorRes);
+   CreateLabel("S1", levels.S1, InpColorSup);
+   CreateLabel("S2", levels.S2, InpColorSup);
+   CreateLabel("S3", levels.S3, InpColorSup);
+
+   if(InpShowMedians)
+     {
+      CreateLabel("S1-S2", (levels.S1 + levels.S2)/2, InpColorMed, true);
+      CreateLabel("PP-S1", (levels.S1 + levels.PP)/2, InpColorMed, true);
+      CreateLabel("PP-R1", (levels.PP + levels.R1)/2, InpColorMed, true);
+      CreateLabel("R1-R2", (levels.R1 + levels.R2)/2, InpColorMed, true);
+      CreateLabel("R2-R3", (levels.R2 + levels.R3)/2, InpColorMed, true);
+      CreateLabel("S2-S3", (levels.S2 + levels.S3)/2, InpColorMed, true);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CreateLabel(string name, double price, color col, bool small=false)
   {
    if(price == EMPTY_VALUE || price == 0)
       return;
-
    string objName = "PivotLabel_" + name;
+
    if(ObjectFind(0, objName) < 0)
      {
       ObjectCreate(0, objName, OBJ_TEXT, 0, 0, 0);
       ObjectSetInteger(0, objName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
      }
 
+// Position relative to current bar
    datetime time = iTime(_Symbol, Period(), 0) + PeriodSeconds() * InpLabelShift;
 
    ObjectSetString(0, objName, OBJPROP_TEXT, "  " + name);
@@ -383,4 +390,5 @@ void UpdateLabel(string name, double price, color col, bool small=false)
    ObjectSetInteger(0, objName, OBJPROP_COLOR, col);
    ObjectSetInteger(0, objName, OBJPROP_FONTSIZE, small ? InpFontSize-2 : InpFontSize);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
