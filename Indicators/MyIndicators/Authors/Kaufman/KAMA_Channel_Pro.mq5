@@ -29,7 +29,7 @@
 #property indicator_type3   DRAW_LINE
 #property indicator_color3  clrCrimson
 #property indicator_style3  STYLE_SOLID
-#property indicator_width3  2
+#property indicator_width3  1
 
 #include <MyIncludes\KAMA_Channel_Calculator.mqh>
 
