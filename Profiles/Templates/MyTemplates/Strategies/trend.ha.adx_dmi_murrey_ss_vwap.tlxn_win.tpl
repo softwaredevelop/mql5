@@ -682,7 +682,7 @@ color=8388608
 <inputs>
 InpSmootherType=0
 InpPeriod=13
-InpSourcePrice=-1
+InpSourcePrice=1
 </inputs>
 </indicator>
 
@@ -712,7 +712,7 @@ color=17919
 <inputs>
 InpSmootherType=0
 InpPeriod=21
-InpSourcePrice=-1
+InpSourcePrice=1
 </inputs>
 </indicator>
 
