@@ -33,7 +33,9 @@ This indicator has been refactored into a professional, modular architecture, ad
   - **`MurreyMath_Drawer.mqh`**: A dedicated visualization class. It manages all chart interactions, including the creation, movement, and styling of `OBJ_HLINE` and `OBJ_TEXT` objects. It implements automatic cleanup in its destructor to prevent "ghost" objects on the chart.
   - **`Murrey_Math_Line_X_Pro.mq5`**: The main indicator file acts as a lightweight controller, orchestrating the data flow between the calculator and the drawer.
 
-- **Stable MTF Implementation:** The `CMurreyMathCalculator` class robustly handles Multi-Timeframe data. It verifies data availability (`SERIES_BARS_COUNT`) before attempting to copy history, preventing runtime errors during initialization. Recalculation is triggered efficiently, ensuring levels are always up-to-date with the higher timeframe context.
+- **Stable MTF Implementation:** The indicator uses a "Rolling Window" approach on the higher timeframe. For example, if `InpUpperTimeframe` is `D1` and `InpPeriod` is `64`, it calculates levels based on the last 64 Daily candles.
+  - On lower timeframes (e.g., M15), these levels remain stable throughout the day, only updating when a new Daily candle begins or if the current price breaks the 64-day High/Low range.
+  - This provides a solid, reliable grid for intraday trading that aligns with the larger market structure.
 
 - **Robust Drawing Logic:** The drawing logic strictly follows the calculation state. Visual elements are only updated or drawn if the calculation engine returns a success status (`true`). This prevents the display of invalid or partial levels during data loading phases. The label positioning logic replicates the original behavior, supporting both left-aligned and right-aligned text placement.
 
@@ -41,7 +43,9 @@ This indicator has been refactored into a professional, modular architecture, ad
 
 - **`InpPeriod`**: The lookback period used to find the highest high and lowest low on the selected timeframe. Default: `64`.
 - **`InpUpperTimeframe`**: The timeframe on which the Murrey Math calculation is performed. Setting this to a higher timeframe (e.g., `PERIOD_H4`) will display the H4 levels on any lower timeframe chart (e.g., M15). `PERIOD_CURRENT` uses the chart's own timeframe. Default: `PERIOD_H4`.
-- **`InpStepBack`**: The number of bars to shift the calculation start point into the past. `0` means the calculation is based on the most recent bars. Default: `0`.
+- **`InpStepBack`**: The number of bars to shift the calculation start point into the past.
+  - `0`: **Dynamic Mode.** Includes the current (forming) bar in the calculation. Levels may adjust slightly in real-time if a new High/Low is made.
+  - `1`: **Static Mode.** Uses only closed bars. Levels remain fixed for the duration of the current timeframe bar (e.g., fixed for the whole day if D1 is selected). Default: `0`.
 - **`InpLabelSide`**: Determines where the descriptive text labels are displayed.
   - `Left`: Labels are aligned to the left edge of the chart window (first visible bar).
   - `Right`: Labels are aligned to the right side (future/current price).
