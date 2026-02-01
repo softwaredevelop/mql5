@@ -807,6 +807,14 @@ color=4678655
 </graph>
 
 <level>
+level=20.000000
+style=2
+color=12632256
+width=1
+descr=
+</level>
+
+<level>
 level=25.000000
 style=2
 color=12632256
@@ -815,7 +823,7 @@ descr=
 </level>
 
 <level>
-level=40.000000
+level=50.000000
 style=2
 color=12632256
 width=1
