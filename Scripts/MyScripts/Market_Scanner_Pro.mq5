@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 2.1 - Professional Market Export    |
+//|                    QuantScan 3.1 - Professional Market Export    |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.10" // Added Squeeze & TSI inputs
-#property description "Exports 'QuantScan 2.0' dataset for LLM Analysis."
-#property description "Combines Trend Quality, Volume, and Statistical metrics."
+#property version   "3.30" // Timezone input + RS Lookback + History Control
+#property description "Exports 'QuantScan 3.0' dataset for LLM Analysis."
+#property description "Includes Relative Strength and Institutional Metrics."
 #property script_show_inputs
 
 //--- Include Custom Calculators
@@ -23,6 +23,9 @@
 input group "Scanner Config"
 input bool     InpUseMarketWatch = false;    // Scan Market Watch?
 input string   InpSymbolList     = "EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD,XAUUSD,US500,DE40,XTIUSD,ETHUSD";
+input string   InpBenchmark      = "US500";  // Benchmark for Relative Strength
+input string   InpBrokerTimeZone = "EET (UTC+2)"; // Broker Timezone Name (for CSV Header)
+input int      InpScanHistory    = 500;      // Max History Bars to fetch
 
 input group "Timeframes"
 input ENUM_TIMEFRAMES InpTFFast  = PERIOD_M15; // Trigger / Execution
@@ -33,21 +36,22 @@ input int      InpDSMAPeriod     = 40;
 input double   InpLaguerreGamma  = 0.50;
 input int      InpMurreyPeriod   = 64;
 input int      InpATRPeriod      = 14;
+input int      InpRSBars         = 24;   // Relative Strength Lookback (Bars on Slow TF)
 input int      InpRVOLPeriod     = 20;   // Relative Volume Lookback
 input int      InpERPeriod       = 10;   // Efficiency Ratio Lookback
 input int      InpZScorePeriod   = 20;   // Z-Score Lookback
 
 input group "TSI Settings"
-input int      InpTSI_Slow       = 25;   // TSI Slow Period
-input int      InpTSI_Fast       = 13;   // TSI Fast Period
-input int      InpTSI_Signal     = 13;   // TSI Signal Period
+input int      InpTSI_Slow       = 25;
+input int      InpTSI_Fast       = 13;
+input int      InpTSI_Signal     = 13;
 
 input group "Squeeze Settings"
-input int      InpSqueezeLength  = 20;   // Indicators Length
-input double   InpBBMult         = 2.0;  // Bollinger Deviation
-input double   InpKCMult         = 1.5;  // Keltner Multiplier
+input int      InpSqueezeLength  = 20;
+input double   InpBBMult         = 2.0;
+input double   InpKCMult         = 1.5;
 
-//--- Struct for QuantScan 2.0 Data
+//--- Struct for QuantScan 3.0 Data
 struct QuantData
   {
    string            timestamp;
@@ -58,6 +62,7 @@ struct QuantData
    double            trend_score;      // DSMA Normalized Score
    double            trend_qual;       // Efficiency Ratio (ER)
    string            zone;             // Murrey Math Zone
+   double            rel_strength;     // Relative Strength vs Benchmark
 
    // --- M15 Execution ---
    double            momentum;         // Laguerre RSI
@@ -65,7 +70,11 @@ struct QuantData
    string            squeeze;          // ON/OFF
    double            z_score;          // Statistical Deviation
    double            vola_regime;      // ATR(5)/ATR(50) Ratio
-   string            tsi_dir;          // TSI Direction (BULL/BEAR)
+   string            tsi_dir;          // TSI Direction
+
+   // --- Composite Metrics ---
+   double            rev_prob;         // Mean Reversion Probability (0-100)
+   string            absorption;       // Institutional Absorption (YES/NO)
   };
 
 //+------------------------------------------------------------------+
@@ -91,7 +100,27 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// 2. Prepare CSV
+// 2. Pre-Calculate Benchmark Performance
+   double bench_change_pct = 0.0;
+
+   if(!SymbolSelect(InpBenchmark, true))
+     {
+      Print("Warning: Benchmark '", InpBenchmark, "' not found. RS will be 0.");
+     }
+   else
+     {
+      double b_close[], b_open[];
+      // Lookback based on InpRSBars input
+      if(CopyClose(InpBenchmark, InpTFSlow, 1, 1, b_close) > 0 &&
+         CopyOpen(InpBenchmark, InpTFSlow, InpRSBars, 1, b_open) > 0) // Uses user defined lookback
+        {
+         if(b_open[0] != 0)
+            bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
+         PrintFormat("Benchmark (%s) %d-Bar Change: %.2f%%", InpBenchmark, InpRSBars, bench_change_pct);
+        }
+     }
+
+// 3. Prepare CSV
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
    StringReplace(filename, " ", "_");
@@ -103,14 +132,17 @@ void OnStart()
       return;
      }
 
-// 3. Header (QuantScan 2.0 Format)
+// 4. Header - Now includes Timezone info
+   string time_header = "TIME (" + InpBrokerTimeZone + ")";
+
    FileWrite(file_handle,
-             "TIME", "SYMBOL", "PRICE",
-             "TREND_SCORE", "TREND_QUAL", "ZONE", // H1 Context
-             "MOMENTUM", "VOL_QUAL", "SQUEEZE", "Z_SCORE", "VOL_REGIME", "TSI_DIR" // M15 Data
+             time_header, "SYMBOL", "PRICE",
+             "TREND_SCORE", "TREND_QUAL", "ZONE", "REL_STRENGTH", // H1 Context
+             "MOMENTUM", "VOL_QUAL", "SQUEEZE", "Z_SCORE", "VOL_REGIME", "TSI_DIR", // M15 Data
+             "REVERSION_PROB", "ABSORPTION" // Composites
             );
 
-// 4. Main Loop
+// 5. Main Loop
    PrintFormat("Scanning %d symbols...", total_symbols);
 
    for(int i=0; i<total_symbols; i++)
@@ -123,7 +155,7 @@ void OnStart()
       ZeroMemory(data);
 
       // Compute
-      if(RunQuantAnalysis(sym, data))
+      if(RunQuantAnalysis(sym, bench_change_pct, data))
         {
          FileWrite(file_handle,
                    data.timestamp,
@@ -132,12 +164,15 @@ void OnStart()
                    DoubleToString(data.trend_score, 2),
                    DoubleToString(data.trend_qual, 2),
                    data.zone,
+                   DoubleToString(data.rel_strength, 2) + "%",
                    DoubleToString(data.momentum, 2),
                    DoubleToString(data.vol_qual, 2),
                    data.squeeze,
                    DoubleToString(data.z_score, 2),
                    DoubleToString(data.vola_regime, 2),
-                   data.tsi_dir
+                   data.tsi_dir,
+                   DoubleToString(data.rev_prob, 0) + "%",
+                   data.absorption
                   );
         }
       else
@@ -153,64 +188,80 @@ void OnStart()
 //+------------------------------------------------------------------+
 //| Core Logic: Run Quant Analysis                                   |
 //+------------------------------------------------------------------+
-bool RunQuantAnalysis(string sym, QuantData &data)
+bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
   {
 // --- Common Data ---
    data.timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES);
-   StringReplace(data.timestamp, ".", "."); // Ensure format YYYY.MM.DD
+   StringReplace(data.timestamp, ".", ".");
    data.symbol    = sym;
    data.price     = SymbolInfoDouble(sym, SYMBOL_BID);
 
 // =================================================================
-// PHASE 1: H1 CONTEXT (Trend, Structure, Quality)
+// PHASE 1: H1 CONTEXT
 // =================================================================
 
 // Fetch H1 Data
    double h1_o[], h1_h[], h1_l[], h1_c[];
    long   h1_v[];
    datetime h1_t[];
-   if(!FetchData(sym, InpTFSlow, 300, h1_t, h1_o, h1_h, h1_l, h1_c, h1_v))
+// Use InpScanHistory instead of hardcoded 300
+   if(!FetchData(sym, InpTFSlow, InpScanHistory, h1_t, h1_o, h1_h, h1_l, h1_c, h1_v))
       return false;
 
-// 1. H1 ATR (Normalization Base)
+// 1. H1 ATR
    double h1_atr = Calc_ATR(h1_o, h1_h, h1_l, h1_c, InpATRPeriod);
    if(h1_atr == 0)
       return false;
 
-// 2. Trend Score (DSMA Deviation)
+// 2. Trend Score
    data.trend_score = Calc_DSMA_Score(h1_o, h1_h, h1_l, h1_c, h1_atr);
 
-// 3. Trend Quality (Kaufman Efficiency Ratio)
+// 3. Trend Quality
    data.trend_qual = Calc_EfficiencyRatio(h1_c, InpERPeriod);
 
-// 4. Zone (Murrey Math)
+// 4. Zone
    data.zone = Calc_MurreyZone(sym, InpTFSlow);
+
+// 5. Relative Strength
+   double sym_change = 0;
+   int total_h1 = ArraySize(h1_c);
+// Uses InpRSBars input for lookback
+   if(total_h1 > InpRSBars + 1)
+     {
+      double c_now = h1_c[total_h1-2]; // Close[1]
+      double o_old = h1_o[total_h1-2-(InpRSBars-1)]; // Match Benchmark logic
+      if(o_old != 0)
+         sym_change = ((c_now - o_old) / o_old) * 100.0;
+     }
+   data.rel_strength = sym_change - bench_change;
 
 
 // =================================================================
-// PHASE 2: M15 TRIGGER (Momentum, Vol, Stats)
+// PHASE 2: M15 TRIGGER
 // =================================================================
 
 // Fetch M15 Data
    double m15_o[], m15_h[], m15_l[], m15_c[];
    long   m15_v[];
    datetime m15_t[];
-   if(!FetchData(sym, InpTFFast, 300, m15_t, m15_o, m15_h, m15_l, m15_c, m15_v))
+   if(!FetchData(sym, InpTFFast, InpScanHistory, m15_t, m15_o, m15_h, m15_l, m15_c, m15_v))
       return false;
 
-// 1. Momentum (Laguerre RSI)
+   double m15_atr = Calc_ATR(m15_o, m15_h, m15_l, m15_c, InpATRPeriod);
+
+// 1. Momentum
    data.momentum = Calc_LaguerreRSI(m15_o, m15_h, m15_l, m15_c);
 
-// 2. Volume Quality (RVOL)
+// 2. Volume Quality
    data.vol_qual = Calc_RVOL(m15_v, InpRVOLPeriod);
 
-// 3. Squeeze (BB inside Keltner)
+// 3. Squeeze
    data.squeeze = Calc_Squeeze(sym, InpTFFast, m15_o, m15_h, m15_l, m15_c);
 
-// 4. Z-Score (Mean Reversion)
+// 4. Z-Score
    data.z_score = Calc_ZScore(m15_c, InpZScorePeriod);
 
-// 5. Volatility Regime (Fast/Slow Vola)
+// 5. Volatility Regime
    double atr_fast = Calc_ATR(m15_o, m15_h, m15_l, m15_c, 5);
    double atr_slow = Calc_ATR(m15_o, m15_h, m15_l, m15_c, 50);
    if(atr_slow != 0)
@@ -220,6 +271,46 @@ bool RunQuantAnalysis(string sym, QuantData &data)
 
 // 6. TSI Direction
    Calc_TSI_Dir(m15_o, m15_h, m15_l, m15_c, data.tsi_dir);
+
+
+// =================================================================
+// PHASE 3: COMPOSITE METRICS
+// =================================================================
+
+// A. Mean Reversion Probability
+   double score = 0;
+   double abs_z = MathAbs(data.z_score);
+   if(abs_z > 3.0)
+      score += 40;
+   else
+      if(abs_z > 2.0)
+         score += 20;
+
+   if(StringFind(data.zone, "Extreme") >= 0 || StringFind(data.zone, "8/8") >= 0 || StringFind(data.zone, "0/8") >= 0)
+      score += 30;
+
+   if(data.momentum > 0.90 || data.momentum < 0.10)
+      score += 30;
+
+   data.rev_prob = score;
+
+// B. Institutional Absorption
+   int last_idx = ArraySize(m15_c) - 2; // Index of last completed bar
+
+   if(last_idx >= 0 && m15_atr > 0)
+     {
+      double body = MathAbs(m15_c[last_idx] - m15_o[last_idx]);
+      double bar_rvol = Calc_RVOL_Single(m15_v, InpRVOLPeriod, last_idx);
+
+      if(bar_rvol > 2.0 && body < (0.4 * m15_atr))
+         data.absorption = "YES";
+      else
+         data.absorption = "NO";
+     }
+   else
+     {
+      data.absorption = "-";
+     }
 
    return true;
   }
@@ -284,20 +375,27 @@ double Calc_DSMA_Score(const double &o[], const double &h[], const double &l[], 
   }
 
 //+------------------------------------------------------------------+
-//| WRAPPER: RVOL (Relative Volume)                                  |
+//| WRAPPER: RVOL (Average)                                          |
 //+------------------------------------------------------------------+
 double Calc_RVOL(const long &vol[], int period)
   {
-   int total = ArraySize(vol);
-   if(total <= period)
+   return Calc_RVOL_Single(vol, period, ArraySize(vol)-1);
+  }
+
+//+------------------------------------------------------------------+
+//| WRAPPER: RVOL (Specific Index)                                   |
+//+------------------------------------------------------------------+
+double Calc_RVOL_Single(const long &vol[], int period, int index)
+  {
+   if(index < period)
       return 1.0;
    double sum = 0;
    for(int i=1; i<=period; i++)
-      sum += (double)vol[total - 1 - i];
+      sum += (double)vol[index - i];
    double avg = sum / period;
    if(avg == 0)
       return 0;
-   return (double)vol[total-1] / avg;
+   return (double)vol[index] / avg;
   }
 
 //+------------------------------------------------------------------+
@@ -339,13 +437,11 @@ double Calc_EfficiencyRatio(const double &price[], int period)
   }
 
 //+------------------------------------------------------------------+
-//| WRAPPER: Squeeze (Uses Global Inputs)                            |
+//| WRAPPER: Squeeze                                                 |
 //+------------------------------------------------------------------+
 string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[])
   {
    int total = ArraySize(c);
-
-// 1. Calc BB (Uses Inputs)
    CBollingerBandsCalculator bb;
    if(!bb.Init(InpSqueezeLength, InpBBMult, SMA))
       return "ERR";
@@ -355,7 +451,6 @@ string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const dou
    ArrayResize(b_lo, total);
    bb.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, b_ma, b_up, b_lo);
 
-// 2. Calc KC (Uses Inputs)
    CKeltnerChannelCalculator kc;
    if(!kc.Init(InpSqueezeLength, SMA, InpSqueezeLength, InpKCMult, ATR_SOURCE_STANDARD))
       return "ERR";
@@ -363,14 +458,10 @@ string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const dou
    ArrayResize(k_ma, total);
    ArrayResize(k_up, total);
    ArrayResize(k_lo, total);
-
-// Correct call signature
    kc.Calculate(total, 0, o, h, l, c, PRICE_CLOSE, k_ma, k_up, k_lo);
 
-// 3. Logic
    int idx = total - 1;
    bool squeeze_on = (b_up[idx] < k_up[idx]) && (b_lo[idx] > k_lo[idx]);
-
    return squeeze_on ? "ON" : "OFF";
   }
 
@@ -391,25 +482,22 @@ double Calc_LaguerreRSI(const double &o[], const double &h[], const double &l[],
   }
 
 //+------------------------------------------------------------------+
-//| WRAPPER: TSI Direction (Uses Global Inputs)                      |
+//| WRAPPER: TSI Direction                                           |
 //+------------------------------------------------------------------+
 void Calc_TSI_Dir(const double &o[], const double &h[], const double &l[], const double &c[], string &dir)
   {
    CTSICalculator calc;
-// Using Global Inputs
    if(!calc.Init(InpTSI_Slow, EMA, InpTSI_Fast, EMA, InpTSI_Signal, EMA))
      {
       dir="ERR";
       return;
      }
-
    double tsi[], sig[], osc[];
    int total = ArraySize(c);
    ArrayResize(tsi, total);
    ArrayResize(sig, total);
    ArrayResize(osc, total);
    calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, tsi, sig, osc);
-
    if(tsi[total-1] > sig[total-1])
       dir = "BULL";
    else
