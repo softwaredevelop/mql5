@@ -1,22 +1,26 @@
 //+------------------------------------------------------------------+
 //|                                               ATR_Calculator.mqh |
-//|         VERSION 2.30: Added ENUM_ATR_SOURCE definition.          |
+//|         VERSION 2.32: Added strict array bounds safety checks.   |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//--- Enums needed for ATR logic ---
+//--- Enums Definitions Guard
+#ifndef ENUM_ATR_DEFINITIONS_DEFINED
+#define ENUM_ATR_DEFINITIONS_DEFINED
+#ifndef ENUM_CANDLE_SOURCE_DEFINED
+#define ENUM_CANDLE_SOURCE_DEFINED
 enum ENUM_CANDLE_SOURCE { CANDLE_STANDARD, CANDLE_HEIKIN_ASHI };
+#endif
 enum ENUM_ATR_DISPLAY_MODE { ATR_POINTS, ATR_PERCENT };
-
-//--- MOVED HERE: Common enum for selecting ATR source type ---
 enum ENUM_ATR_SOURCE
   {
-   ATR_SOURCE_STANDARD,    // Calculate ATR from standard candles
-   ATR_SOURCE_HEIKIN_ASHI  // Calculate ATR from Heikin Ashi candles
+   ATR_SOURCE_STANDARD,
+   ATR_SOURCE_HEIKIN_ASHI
   };
+#endif
 
 //+==================================================================+
 //|             CLASS 1: CATRCalculator (Base Class)                 |
@@ -29,7 +33,7 @@ protected:
 
    //--- Persistent Buffer for True Range and Raw ATR
    double            m_tr[];
-   double            m_atr_raw[]; // Stores ATR in points for recursion
+   double            m_atr_raw[];
 
    virtual bool      PrepareTrueRange(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
@@ -54,12 +58,22 @@ bool CATRCalculator::Init(int period, ENUM_ATR_DISPLAY_MODE mode)
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Main Calculation (Strict Safety)                                 |
 //+------------------------------------------------------------------+
 void CATRCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], double &atr_buffer[])
   {
+// Safety 1: Period Check
    if(rates_total <= m_atr_period)
       return;
+
+// Safety 2: Array Bounds Check (Crucial Fix)
+// Ensure all input arrays are at least as large as the loop limit (rates_total)
+   if(ArraySize(open) < rates_total || ArraySize(high) < rates_total ||
+      ArraySize(low) < rates_total || ArraySize(close) < rates_total)
+     {
+      // Log error (optional) and exit to prevent crash
+      return;
+     }
 
    int start_index;
    if(prev_calculated == 0)
@@ -67,11 +81,16 @@ void CATRCalculator::Calculate(int rates_total, int prev_calculated, const doubl
    else
       start_index = prev_calculated - 1;
 
+// Resize internal buffers
    if(ArraySize(m_tr) != rates_total)
      {
       ArrayResize(m_tr, rates_total);
       ArrayResize(m_atr_raw, rates_total);
      }
+
+// Resize output buffer if needed (usually handled by caller, but safety first)
+   if(ArraySize(atr_buffer) != rates_total)
+      ArrayResize(atr_buffer, rates_total);
 
    if(!PrepareTrueRange(rates_total, start_index, open, high, low, close))
       return;
@@ -80,14 +99,14 @@ void CATRCalculator::Calculate(int rates_total, int prev_calculated, const doubl
 
    for(int i = loop_start; i < rates_total; i++)
      {
-      if(i == m_atr_period) // Initialization
+      if(i == m_atr_period) // Initialization (SMA)
         {
          double sum_tr = 0;
-         for(int j = 1; j <= m_atr_period; j++)
-            sum_tr += m_tr[j];
+         for(int j = 0; j < m_atr_period; j++)
+            sum_tr += m_tr[i-j];
          m_atr_raw[i] = sum_tr / m_atr_period;
         }
-      else
+      else // Smoothing (RMA/Wilder's)
          m_atr_raw[i] = (m_atr_raw[i-1] * (m_atr_period - 1) + m_tr[i]) / m_atr_period;
      }
 
@@ -112,11 +131,19 @@ void CATRCalculator::Calculate(int rates_total, int prev_calculated, const doubl
 //+------------------------------------------------------------------+
 bool CATRCalculator::PrepareTrueRange(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
+// Correct logic: Start from 1 to allow [i-1] access
    int i = (start_index < 1) ? 1 : start_index;
+
+// Handle special case for index 0 (if full recalc)
+   if(start_index == 0)
+     {
+      m_tr[0] = high[0] - low[0];
+     }
 
    for(; i < rates_total; i++)
      {
       double range1 = high[i] - low[i];
+      // Bound check implicitly handled by Calculate's Safety 2, but logic ensures i-1 >= 0
       double range2 = MathAbs(high[i] - close[i-1]);
       double range3 = MathAbs(low[i] - close[i-1]);
       m_tr[i] = MathMax(range1, MathMax(range2, range3));
@@ -155,6 +182,11 @@ bool CATRCalculator_HA::PrepareTrueRange(int rates_total, int start_index, const
 
    int i = (start_index < 1) ? 1 : start_index;
 
+   if(start_index == 0)
+     {
+      m_tr[0] = m_ha_high[0] - m_ha_low[0];
+     }
+
    for(; i < rates_total; i++)
      {
       double range1 = m_ha_high[i] - m_ha_low[i];
@@ -164,4 +196,5 @@ bool CATRCalculator_HA::PrepareTrueRange(int rates_total, int start_index, const
      }
    return true;
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
