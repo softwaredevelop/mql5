@@ -4,7 +4,7 @@
 //|                                       Copyright 2026, xxxxxxxx   |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.01" // Fixed compiler errors
+#property version   "1.12" // Adopted standard Real Volume check
 #property description "Displays volume as a ratio of its moving average."
 
 #property indicator_separate_window
@@ -41,8 +41,8 @@ input color             InpColorHigh   = clrDodgerBlue;
 input color             InpColorExtreme= clrGold;
 
 //--- Buffers
-double ExtRvolBuffer[];  // Stores the calculated RVOL value
-double ExtColorBuffer[]; // Stores the color index for each bar
+double ExtRvolBuffer[];
+double ExtColorBuffer[];
 
 //--- Global Calculator
 CRVOLCalculator *g_calculator;
@@ -52,6 +52,14 @@ CRVOLCalculator *g_calculator;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+// --- ADOPTED: Real Volume Availability Check (from PVI/NVI Pro) ---
+   if(InpVolumeType == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) == 0)
+     {
+      Print("RVOL_Pro Error: Real Volume is not available for '", _Symbol, "'. The indicator will not be drawn. Please switch to Tick Volume.");
+      return(INIT_FAILED);
+     }
+// --- End of Check ---
+
 //--- Bind buffers
    SetIndexBuffer(0, ExtRvolBuffer, INDICATOR_DATA);
    SetIndexBuffer(1, ExtColorBuffer, INDICATOR_COLOR_INDEX);
@@ -65,8 +73,6 @@ int OnInit()
 
 //--- Dynamically set colors and levels from inputs
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
-
-// FIXED: Use MQL5 function for setting plot labels
    PlotIndexSetString(0, PLOT_LABEL, StringFormat("RVOL(%d)", InpPeriod));
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RVOL(%d)", InpPeriod));
 
@@ -81,7 +87,7 @@ int OnInit()
    g_calculator = new CRVOLCalculator();
    if(!g_calculator.Init(InpPeriod))
      {
-      Print("Failed to initialize RVOL Calculator.");
+      Print("RVOL_Pro Error: Failed to initialize calculator engine.");
       return(INIT_FAILED);
      }
 
@@ -111,19 +117,15 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-// FIXED: Use an if/else block to pass the correct array reference
    if(InpVolumeType == VOLUME_TICK)
      {
-      // Delegate calculation to the engine using tick_volume
       g_calculator.Calculate(rates_total, prev_calculated, tick_volume, ExtRvolBuffer);
      }
    else
      {
-      // Delegate calculation to the engine using real volume
       g_calculator.Calculate(rates_total, prev_calculated, volume, ExtRvolBuffer);
      }
 
-//--- Set colors based on the calculated values
    int limit = (prev_calculated == 0) ? InpPeriod : prev_calculated - 1;
 
    for(int i = limit; i < rates_total; i++)
