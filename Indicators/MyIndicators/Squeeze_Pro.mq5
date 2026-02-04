@@ -56,9 +56,6 @@ int OnInit()
    SetIndexBuffer(1, BufferSqueeze, INDICATOR_DATA);
    SetIndexBuffer(2, BufferSqueezeColors, INDICATOR_COLOR_INDEX);
 
-// Internal buffers for calculation handled by class, but MT5 needs buffers decl logic?
-// No, Class handles internal arrays. We only map visual buffers here.
-
 // 2. Visual Setup
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod);
 
