@@ -149,25 +149,12 @@ void CSqueezeCalculator::Calculate(int rates_total, int prev_calculated, ENUM_AP
       // Assuming i is chronological
       if(i > 0)
         {
-         // We can use a linear regression logic or simple smoothing.
-         // Let's use Linear Regression of the delta over 12 bars for genuine "TTM" feel
-         // Calculating LinReg Slope inline for last 'm_mom_period' bars
-
          double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
          int n = m_mom_period;
 
-         // Standard Linear Regression Forecast Logic on Price Deviation
-         // We regress Price[k] against k
-         // Actually, most Squeeze indicators use:
-         // Val = LinearRegression( Source - (Highest+Lowest)/2 + SMA ) / 2 ... complicated.
-
-         // Professional Approach: Smoothed Delta
-         // This is robust and fast (O(1)).
          double mom_raw = close[i] - ((high[ArrayMaximum(high, i-m_period+1, m_period)] + low[ArrayMinimum(low, i-m_period+1, m_period)]) / 2.0 + m_bb_mid[i]) / 2.0;
 
-         // Linear Regression on this 'mom_raw' is heavy.
-         // Let's use simple coordinate smoothing.
-         out_mom[i] = mom_raw; // Can be enhanced later with LinReg engine if strict TTM required
+         out_mom[i] = mom_raw;
         }
       else
          out_mom[i] = 0;
