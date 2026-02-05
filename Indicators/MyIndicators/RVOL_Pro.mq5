@@ -1,95 +1,57 @@
 //+------------------------------------------------------------------+
-//|                                                    RVOL_Pro.mq5  |
-//|                   Relative Volume (RVOL) Professional Indicator  |
-//|                                       Copyright 2026, xxxxxxxx   |
+//|                                                     RVOL_Pro.mq5 |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.12" // Adopted standard Real Volume check
-#property description "Displays volume as a ratio of its moving average."
+#property version   "1.00"
+#property description "Relative Volume Indicator."
+#property description "Highlights institutional activity spikes > 2.0."
 
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- Plot Settings
-#property indicator_label1    "RVOL"
-#property indicator_type1     DRAW_COLOR_HISTOGRAM
-#property indicator_style1    STYLE_SOLID
-#property indicator_width1    2
-
-//--- Color definitions for the histogram
-#property indicator_color1    clrSilver, clrDodgerBlue, clrGold
-
 //--- Levels
-#property indicator_level1    1.5
-#property indicator_level2    2.5
+#property indicator_level1 1.0
+#property indicator_level2 2.0
+#property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
-//--- Include Engine
-#include <MyIncludes\RVOL_Calculator.mqh>
+//--- Plot: RVOL Histogram (Colored)
+#property indicator_label1  "RVOL"
+#property indicator_type1   DRAW_COLOR_HISTOGRAM
+#property indicator_color1  clrGray, clrDodgerBlue, clrOrangeRed // Low, Normal, High
+#property indicator_style1  STYLE_SOLID
+#property indicator_width1  3
+
+#include <MyIncludes\RelativeVolume_Calculator.mqh>
 
 //--- Input Parameters
-input group "Calculation Settings"
-input int               InpPeriod      = 20;      // Lookback period for average volume
-input ENUM_APPLIED_VOLUME InpVolumeType  = VOLUME_TICK; // Volume Type (Tick or Real)
-
-input group "Visual Settings"
-input double            InpLevelHigh   = 1.5;     // Level for 'High' volume
-input double            InpLevelExtreme= 2.5;     // Level for 'Extreme' volume
-input color             InpColorNormal = clrSilver;
-input color             InpColorHigh   = clrDodgerBlue;
-input color             InpColorExtreme= clrGold;
+input int               InpPeriod      = 20;          // Average Volume Period
+input double            InpThreshold   = 2.0;         // High Activity Threshold
 
 //--- Buffers
-double ExtRvolBuffer[];
-double ExtColorBuffer[];
+double BufferRVOL[];
+double BufferColors[]; // 0=Low, 1=Normal, 2=High
 
-//--- Global Calculator
-CRVOLCalculator *g_calculator;
+//--- Global Object
+CRelativeVolumeCalculator *g_calculator;
 
 //+------------------------------------------------------------------+
 //| OnInit                                                           |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-// --- ADOPTED: Real Volume Availability Check (from PVI/NVI Pro) ---
-   if(InpVolumeType == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) == 0)
-     {
-      Print("RVOL_Pro Error: Real Volume is not available for '", _Symbol, "'. The indicator will not be drawn. Please switch to Tick Volume.");
-      return(INIT_FAILED);
-     }
-// --- End of Check ---
+   SetIndexBuffer(0, BufferRVOL, INDICATOR_DATA);
+   SetIndexBuffer(1, BufferColors, INDICATOR_COLOR_INDEX);
 
-//--- Bind buffers
-   SetIndexBuffer(0, ExtRvolBuffer, INDICATOR_DATA);
-   SetIndexBuffer(1, ExtColorBuffer, INDICATOR_COLOR_INDEX);
+   string name = StringFormat("RVOL(%d)", InpPeriod);
+   IndicatorSetString(INDICATOR_SHORTNAME, name);
+   IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
-//--- Use standard chronological array order
-   ArraySetAsSeries(ExtRvolBuffer, false);
-   ArraySetAsSeries(ExtColorBuffer, false);
-
-//--- Set Plot Properties
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod);
-
-//--- Dynamically set colors and levels from inputs
-   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
-   PlotIndexSetString(0, PLOT_LABEL, StringFormat("RVOL(%d)", InpPeriod));
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("RVOL(%d)", InpPeriod));
-
-   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelHigh);
-   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelExtreme);
-
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, InpColorNormal);
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, InpColorHigh);
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 2, InpColorExtreme);
-
-//--- Initialize the calculator engine
-   g_calculator = new CRVOLCalculator();
+   g_calculator = new CRelativeVolumeCalculator();
    if(!g_calculator.Init(InpPeriod))
-     {
-      Print("RVOL_Pro Error: Failed to initialize calculator engine.");
-      return(INIT_FAILED);
-     }
+      return INIT_FAILED;
 
    return(INIT_SUCCEEDED);
   }
@@ -117,34 +79,30 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(InpVolumeType == VOLUME_TICK)
-     {
-      g_calculator.Calculate(rates_total, prev_calculated, tick_volume, ExtRvolBuffer);
-     }
-   else
-     {
-      g_calculator.Calculate(rates_total, prev_calculated, volume, ExtRvolBuffer);
-     }
+   if(rates_total < InpPeriod)
+      return 0;
 
-   int limit = (prev_calculated == 0) ? InpPeriod : prev_calculated - 1;
+// 1. Calculate
+// Note: RVOL uses Volume (Tick or Real). Usually Tick Volume in Forex.
+   g_calculator.Calculate(rates_total, prev_calculated, tick_volume, BufferRVOL);
 
-   for(int i = limit; i < rates_total; i++)
+// 2. Color Logic
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = start_index; i < rates_total; i++)
      {
-      if(ExtRvolBuffer[i] >= InpLevelExtreme)
-        {
-         ExtColorBuffer[i] = 2; // Index for Extreme color
-        }
+      double val = BufferRVOL[i];
+
+      if(val > InpThreshold)
+         BufferColors[i] = 2.0; // High (Instituional)
       else
-         if(ExtRvolBuffer[i] >= InpLevelHigh)
-           {
-            ExtColorBuffer[i] = 1; // Index for High color
-           }
+         if(val > 1.0)
+            BufferColors[i] = 1.0; // Normal
          else
-           {
-            ExtColorBuffer[i] = 0; // Index for Normal color
-           }
+            BufferColors[i] = 0.0; // Low
      }
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
