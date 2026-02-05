@@ -1,15 +1,15 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 3.2 - Dynamic Headers               |
+//|                    QuantScan 4.1 - Header Fix                    |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.40" // Dynamic CSV Header (Timeframes)
-#property description "Exports 'QuantScan 3.0' dataset for LLM Analysis."
-#property description "Includes Relative Strength and Institutional Metrics."
+#property version   "4.10" // Re-added Dynamic Header logic
+#property description "Exports 'QuantScan 4.0' for LLM Analysis."
+#property description "Includes Trend, Volatility, Stats + Beta/Alpha metrics."
 #property script_show_inputs
 
-//--- Include ALL Custom Calculators
+//--- Include Custom Calculators
 #include <MyIncludes\DSMA_Calculator.mqh>
 #include <MyIncludes\VWAP_Calculator.mqh>
 #include <MyIncludes\Laguerre_RSI_Calculator.mqh>
@@ -18,7 +18,7 @@
 #include <MyIncludes\ATR_Calculator.mqh>
 #include <MyIncludes\Bollinger_Bands_Calculator.mqh>
 #include <MyIncludes\KeltnerChannel_Calculator.mqh>
-// NEW Integrations:
+#include <MyIncludes\MathStatistics_Calculator.mqh>
 #include <MyIncludes\ZScore_Calculator.mqh>
 #include <MyIncludes\EfficiencyRatio_Calculator.mqh>
 #include <MyIncludes\RelativeVolume_Calculator.mqh>
@@ -28,8 +28,12 @@ input group "Scanner Config"
 input bool     InpUseMarketWatch = false;
 input string   InpSymbolList     = "EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD,XAUUSD,US500,DE40,XTIUSD,ETHUSD";
 input string   InpBenchmark      = "US500";
+input string   InpForexBench     = "DX";
 input string   InpBrokerTimeZone = "EET (UTC+2)";
 input int      InpScanHistory    = 500;
+
+input group "Benchmark Settings"
+input int      InpBetaLookback   = 60;
 
 input group "Timeframes"
 input ENUM_TIMEFRAMES InpTFFast  = PERIOD_M15;
@@ -67,6 +71,8 @@ struct QuantData
    double            trend_qual;
    string            zone;
    double            rel_strength;
+   double            beta;
+   double            alpha;
 
    // --- M15 ---
    double            momentum;
@@ -80,6 +86,31 @@ struct QuantData
    double            rev_prob;
    string            absorption;
   };
+
+//+------------------------------------------------------------------+
+//| Helper: Detect Asset Class                                       |
+//+------------------------------------------------------------------+
+bool IsForexPair(string sym)
+  {
+   if(StringFind(sym, "USD") != -1 || StringFind(sym, "EUR") != -1 ||
+      StringFind(sym, "GBP") != -1 || StringFind(sym, "JPY") != -1 ||
+      StringFind(sym, "CHF") != -1 || StringFind(sym, "AUD") != -1 ||
+      StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1)
+     {
+      if(StringFind(sym, "XAU") != -1)
+         return false;
+      if(StringFind(sym, "XTI") != -1)
+         return false;
+      if(StringFind(sym, "WTI") != -1)
+         return false;
+      if(StringFind(sym, "BTC") != -1)
+         return false;
+      if(StringFind(sym, "ETH") != -1)
+         return false;
+      return true;
+     }
+   return false;
+  }
 
 //+------------------------------------------------------------------+
 //| Script Start                                                     |
@@ -103,56 +134,43 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// Benchmark logic
    double bench_change_pct = 0.0;
-   if(!SymbolSelect(InpBenchmark, true))
-      Print("Warning: Benchmark not found.");
-   else
-     {
-      double b_close[], b_open[];
-      if(CopyClose(InpBenchmark, InpTFSlow, 1, 1, b_close) > 0 &&
-         CopyOpen(InpBenchmark, InpTFSlow, InpRSBars, 1, b_open) > 0)
-         if(b_open[0] != 0)
-            bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
-     }
+   bool bench_global_ready = SymbolSelect(InpBenchmark, true);
+   bool bench_forex_ready  = SymbolSelect(InpForexBench, true);
 
-// 3. Prepare CSV
+   if(!bench_global_ready)
+      Print("Warning: Global Benchmark '", InpBenchmark, "' not found.");
+   if(!bench_forex_ready)
+      Print("Warning: Forex Benchmark '", InpForexBench, "' not found.");
+
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
    StringReplace(filename, " ", "_");
 
    int file_handle = FileOpen(filename, FILE_CSV|FILE_WRITE|FILE_ANSI, ";");
    if(file_handle == INVALID_HANDLE)
-     {
-      Print("Error: Cannot write CSV.");
       return;
-     }
 
-// --- 4. Dynamic Header Generation (NEW) ---
-
-// A. Get String representation of Timeframes (e.g., "PERIOD_H1")
+// --- DYNAMIC HEADER GENERATION ---
    string str_slow = EnumToString(InpTFSlow);
    string str_fast = EnumToString(InpTFFast);
-
-// B. Clean up (Remove "PERIOD_" prefix for shorter column names)
    StringReplace(str_slow, "PERIOD_", "");
    StringReplace(str_fast, "PERIOD_", "");
 
-// C. Construct Header String
    string header = "";
-
-// Base Info
    header += "TIME (" + InpBrokerTimeZone + ");";
    header += "SYMBOL;";
    header += "PRICE;";
 
-// Context (Slow TF) Metrics
+// Context (Slow)
    header += StringFormat("TREND_SCORE_%s;", str_slow);
    header += StringFormat("TREND_QUAL_%s;", str_slow);
    header += StringFormat("ZONE_%s;", str_slow);
    header += StringFormat("REL_STRENGTH_%s;", str_slow);
+   header += StringFormat("BETA_%s;", str_slow);
+   header += StringFormat("ALPHA_%s;", str_slow);
 
-// Trigger (Fast TF) Metrics
+// Trigger (Fast)
    header += StringFormat("MOMENTUM_%s;", str_fast);
    header += StringFormat("VOL_QUAL_%s;", str_fast);
    header += StringFormat("SQUEEZE_%s;", str_fast);
@@ -160,11 +178,10 @@ void OnStart()
    header += StringFormat("VOL_REGIME_%s;", str_fast);
    header += StringFormat("TSI_DIR_%s;", str_fast);
 
-// Composite Metrics (Calculated using both)
+// Composites (Mixed logic, no suffix needed as discussed)
    header += "REVERSION_PROB;";
    header += "ABSORPTION";
 
-// D. Write Header
    FileWrite(file_handle, header);
 
    PrintFormat("Scanning %d symbols...", total_symbols);
@@ -177,7 +194,7 @@ void OnStart()
       QuantData data;
       ZeroMemory(data);
 
-      if(RunQuantAnalysis(sym, bench_change_pct, data))
+      if(RunQuantAnalysis(sym, data))
         {
          FileWrite(file_handle,
                    data.timestamp,
@@ -187,6 +204,8 @@ void OnStart()
                    DoubleToString(data.trend_qual, 2),
                    data.zone,
                    DoubleToString(data.rel_strength, 2) + "%",
+                   DoubleToString(data.beta, 2),
+                   DoubleToString(data.alpha, 4),
                    DoubleToString(data.momentum, 2),
                    DoubleToString(data.vol_qual, 2),
                    data.squeeze,
@@ -203,9 +222,9 @@ void OnStart()
   }
 
 //+------------------------------------------------------------------+
-//| Core Logic (Refactored)                                          |
+//| Core Logic                                                       |
 //+------------------------------------------------------------------+
-bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
+bool RunQuantAnalysis(string sym, QuantData &data)
   {
    data.timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES);
    StringReplace(data.timestamp, ".", ".");
@@ -226,23 +245,49 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       return false;
 
    data.trend_score = Calc_DSMA_Score(h1_o, h1_h, h1_l, h1_c, h1_atr);
-
-// REFACTORED: Use EfficiencyRatio Calculator
    data.trend_qual  = Calc_ER(h1_o, h1_h, h1_l, h1_c, InpERPeriod);
-
    data.zone        = Calc_MurreyZone(sym, InpTFSlow);
 
-// Relative Strength (Inline is fine as logic is specific)
-   double sym_change = 0;
-   int total_h1 = ArraySize(h1_c);
-   if(total_h1 > InpRSBars + 1)
+// --- BETA / ALPHA Calculation ---
+   string bench_sym = InpBenchmark;
+   if(IsForexPair(sym) && SymbolSelect(InpForexBench, true))
+      bench_sym = InpForexBench;
+
+   double bench_c[];
+   if(CopyClose(bench_sym, InpTFSlow, 0, InpBetaLookback+2, bench_c) > InpBetaLookback)
      {
-      double c_now = h1_c[total_h1-2];
-      double o_old = h1_o[total_h1-2-(InpRSBars-1)];
-      if(o_old != 0)
-         sym_change = ((c_now - o_old) / o_old) * 100.0;
+      CMathStatisticsCalculator stats;
+      double asset_ret[], bench_ret[];
+
+      int h1_size = ArraySize(h1_c);
+      double asset_subset[];
+      ArrayResize(asset_subset, InpBetaLookback);
+      double bench_subset[];
+      ArrayResize(bench_subset, InpBetaLookback);
+
+      for(int k=0; k<InpBetaLookback; k++)
+        {
+         asset_subset[k] = h1_c[h1_size - InpBetaLookback + k];
+         bench_subset[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
+        }
+
+      stats.ComputeReturns(asset_subset, asset_ret);
+      stats.ComputeReturns(bench_subset, bench_ret);
+
+      data.beta = stats.CalculateBeta(asset_ret, bench_ret);
+
+      double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
+      double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
+      data.alpha = stats.CalculateAlpha(a_tot, b_tot, data.beta);
+
+      data.rel_strength = (a_tot - b_tot) * 100.0;
      }
-   data.rel_strength = sym_change - bench_change;
+   else
+     {
+      data.beta = 0;
+      data.alpha = 0;
+      data.rel_strength = 0;
+     }
 
 // =================================================================
 // PHASE 2: M15 TRIGGER
@@ -256,16 +301,10 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    double m15_atr = Calc_ATR(m15_o, m15_h, m15_l, m15_c, InpATRPeriod);
 
    data.momentum = Calc_LaguerreRSI(m15_o, m15_h, m15_l, m15_c);
-
-// REFACTORED: Use RVOL Calculator
    data.vol_qual = Calc_RVOL(m15_v, InpRVOLPeriod);
-
    data.squeeze  = Calc_Squeeze(sym, InpTFFast, m15_o, m15_h, m15_l, m15_c);
-
-// REFACTORED: Use Z-Score Calculator
    data.z_score  = Calc_ZScore(m15_o, m15_h, m15_l, m15_c, InpZScorePeriod);
 
-// Volatility Regime
    double atr_fast = Calc_ATR(m15_o, m15_h, m15_l, m15_c, 5);
    double atr_slow = Calc_ATR(m15_o, m15_h, m15_l, m15_c, 50);
    if(atr_slow != 0)
@@ -273,7 +312,6 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    else
       data.vola_regime = 1.0;
 
-// TSI
    Calc_TSI_Dir(m15_o, m15_h, m15_l, m15_c, data.tsi_dir);
 
 // =================================================================
@@ -291,17 +329,10 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       score += 30;
    data.rev_prob = score;
 
-// Absorption (Uses already calculated VolQual)
-// Logic: Last completed bar (Index 2 in reverse-like logic, or Total-2)
-// Note: Our FetchData returns non-series (0=oldest). Total-1 is partial?
-// Usually index=0 in iOpen is current.
-// FetchData via CopyOpen... defaults to 0=oldest.
-// Size is 'count'. Last valid closed is size-2.
    int idx_cl = ArraySize(m15_c) - 2;
    if(idx_cl >= 0 && m15_atr > 0)
      {
       double body = MathAbs(m15_c[idx_cl] - m15_o[idx_cl]);
-      // Recalc Rvol for SPECIFIC bar using helper
       CRelativeVolumeCalculator rv_calc;
       rv_calc.Init(InpRVOLPeriod);
       double bar_rvol = rv_calc.CalculateSingle(ArraySize(m15_v), m15_v, idx_cl);
@@ -335,7 +366,9 @@ bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double 
    return true;
   }
 
-// 1. REFACTORED: Efficiency Ratio Wrapper
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double Calc_ER(const double &o[], const double &h[], const double &l[], const double &c[], int p)
   {
    CEfficiencyRatioCalculator calc;
@@ -345,10 +378,12 @@ double Calc_ER(const double &o[], const double &h[], const double &l[], const do
    int total = ArraySize(c);
    ArrayResize(buf, total);
    calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
-   return buf[total-1];
+   return buf[total-2];
   }
 
-// 2. REFACTORED: Z-Score Wrapper
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double Calc_ZScore(const double &o[], const double &h[], const double &l[], const double &c[], int p)
   {
    CZScoreCalculator calc;
@@ -358,17 +393,16 @@ double Calc_ZScore(const double &o[], const double &h[], const double &l[], cons
    int total = ArraySize(c);
    ArrayResize(buf, total);
    calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
-   return buf[total-1];
+   return buf[total-2];
   }
 
-// 3. REFACTORED: RVOL Wrapper
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double Calc_RVOL(const long &vol[], int p)
   {
    CRelativeVolumeCalculator calc;
    calc.Init(p);
-// Used CalculateSingle for last closed bar (Total-2) or current (Total-1)?
-// Standard practice: RVOL of current forming bar is misleading.
-// Let's use Last Closed Bar (Total-2) for analysis stability.
    return calc.CalculateSingle(ArraySize(vol), vol, ArraySize(vol)-2);
   }
 
@@ -383,7 +417,7 @@ double Calc_ATR(const double &o[], const double &h[], const double &l[], const d
    double buf[];
    int total=ArraySize(c);
    calc.Calculate(total, 0, o, h, l, c, buf);
-   return buf[total-2]; // Using Closed Bar
+   return buf[total-2];
   }
 
 //+------------------------------------------------------------------+
@@ -400,7 +434,7 @@ double Calc_DSMA_Score(const double &o[], const double &h[], const double &l[], 
    calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
    if(atr==0)
       return 0;
-   return (c[total-2] - buf[total-2]) / atr; // Using Closed Bar
+   return (c[total-2] - buf[total-2]) / atr;
   }
 
 //+------------------------------------------------------------------+
@@ -413,7 +447,6 @@ string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const dou
    bb.Init(InpSqueezeLength, InpBBMult, SMA);
    CKeltnerChannelCalculator kc;
    kc.Init(InpSqueezeLength, SMA, InpSqueezeLength, InpKCMult, ATR_SOURCE_STANDARD);
-
    double b_ma[], b_up[], b_lo[];
    ArrayResize(b_ma, total);
    ArrayResize(b_up, total);
@@ -422,11 +455,9 @@ string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const dou
    ArrayResize(k_ma, total);
    ArrayResize(k_up, total);
    ArrayResize(k_lo, total);
-
    bb.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, b_ma, b_up, b_lo);
    kc.Calculate(total, 0, o, h, l, c, PRICE_CLOSE, k_ma, k_up, k_lo);
-
-   int idx = total - 2; // Last Closed Bar
+   int idx = total - 2;
    return ((b_up[idx] < k_up[idx]) && (b_lo[idx] > k_lo[idx])) ? "ON" : "OFF";
   }
 
@@ -474,7 +505,7 @@ string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf)
    double levels[];
    if(!calc.Calculate(levels))
       return "N/A";
-   double price = iClose(symbol, tf, 1); // Last Closed
+   double price = iClose(symbol, tf, 1);
    if(price < levels[2])
       return "Extreme Low";
    if(price > levels[10])
