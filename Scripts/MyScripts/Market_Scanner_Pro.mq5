@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 4.1 - Header Fix                    |
+//|                    QuantScan 4.2 - Benchmark Exclusions          |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "4.10" // Re-added Dynamic Header logic
+#property version   "4.20" // Logic update: Exclude Benchmarks from Stats
 #property description "Exports 'QuantScan 4.0' for LLM Analysis."
 #property description "Includes Trend, Volatility, Stats + Beta/Alpha metrics."
 #property script_show_inputs
@@ -70,9 +70,11 @@ struct QuantData
    double            trend_score;
    double            trend_qual;
    string            zone;
-   double            rel_strength;
-   double            beta;
-   double            alpha;
+
+   // Strings for Stats to allow "BENCHMARK" text
+   string            rel_strength_str;
+   string            beta_str;
+   string            alpha_str;
 
    // --- M15 ---
    double            momentum;
@@ -92,16 +94,21 @@ struct QuantData
 //+------------------------------------------------------------------+
 bool IsForexPair(string sym)
   {
+// Safety: If symbol IS one of the benchmarks, we don't classify it as generic forex pair here
+   if(sym == InpBenchmark || sym == InpForexBench)
+      return false;
+
    if(StringFind(sym, "USD") != -1 || StringFind(sym, "EUR") != -1 ||
       StringFind(sym, "GBP") != -1 || StringFind(sym, "JPY") != -1 ||
       StringFind(sym, "CHF") != -1 || StringFind(sym, "AUD") != -1 ||
-      StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1)
+      StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1 ||
+      StringFind(sym, "XAU") != -1 || StringFind(sym, "XAG") != -1)
      {
-      if(StringFind(sym, "XAU") != -1)
-         return false;
       if(StringFind(sym, "XTI") != -1)
          return false;
-      if(StringFind(sym, "WTI") != -1)
+      if(StringFind(sym, "UKO") != -1)
+         return false;
+      if(StringFind(sym, "USO") != -1)
          return false;
       if(StringFind(sym, "BTC") != -1)
          return false;
@@ -178,7 +185,7 @@ void OnStart()
    header += StringFormat("VOL_REGIME_%s;", str_fast);
    header += StringFormat("TSI_DIR_%s;", str_fast);
 
-// Composites (Mixed logic, no suffix needed as discussed)
+// Composites
    header += "REVERSION_PROB;";
    header += "ABSORPTION";
 
@@ -196,6 +203,7 @@ void OnStart()
 
       if(RunQuantAnalysis(sym, data))
         {
+         // Note: Strings used for stats
          FileWrite(file_handle,
                    data.timestamp,
                    data.symbol,
@@ -203,9 +211,9 @@ void OnStart()
                    DoubleToString(data.trend_score, 2),
                    DoubleToString(data.trend_qual, 2),
                    data.zone,
-                   DoubleToString(data.rel_strength, 2) + "%",
-                   DoubleToString(data.beta, 2),
-                   DoubleToString(data.alpha, 4),
+                   data.rel_strength_str,
+                   data.beta_str,
+                   data.alpha_str,
                    DoubleToString(data.momentum, 2),
                    DoubleToString(data.vol_qual, 2),
                    data.squeeze,
@@ -248,45 +256,59 @@ bool RunQuantAnalysis(string sym, QuantData &data)
    data.trend_qual  = Calc_ER(h1_o, h1_h, h1_l, h1_c, InpERPeriod);
    data.zone        = Calc_MurreyZone(sym, InpTFSlow);
 
-// --- BETA / ALPHA Calculation ---
-   string bench_sym = InpBenchmark;
-   if(IsForexPair(sym) && SymbolSelect(InpForexBench, true))
-      bench_sym = InpForexBench;
+// --- BETA / ALPHA Calculation (With Exclusion Logic) ---
+   bool is_benchmark = (sym == InpBenchmark || sym == InpForexBench);
 
-   double bench_c[];
-   if(CopyClose(bench_sym, InpTFSlow, 0, InpBetaLookback+2, bench_c) > InpBetaLookback)
+   if(is_benchmark)
      {
-      CMathStatisticsCalculator stats;
-      double asset_ret[], bench_ret[];
-
-      int h1_size = ArraySize(h1_c);
-      double asset_subset[];
-      ArrayResize(asset_subset, InpBetaLookback);
-      double bench_subset[];
-      ArrayResize(bench_subset, InpBetaLookback);
-
-      for(int k=0; k<InpBetaLookback; k++)
-        {
-         asset_subset[k] = h1_c[h1_size - InpBetaLookback + k];
-         bench_subset[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
-        }
-
-      stats.ComputeReturns(asset_subset, asset_ret);
-      stats.ComputeReturns(bench_subset, bench_ret);
-
-      data.beta = stats.CalculateBeta(asset_ret, bench_ret);
-
-      double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
-      double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
-      data.alpha = stats.CalculateAlpha(a_tot, b_tot, data.beta);
-
-      data.rel_strength = (a_tot - b_tot) * 100.0;
+      data.rel_strength_str = "BENCHMARK";
+      data.beta_str         = "1.00";
+      data.alpha_str        = "0.00";
      }
    else
      {
-      data.beta = 0;
-      data.alpha = 0;
-      data.rel_strength = 0;
+      string bench_sym = InpBenchmark;
+      if(IsForexPair(sym) && SymbolSelect(InpForexBench, true))
+         bench_sym = InpForexBench;
+
+      double bench_c[];
+      if(CopyClose(bench_sym, InpTFSlow, 0, InpBetaLookback+2, bench_c) > InpBetaLookback)
+        {
+         CMathStatisticsCalculator stats;
+         double asset_ret[], bench_ret[];
+
+         int h1_size = ArraySize(h1_c);
+         double asset_subset[];
+         ArrayResize(asset_subset, InpBetaLookback);
+         double bench_subset[];
+         ArrayResize(bench_subset, InpBetaLookback);
+
+         for(int k=0; k<InpBetaLookback; k++)
+           {
+            asset_subset[k] = h1_c[h1_size - InpBetaLookback + k];
+            bench_subset[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
+           }
+
+         stats.ComputeReturns(asset_subset, asset_ret);
+         stats.ComputeReturns(bench_subset, bench_ret);
+
+         double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
+
+         double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
+         double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
+         double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
+         double rel_val = (a_tot - b_tot) * 100.0;
+
+         data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
+         data.beta_str         = DoubleToString(beta_val, 2);
+         data.alpha_str        = DoubleToString(alpha_val, 4);
+        }
+      else
+        {
+         data.rel_strength_str = "0%";
+         data.beta_str = "0";
+         data.alpha_str = "0";
+        }
      }
 
 // =================================================================
