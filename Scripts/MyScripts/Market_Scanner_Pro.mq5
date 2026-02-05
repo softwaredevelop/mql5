@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 4.0 - Fully Modular Architecture    |
+//|                    QuantScan 3.2 - Dynamic Headers               |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "4.00" // Refactored to use ALL Calculator Classes
+#property version   "3.40" // Dynamic CSV Header (Timeframes)
 #property description "Exports 'QuantScan 3.0' dataset for LLM Analysis."
-#property description "Now uses unified Calculator Engines for 100% consistency."
+#property description "Includes Relative Strength and Institutional Metrics."
 #property script_show_inputs
 
 //--- Include ALL Custom Calculators
@@ -103,7 +103,7 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// Benchmark logic... (Same as before)
+// Benchmark logic
    double bench_change_pct = 0.0;
    if(!SymbolSelect(InpBenchmark, true))
       Print("Warning: Benchmark not found.");
@@ -116,21 +116,56 @@ void OnStart()
             bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
      }
 
+// 3. Prepare CSV
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
    StringReplace(filename, " ", "_");
 
    int file_handle = FileOpen(filename, FILE_CSV|FILE_WRITE|FILE_ANSI, ";");
    if(file_handle == INVALID_HANDLE)
+     {
+      Print("Error: Cannot write CSV.");
       return;
+     }
 
-   string time_header = "TIME (" + InpBrokerTimeZone + ")";
-   FileWrite(file_handle,
-             time_header, "SYMBOL", "PRICE",
-             "TREND_SCORE", "TREND_QUAL", "ZONE", "REL_STRENGTH",
-             "MOMENTUM", "VOL_QUAL", "SQUEEZE", "Z_SCORE", "VOL_REGIME", "TSI_DIR",
-             "REVERSION_PROB", "ABSORPTION"
-            );
+// --- 4. Dynamic Header Generation (NEW) ---
+
+// A. Get String representation of Timeframes (e.g., "PERIOD_H1")
+   string str_slow = EnumToString(InpTFSlow);
+   string str_fast = EnumToString(InpTFFast);
+
+// B. Clean up (Remove "PERIOD_" prefix for shorter column names)
+   StringReplace(str_slow, "PERIOD_", "");
+   StringReplace(str_fast, "PERIOD_", "");
+
+// C. Construct Header String
+   string header = "";
+
+// Base Info
+   header += "TIME (" + InpBrokerTimeZone + ");";
+   header += "SYMBOL;";
+   header += "PRICE;";
+
+// Context (Slow TF) Metrics
+   header += StringFormat("TREND_SCORE_%s;", str_slow);
+   header += StringFormat("TREND_QUAL_%s;", str_slow);
+   header += StringFormat("ZONE_%s;", str_slow);
+   header += StringFormat("REL_STRENGTH_%s;", str_slow);
+
+// Trigger (Fast TF) Metrics
+   header += StringFormat("MOMENTUM_%s;", str_fast);
+   header += StringFormat("VOL_QUAL_%s;", str_fast);
+   header += StringFormat("SQUEEZE_%s;", str_fast);
+   header += StringFormat("Z_SCORE_%s;", str_fast);
+   header += StringFormat("VOL_REGIME_%s;", str_fast);
+   header += StringFormat("TSI_DIR_%s;", str_fast);
+
+// Composite Metrics (Calculated using both)
+   header += "REVERSION_PROB;";
+   header += "ABSORPTION";
+
+// D. Write Header
+   FileWrite(file_handle, header);
 
    PrintFormat("Scanning %d symbols...", total_symbols);
 
