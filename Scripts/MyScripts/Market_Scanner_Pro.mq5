@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 4.2 - Benchmark Exclusions          |
+//|                    QuantScan 5.1 - Multi-TF Global Sentiment     |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "4.20" // Logic update: Exclude Benchmarks from Stats
-#property description "Exports 'QuantScan 4.0' for LLM Analysis."
-#property description "Includes Trend, Volatility, Stats + Beta/Alpha metrics."
+#property version   "5.10" // Global Sentiment on H1, M15, M5
+#property description "Exports 'QuantScan 5.0' for LLM Analysis."
+#property description "3-Layer Logic & Multi-TF Risk Sentiment."
 #property script_show_inputs
 
 //--- Include Custom Calculators
@@ -35,9 +35,13 @@ input int      InpScanHistory    = 500;
 input group "Benchmark Settings"
 input int      InpBetaLookback   = 60;
 
-input group "Timeframes"
-input ENUM_TIMEFRAMES InpTFFast  = PERIOD_M15;
-input ENUM_TIMEFRAMES InpTFSlow  = PERIOD_H1;
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+input group "Timeframes (3-Layer Model)"
+input ENUM_TIMEFRAMES InpTFSlow    = PERIOD_H1;  // Layer 1: Context/Sentiment Base
+input ENUM_TIMEFRAMES InpTFMiddle  = PERIOD_M15; // Layer 2: Flow/Session Sentiment
+input ENUM_TIMEFRAMES InpTFFast    = PERIOD_M5;  // Layer 3: Trigger/Shock Sentiment
 
 input group "Metric Settings"
 input int      InpDSMAPeriod     = 40;
@@ -66,23 +70,27 @@ struct QuantData
    string            symbol;
    double            price;
 
-   // --- H1 ---
+   // --- Layer 1: H1 Context ---
    double            trend_score;
    double            trend_qual;
    string            zone;
-
-   // Strings for Stats to allow "BENCHMARK" text
    string            rel_strength_str;
    string            beta_str;
    string            alpha_str;
 
-   // --- M15 ---
-   double            momentum;
-   double            vol_qual;
-   string            squeeze;
-   double            z_score;
-   double            vola_regime;
-   string            tsi_dir;
+   // --- Layer 2: M15 Flow ---
+   double            m15_momentum;
+   double            m15_vol_qual;
+   string            m15_squeeze;
+   double            m15_z_score;
+   double            m15_vola_regime;
+   string            m15_tsi_dir;
+
+   // --- Layer 3: M5 Trigger ---
+   double            m5_momentum;
+   double            m5_vol_qual;
+   string            m5_tsi_dir;
+   double            m5_velocity;
 
    // --- Composites ---
    double            rev_prob;
@@ -94,29 +102,63 @@ struct QuantData
 //+------------------------------------------------------------------+
 bool IsForexPair(string sym)
   {
-// Safety: If symbol IS one of the benchmarks, we don't classify it as generic forex pair here
    if(sym == InpBenchmark || sym == InpForexBench)
       return false;
-
    if(StringFind(sym, "USD") != -1 || StringFind(sym, "EUR") != -1 ||
-      StringFind(sym, "GBP") != -1 || StringFind(sym, "JPY") != -1 ||
-      StringFind(sym, "CHF") != -1 || StringFind(sym, "AUD") != -1 ||
-      StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1 ||
-      StringFind(sym, "XAU") != -1 || StringFind(sym, "XAG") != -1)
+      StringFind(sym, "JPY") != -1 || StringFind(sym, "CHF") != -1 ||
+      StringFind(sym, "AUD") != -1 || StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1)
      {
-      if(StringFind(sym, "XTI") != -1)
-         return false;
-      if(StringFind(sym, "UKO") != -1)
-         return false;
-      if(StringFind(sym, "USO") != -1)
-         return false;
-      if(StringFind(sym, "BTC") != -1)
-         return false;
-      if(StringFind(sym, "ETH") != -1)
+      if(StringFind(sym, "XAU")!=-1 || StringFind(sym, "XTI")!=-1 || StringFind(sym, "WTI")!=-1 || StringFind(sym, "BTC")!=-1 || StringFind(sym, "ETH")!=-1)
          return false;
       return true;
      }
    return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Get Sentiment String for TF                              |
+//+------------------------------------------------------------------+
+string GetSentimentForTF(ENUM_TIMEFRAMES tf)
+  {
+// Uses Last Closed Bar change vs Prev
+   double u_close[2], d_close[2];
+
+// Fetch 2 bars. Index 0=Oldest (Prev), Index 1=Newest (Last Closed)
+// Note: If using FetchData logic (ArraySetAsSeries false), copy from end.
+// But CopyClose(..., 0, 2) returns: [0]=Bar 1 ago, [1]=Bar 0 (Current) ?
+// Docs: CopyClose(..., start_pos, count, buffer) -> start_pos relative to current.
+// start_pos=0 is current bar. start_pos=1 is closed bar.
+// Let's create array of 2 elements from start_pos=1 (last closed two candles).
+// So [0] = Bar 2, [1] = Bar 1.
+
+   if(CopyClose(InpBenchmark, tf, 1, 2, u_close) != 2)
+      return "N/A";
+   if(CopyClose(InpForexBench, tf, 1, 2, d_close) != 2)
+      return "N/A";
+
+   double us500_chg = (u_close[1] - u_close[0]);
+   double dxy_chg   = (d_close[1] - d_close[0]);
+
+   double us500_pct = (u_close[0]!=0) ? (us500_chg / u_close[0])*100 : 0;
+   double dxy_pct   = (d_close[0]!=0) ? (dxy_chg / d_close[0])*100 : 0;
+
+   string state = "MIXED";
+   if(dxy_chg < 0 && us500_chg > 0)
+      state = "RISK-ON";
+   else
+      if(dxy_chg > 0 && us500_chg < 0)
+         state = "RISK-OFF";
+      else
+         if(dxy_chg > 0 && us500_chg > 0)
+            state = "STRESS";
+         else
+            if(dxy_chg < 0 && us500_chg < 0)
+               state = "DEFLATION";
+
+// Format: "RISK-ON (S: +0.2% D: -0.1%)"
+   string tf_name = EnumToString(tf);
+   StringReplace(tf_name, "PERIOD_", "");
+   return StringFormat("%s: %s (US:%.2f%% DX:%.2f%%)", tf_name, state, us500_pct, dxy_pct);
   }
 
 //+------------------------------------------------------------------+
@@ -141,14 +183,35 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-   double bench_change_pct = 0.0;
-   bool bench_global_ready = SymbolSelect(InpBenchmark, true);
-   bool bench_forex_ready  = SymbolSelect(InpForexBench, true);
+// --- Global Sentiment Analysis (Multi-TF) ---
+   string sentiment_line = "### GLOBAL_SENTIMENT | ";
 
-   if(!bench_global_ready)
-      Print("Warning: Global Benchmark '", InpBenchmark, "' not found.");
-   if(!bench_forex_ready)
-      Print("Warning: Forex Benchmark '", InpForexBench, "' not found.");
+   bool has_us500 = SymbolSelect(InpBenchmark, true);
+   bool has_dxy   = SymbolSelect(InpForexBench, true);
+
+   if(has_us500 && has_dxy)
+     {
+      string s1 = GetSentimentForTF(InpTFSlow);
+      string s2 = GetSentimentForTF(InpTFMiddle);
+      string s3 = GetSentimentForTF(InpTFFast);
+
+      sentiment_line += s1 + " | " + s2 + " | " + s3 + " ###";
+     }
+   else
+     {
+      sentiment_line += "Benchmarks Missing (Check High/Low settings) ###";
+     }
+
+// --- Benchmark for RS (H1 Context) ---
+   double bench_change_pct = 0.0;
+   if(has_us500)
+     {
+      double b_close[], b_open[];
+      // Using H1 for RS base
+      if(CopyClose(InpBenchmark, InpTFSlow, 1, 1, b_close) > 0 && CopyOpen(InpBenchmark, InpTFSlow, InpRSBars, 1, b_open) > 0)
+         if(b_open[0] != 0)
+            bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
+     }
 
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
@@ -158,10 +221,15 @@ void OnStart()
    if(file_handle == INVALID_HANDLE)
       return;
 
-// --- DYNAMIC HEADER GENERATION ---
+// --- WRITE HEADER ---
+   FileWrite(file_handle, sentiment_line);
+
+// --- DYNAMIC COLUMNS ---
    string str_slow = EnumToString(InpTFSlow);
-   string str_fast = EnumToString(InpTFFast);
    StringReplace(str_slow, "PERIOD_", "");
+   string str_mid  = EnumToString(InpTFMiddle);
+   StringReplace(str_mid, "PERIOD_", "");
+   string str_fast = EnumToString(InpTFFast);
    StringReplace(str_fast, "PERIOD_", "");
 
    string header = "";
@@ -169,7 +237,7 @@ void OnStart()
    header += "SYMBOL;";
    header += "PRICE;";
 
-// Context (Slow)
+// Layer 1
    header += StringFormat("TREND_SCORE_%s;", str_slow);
    header += StringFormat("TREND_QUAL_%s;", str_slow);
    header += StringFormat("ZONE_%s;", str_slow);
@@ -177,13 +245,19 @@ void OnStart()
    header += StringFormat("BETA_%s;", str_slow);
    header += StringFormat("ALPHA_%s;", str_slow);
 
-// Trigger (Fast)
+// Layer 2
+   header += StringFormat("MOMENTUM_%s;", str_mid);
+   header += StringFormat("VOL_QUAL_%s;", str_mid);
+   header += StringFormat("SQUEEZE_%s;", str_mid);
+   header += StringFormat("Z_SCORE_%s;", str_mid);
+   header += StringFormat("VOL_REGIME_%s;", str_mid);
+   header += StringFormat("TSI_DIR_%s;", str_mid);
+
+// Layer 3
    header += StringFormat("MOMENTUM_%s;", str_fast);
    header += StringFormat("VOL_QUAL_%s;", str_fast);
-   header += StringFormat("SQUEEZE_%s;", str_fast);
-   header += StringFormat("Z_SCORE_%s;", str_fast);
-   header += StringFormat("VOL_REGIME_%s;", str_fast);
    header += StringFormat("TSI_DIR_%s;", str_fast);
+   header += StringFormat("VELOCITY_%s;", str_fast);
 
 // Composites
    header += "REVERSION_PROB;";
@@ -201,25 +275,32 @@ void OnStart()
       QuantData data;
       ZeroMemory(data);
 
-      if(RunQuantAnalysis(sym, data))
+      if(RunQuantAnalysis(sym, bench_change_pct, data))
         {
-         // Note: Strings used for stats
          FileWrite(file_handle,
                    data.timestamp,
                    data.symbol,
                    DoubleToString(data.price, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)),
+                   // Layer 1
                    DoubleToString(data.trend_score, 2),
                    DoubleToString(data.trend_qual, 2),
                    data.zone,
                    data.rel_strength_str,
                    data.beta_str,
                    data.alpha_str,
-                   DoubleToString(data.momentum, 2),
-                   DoubleToString(data.vol_qual, 2),
-                   data.squeeze,
-                   DoubleToString(data.z_score, 2),
-                   DoubleToString(data.vola_regime, 2),
-                   data.tsi_dir,
+                   // Layer 2
+                   DoubleToString(data.m15_momentum, 2),
+                   DoubleToString(data.m15_vol_qual, 2),
+                   data.m15_squeeze,
+                   DoubleToString(data.m15_z_score, 2),
+                   DoubleToString(data.m15_vola_regime, 2),
+                   data.m15_tsi_dir,
+                   // Layer 3
+                   DoubleToString(data.m5_momentum, 2),
+                   DoubleToString(data.m5_vol_qual, 2),
+                   data.m5_tsi_dir,
+                   DoubleToString(data.m5_velocity, 2),
+                   // Composites
                    DoubleToString(data.rev_prob, 0) + "%",
                    data.absorption
                   );
@@ -232,7 +313,7 @@ void OnStart()
 //+------------------------------------------------------------------+
 //| Core Logic                                                       |
 //+------------------------------------------------------------------+
-bool RunQuantAnalysis(string sym, QuantData &data)
+bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
   {
    data.timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES);
    StringReplace(data.timestamp, ".", ".");
@@ -240,30 +321,29 @@ bool RunQuantAnalysis(string sym, QuantData &data)
    data.price     = SymbolInfoDouble(sym, SYMBOL_BID);
 
 // =================================================================
-// PHASE 1: H1 CONTEXT
+// LAYER 1: CONTEXT (H1)
 // =================================================================
-   double h1_o[], h1_h[], h1_l[], h1_c[];
-   long h1_v[];
-   datetime h1_t[];
-   if(!FetchData(sym, InpTFSlow, InpScanHistory, h1_t, h1_o, h1_h, h1_l, h1_c, h1_v))
+   double slow_o[], slow_h[], slow_l[], slow_c[];
+   long slow_v[];
+   datetime slow_t[];
+   if(!FetchData(sym, InpTFSlow, InpScanHistory, slow_t, slow_o, slow_h, slow_l, slow_c, slow_v))
       return false;
 
-   double h1_atr = Calc_ATR(h1_o, h1_h, h1_l, h1_c, InpATRPeriod);
-   if(h1_atr == 0)
+   double slow_atr = Calc_ATR(slow_o, slow_h, slow_l, slow_c, InpATRPeriod);
+   if(slow_atr == 0)
       return false;
 
-   data.trend_score = Calc_DSMA_Score(h1_o, h1_h, h1_l, h1_c, h1_atr);
-   data.trend_qual  = Calc_ER(h1_o, h1_h, h1_l, h1_c, InpERPeriod);
+   data.trend_score = Calc_DSMA_Score(slow_o, slow_h, slow_l, slow_c, slow_atr);
+   data.trend_qual  = Calc_ER(slow_o, slow_h, slow_l, slow_c, InpERPeriod);
    data.zone        = Calc_MurreyZone(sym, InpTFSlow);
 
-// --- BETA / ALPHA Calculation (With Exclusion Logic) ---
+// Benchmark Stats (Beta/Alpha)
    bool is_benchmark = (sym == InpBenchmark || sym == InpForexBench);
-
    if(is_benchmark)
      {
-      data.rel_strength_str = "BENCHMARK";
-      data.beta_str         = "1.00";
-      data.alpha_str        = "0.00";
+      data.rel_strength_str="BENCH";
+      data.beta_str="1.0";
+      data.alpha_str="0.0";
      }
    else
      {
@@ -276,26 +356,23 @@ bool RunQuantAnalysis(string sym, QuantData &data)
         {
          CMathStatisticsCalculator stats;
          double asset_ret[], bench_ret[];
-
-         int h1_size = ArraySize(h1_c);
-         double asset_subset[];
-         ArrayResize(asset_subset, InpBetaLookback);
-         double bench_subset[];
-         ArrayResize(bench_subset, InpBetaLookback);
+         int size = ArraySize(slow_c);
+         double asset_sub[], bench_sub[];
+         ArrayResize(asset_sub, InpBetaLookback);
+         ArrayResize(bench_sub, InpBetaLookback);
 
          for(int k=0; k<InpBetaLookback; k++)
            {
-            asset_subset[k] = h1_c[h1_size - InpBetaLookback + k];
-            bench_subset[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
+            asset_sub[k] = slow_c[size - InpBetaLookback + k];
+            bench_sub[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
            }
 
-         stats.ComputeReturns(asset_subset, asset_ret);
-         stats.ComputeReturns(bench_subset, bench_ret);
-
+         stats.ComputeReturns(asset_sub, asset_ret);
+         stats.ComputeReturns(bench_sub, bench_ret);
          double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
 
-         double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
-         double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
+         double a_tot = (asset_sub[InpBetaLookback-1] - asset_sub[0]) / asset_sub[0];
+         double b_tot = (bench_sub[InpBetaLookback-1] - bench_sub[0]) / bench_sub[0];
          double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
          double rel_val = (a_tot - b_tot) * 100.0;
 
@@ -312,54 +389,69 @@ bool RunQuantAnalysis(string sym, QuantData &data)
      }
 
 // =================================================================
-// PHASE 2: M15 TRIGGER
+// LAYER 2: FLOW (M15 - Renamed from Trigger)
 // =================================================================
-   double m15_o[], m15_h[], m15_l[], m15_c[];
-   long m15_v[];
-   datetime m15_t[];
-   if(!FetchData(sym, InpTFFast, InpScanHistory, m15_t, m15_o, m15_h, m15_l, m15_c, m15_v))
+   double mid_o[], mid_h[], mid_l[], mid_c[];
+   long mid_v[];
+   datetime mid_t[];
+   if(!FetchData(sym, InpTFMiddle, InpScanHistory, mid_t, mid_o, mid_h, mid_l, mid_c, mid_v))
       return false;
 
-   double m15_atr = Calc_ATR(m15_o, m15_h, m15_l, m15_c, InpATRPeriod);
+   double mid_atr = Calc_ATR(mid_o, mid_h, mid_l, mid_c, InpATRPeriod);
 
-   data.momentum = Calc_LaguerreRSI(m15_o, m15_h, m15_l, m15_c);
-   data.vol_qual = Calc_RVOL(m15_v, InpRVOLPeriod);
-   data.squeeze  = Calc_Squeeze(sym, InpTFFast, m15_o, m15_h, m15_l, m15_c);
-   data.z_score  = Calc_ZScore(m15_o, m15_h, m15_l, m15_c, InpZScorePeriod);
+   data.m15_momentum = Calc_LaguerreRSI(mid_o, mid_h, mid_l, mid_c);
+   data.m15_vol_qual = Calc_RVOL(mid_v, InpRVOLPeriod);
+   data.m15_squeeze  = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c);
+   data.m15_z_score  = Calc_ZScore(mid_o, mid_h, mid_l, mid_c, InpZScorePeriod);
 
-   double atr_fast = Calc_ATR(m15_o, m15_h, m15_l, m15_c, 5);
-   double atr_slow = Calc_ATR(m15_o, m15_h, m15_l, m15_c, 50);
-   if(atr_slow != 0)
-      data.vola_regime = atr_fast / atr_slow;
-   else
-      data.vola_regime = 1.0;
+   double mid_atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5);
+   double mid_atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50);
+   data.m15_vola_regime = (mid_atr_s!=0) ? mid_atr_f/mid_atr_s : 1.0;
 
-   Calc_TSI_Dir(m15_o, m15_h, m15_l, m15_c, data.tsi_dir);
+   Calc_TSI_Dir(mid_o, mid_h, mid_l, mid_c, data.m15_tsi_dir);
 
 // =================================================================
-// PHASE 3: COMPOSITE METRICS
+// LAYER 3: TRIGGER (M5 - NEW)
 // =================================================================
+   double fast_o[], fast_h[], fast_l[], fast_c[];
+   long fast_v[];
+   datetime fast_t[];
+   if(!FetchData(sym, InpTFFast, 300, fast_t, fast_o, fast_h, fast_l, fast_c, fast_v))
+      return false;
+
+   double fast_atr = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod);
+
+   data.m5_momentum = Calc_LaguerreRSI(fast_o, fast_h, fast_l, fast_c);
+   data.m5_vol_qual = Calc_RVOL(fast_v, InpRVOLPeriod);
+   Calc_TSI_Dir(fast_o, fast_h, fast_l, fast_c, data.m5_tsi_dir);
+   data.m5_velocity = Calc_Velocity(fast_c, fast_atr, 3);
+
+// =================================================================
+// COMPOSITES
+// =================================================================
+// Rev Prob based on Flow (M15)
    double score = 0;
-   if(MathAbs(data.z_score) > 3.0)
+   if(MathAbs(data.m15_z_score) > 3.0)
       score += 40;
    else
-      if(MathAbs(data.z_score) > 2.0)
+      if(MathAbs(data.m15_z_score) > 2.0)
          score += 20;
    if(StringFind(data.zone, "Extreme") >= 0)
       score += 30;
-   if(data.momentum > 0.90 || data.momentum < 0.10)
+   if(data.m15_momentum > 0.90 || data.m15_momentum < 0.10)
       score += 30;
    data.rev_prob = score;
 
-   int idx_cl = ArraySize(m15_c) - 2;
-   if(idx_cl >= 0 && m15_atr > 0)
+// Absorption based on Flow (M15) or Trig (M5)? Standard is Flow due to volume significance.
+// Let's stick to M15 for Absorption to filter M5 noise.
+   int idx_cl = ArraySize(mid_c) - 2;
+   if(idx_cl >= 0 && mid_atr > 0)
      {
-      double body = MathAbs(m15_c[idx_cl] - m15_o[idx_cl]);
-      CRelativeVolumeCalculator rv_calc;
-      rv_calc.Init(InpRVOLPeriod);
-      double bar_rvol = rv_calc.CalculateSingle(ArraySize(m15_v), m15_v, idx_cl);
-
-      if(bar_rvol > 2.0 && body < (0.4 * m15_atr))
+      double body = MathAbs(mid_c[idx_cl] - mid_o[idx_cl]);
+      CRelativeVolumeCalculator rv;
+      rv.Init(InpRVOLPeriod);
+      double bar_rvol = rv.CalculateSingle(ArraySize(mid_v), mid_v, idx_cl);
+      if(bar_rvol > 2.0 && body < (0.4 * mid_atr))
          data.absorption = "YES";
       else
          data.absorption = "NO";
@@ -368,6 +460,28 @@ bool RunQuantAnalysis(string sym, QuantData &data)
       data.absorption = "-";
 
    return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Velocity Calculation                                             |
+//+------------------------------------------------------------------+
+double Calc_Velocity(const double &close[], double atr, int period)
+  {
+   if(atr == 0)
+      return 0;
+   int total = ArraySize(close);
+   if(total <= period+2)
+      return 0;
+
+   double sum_move = 0;
+   for(int i=0; i<period; i++)
+     {
+      // [Total-2] is last closed.
+      sum_move += MathAbs(close[total-2-i] - close[total-3-i]);
+     }
+   double avg_move = sum_move / period;
+
+   return avg_move / atr;
   }
 
 //+------------------------------------------------------------------+
@@ -544,5 +658,4 @@ string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf)
       return "6/8-7/8 (Weak)";
    return "7/8-8/8 (Top)";
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
