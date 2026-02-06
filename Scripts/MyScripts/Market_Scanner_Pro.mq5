@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 5.1 - Multi-TF Global Sentiment     |
+//|                    QuantScan 6.0 - Full Feature Set              |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "5.10" // Global Sentiment on H1, M15, M5
-#property description "Exports 'QuantScan 5.0' for LLM Analysis."
-#property description "3-Layer Logic & Multi-TF Risk Sentiment."
+#property version   "6.00" // Full: Slope, Cost, Session, MTF Align
+#property description "Exports 'QuantScan 6.0' dataset for LLM Analysis."
+#property description "Complete toolset: Context, Flow, Trigger, Metrics."
 #property script_show_inputs
 
 //--- Include Custom Calculators
@@ -22,36 +22,36 @@
 #include <MyIncludes\ZScore_Calculator.mqh>
 #include <MyIncludes\EfficiencyRatio_Calculator.mqh>
 #include <MyIncludes\RelativeVolume_Calculator.mqh>
+#include <MyIncludes\SessionLevels_Calculator.mqh>
+#include <MyIncludes\Metrics_Tools.mqh>
 
 //--- Input Parameters ---
 input group "Scanner Config"
-input bool     InpUseMarketWatch = false;
+input bool     InpUseMarketWatch = false;    // Scan all Market Watch symbols
 input string   InpSymbolList     = "EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD,XAUUSD,US500,DE40,XTIUSD,ETHUSD";
-input string   InpBenchmark      = "US500";
-input string   InpForexBench     = "DX";
+input string   InpBenchmark      = "US500";  // Global Benchmark
+input string   InpForexBench     = "DX";     // Forex Benchmark
 input string   InpBrokerTimeZone = "EET (UTC+2)";
-input int      InpScanHistory    = 500;
+input int      InpScanHistory    = 500;      // Max History Bars to fetch
 
 input group "Benchmark Settings"
-input int      InpBetaLookback   = 60;
+input int      InpBetaLookback   = 60;       // Beta Calculation Period
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-input group "Timeframes (3-Layer Model)"
-input ENUM_TIMEFRAMES InpTFSlow    = PERIOD_H1;  // Layer 1: Context/Sentiment Base
-input ENUM_TIMEFRAMES InpTFMiddle  = PERIOD_M15; // Layer 2: Flow/Session Sentiment
-input ENUM_TIMEFRAMES InpTFFast    = PERIOD_M5;  // Layer 3: Trigger/Shock Sentiment
+input group "Timeframes"
+input ENUM_TIMEFRAMES InpTFFast  = PERIOD_M5;  // Layer 3 (Trigger)
+input ENUM_TIMEFRAMES InpTFMiddle= PERIOD_M15; // Layer 2 (Flow)
+input ENUM_TIMEFRAMES InpTFSlow  = PERIOD_H1;  // Layer 1 (Context)
 
 input group "Metric Settings"
 input int      InpDSMAPeriod     = 40;
 input double   InpLaguerreGamma  = 0.50;
 input int      InpMurreyPeriod   = 64;
 input int      InpATRPeriod      = 14;
-input int      InpRSBars         = 24;
-input int      InpRVOLPeriod     = 20;
-input int      InpERPeriod       = 10;
-input int      InpZScorePeriod   = 20;
+input int      InpRSBars         = 24;   // Relative Strength Lookback
+input int      InpRVOLPeriod     = 20;   // Relative Volume Lookback
+input int      InpERPeriod       = 10;   // Efficiency Ratio Lookback
+input int      InpZScorePeriod   = 20;   // Z-Score Lookback
+input int      InpSlopeLookback  = 5;    // Bars back for Slope calculation
 
 input group "TSI Settings"
 input int      InpTSI_Slow       = 25;
@@ -73,18 +73,24 @@ struct QuantData
    // --- Layer 1: H1 Context ---
    double            trend_score;
    double            trend_qual;
+   double            trend_slope;
    string            zone;
+   double            dist_pdh;         // Dist to Prev High
+   double            dist_pdl;         // Dist to Prev Low
    string            rel_strength_str;
    string            beta_str;
    string            alpha_str;
+   string            h1_tsi_dir;
 
    // --- Layer 2: M15 Flow ---
    double            m15_momentum;
    double            m15_vol_qual;
    string            m15_squeeze;
+   double            m15_vwap_slope;
    double            m15_z_score;
    double            m15_vola_regime;
    string            m15_tsi_dir;
+   double            spread_cost;
 
    // --- Layer 3: M5 Trigger ---
    double            m5_momentum;
@@ -95,6 +101,7 @@ struct QuantData
    // --- Composites ---
    double            rev_prob;
    string            absorption;
+   string            mtf_align;
   };
 
 //+------------------------------------------------------------------+
@@ -120,17 +127,7 @@ bool IsForexPair(string sym)
 //+------------------------------------------------------------------+
 string GetSentimentForTF(ENUM_TIMEFRAMES tf)
   {
-// Uses Last Closed Bar change vs Prev
    double u_close[2], d_close[2];
-
-// Fetch 2 bars. Index 0=Oldest (Prev), Index 1=Newest (Last Closed)
-// Note: If using FetchData logic (ArraySetAsSeries false), copy from end.
-// But CopyClose(..., 0, 2) returns: [0]=Bar 1 ago, [1]=Bar 0 (Current) ?
-// Docs: CopyClose(..., start_pos, count, buffer) -> start_pos relative to current.
-// start_pos=0 is current bar. start_pos=1 is closed bar.
-// Let's create array of 2 elements from start_pos=1 (last closed two candles).
-// So [0] = Bar 2, [1] = Bar 1.
-
    if(CopyClose(InpBenchmark, tf, 1, 2, u_close) != 2)
       return "N/A";
    if(CopyClose(InpForexBench, tf, 1, 2, d_close) != 2)
@@ -155,11 +152,28 @@ string GetSentimentForTF(ENUM_TIMEFRAMES tf)
             if(dxy_chg < 0 && us500_chg < 0)
                state = "DEFLATION";
 
-// Format: "RISK-ON (S: +0.2% D: -0.1%)"
    string tf_name = EnumToString(tf);
    StringReplace(tf_name, "PERIOD_", "");
    return StringFormat("%s: %s (US:%.2f%% DX:%.2f%%)", tf_name, state, us500_pct, dxy_pct);
   }
+
+//+------------------------------------------------------------------+
+//| WRAPPER DECLARATIONS (Forward Declaration not strictly needed)   |
+//+------------------------------------------------------------------+
+bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double &o[], double &h[], double &l[], double &c[], long &v[]);
+double Calc_ATR(const double &o[], const double &h[], const double &l[], const double &c[], int p);
+double Calc_ER(const double &o[], const double &h[], const double &l[], const double &c[], int p);
+double Calc_ZScore(const double &o[], const double &h[], const double &l[], const double &c[], int p);
+double Calc_RVOL(const long &vol[], int p);
+double Calc_DSMA_Score(const double &o[], const double &h[], const double &l[], const double &c[], double atr);
+string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[]);
+double Calc_LaguerreRSI(const double &o[], const double &h[], const double &l[], const double &c[]);
+void Calc_TSI_Dir(const double &o[], const double &h[], const double &l[], const double &c[], string &dir);
+string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf);
+void Calc_DSMA_Series(const double &o[], const double &h[], const double &l[], const double &c[], double &out_buf[]);
+void Calc_VWAP_Series(const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], ENUM_VWAP_PERIOD p, double &out_buf[]);
+double Calc_Velocity(const double &close[], double atr, int period);
+double Calc_RVOL_Single_Help(const long &vol[], int period, int index); // Helper proxy
 
 //+------------------------------------------------------------------+
 //| Script Start                                                     |
@@ -169,6 +183,7 @@ void OnStart()
    string symbols[];
    int total_symbols = 0;
 
+// 1. Symbol List Compilation
    if(InpUseMarketWatch)
      {
       total_symbols = SymbolsTotal(true);
@@ -183,48 +198,41 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// --- Global Sentiment Analysis (Multi-TF) ---
+// 2. Global Sentiment
    string sentiment_line = "### GLOBAL_SENTIMENT | ";
-
    bool has_us500 = SymbolSelect(InpBenchmark, true);
    bool has_dxy   = SymbolSelect(InpForexBench, true);
 
    if(has_us500 && has_dxy)
      {
-      string s1 = GetSentimentForTF(InpTFSlow);
-      string s2 = GetSentimentForTF(InpTFMiddle);
-      string s3 = GetSentimentForTF(InpTFFast);
-
-      sentiment_line += s1 + " | " + s2 + " | " + s3 + " ###";
+      sentiment_line += GetSentimentForTF(InpTFSlow) + " | " + GetSentimentForTF(InpTFMiddle) + " | " + GetSentimentForTF(InpTFFast) + " ###";
      }
    else
-     {
-      sentiment_line += "Benchmarks Missing (Check High/Low settings) ###";
-     }
+      sentiment_line += "Benchmarks Missing ###";
 
-// --- Benchmark for RS (H1 Context) ---
    double bench_change_pct = 0.0;
    if(has_us500)
      {
       double b_close[], b_open[];
-      // Using H1 for RS base
       if(CopyClose(InpBenchmark, InpTFSlow, 1, 1, b_close) > 0 && CopyOpen(InpBenchmark, InpTFSlow, InpRSBars, 1, b_open) > 0)
          if(b_open[0] != 0)
             bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
      }
 
+// 3. File Setup
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
    StringReplace(filename, " ", "_");
 
    int file_handle = FileOpen(filename, FILE_CSV|FILE_WRITE|FILE_ANSI, ";");
    if(file_handle == INVALID_HANDLE)
+     {
+      Print("Error: CSV File.");
       return;
+     }
 
-// --- WRITE HEADER ---
    FileWrite(file_handle, sentiment_line);
 
-// --- DYNAMIC COLUMNS ---
    string str_slow = EnumToString(InpTFSlow);
    StringReplace(str_slow, "PERIOD_", "");
    string str_mid  = EnumToString(InpTFMiddle);
@@ -238,40 +246,30 @@ void OnStart()
    header += "PRICE;";
 
 // Layer 1
-   header += StringFormat("TREND_SCORE_%s;", str_slow);
-   header += StringFormat("TREND_QUAL_%s;", str_slow);
-   header += StringFormat("ZONE_%s;", str_slow);
-   header += StringFormat("REL_STRENGTH_%s;", str_slow);
-   header += StringFormat("BETA_%s;", str_slow);
-   header += StringFormat("ALPHA_%s;", str_slow);
+   header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;DIST_PDH_%s;DIST_PDL_%s;REL_STR_%s;BETA_%s;ALPHA_%s;",
+                          str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
 
 // Layer 2
-   header += StringFormat("MOMENTUM_%s;", str_mid);
-   header += StringFormat("VOL_QUAL_%s;", str_mid);
-   header += StringFormat("SQUEEZE_%s;", str_mid);
-   header += StringFormat("Z_SCORE_%s;", str_mid);
-   header += StringFormat("VOL_REGIME_%s;", str_mid);
-   header += StringFormat("TSI_DIR_%s;", str_mid);
+   header += StringFormat("MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;COST_ATR_%s;TSI_DIR_%s;",
+                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
 
 // Layer 3
-   header += StringFormat("MOMENTUM_%s;", str_fast);
-   header += StringFormat("VOL_QUAL_%s;", str_fast);
-   header += StringFormat("TSI_DIR_%s;", str_fast);
-   header += StringFormat("VELOCITY_%s;", str_fast);
+   header += StringFormat("MOM_%s;RVOL_%s;TSI_DIR_%s;VEL_%s;", str_fast, str_fast, str_fast, str_fast);
 
 // Composites
-   header += "REVERSION_PROB;";
-   header += "ABSORPTION";
+   header += "REV_PROB;ABSORPTION;MTF_ALIGN";
 
    FileWrite(file_handle, header);
 
    PrintFormat("Scanning %d symbols...", total_symbols);
 
+// 4. Main Loop
    for(int i=0; i<total_symbols; i++)
      {
       string sym = symbols[i];
       StringTrimLeft(sym);
       StringTrimRight(sym);
+
       QuantData data;
       ZeroMemory(data);
 
@@ -284,7 +282,10 @@ void OnStart()
                    // Layer 1
                    DoubleToString(data.trend_score, 2),
                    DoubleToString(data.trend_qual, 2),
+                   DoubleToString(data.trend_slope, 2),
                    data.zone,
+                   DoubleToString(data.dist_pdh, 2),
+                   DoubleToString(data.dist_pdl, 2),
                    data.rel_strength_str,
                    data.beta_str,
                    data.alpha_str,
@@ -292,8 +293,10 @@ void OnStart()
                    DoubleToString(data.m15_momentum, 2),
                    DoubleToString(data.m15_vol_qual, 2),
                    data.m15_squeeze,
+                   DoubleToString(data.m15_vwap_slope, 2),
                    DoubleToString(data.m15_z_score, 2),
                    DoubleToString(data.m15_vola_regime, 2),
+                   DoubleToString(data.spread_cost, 2),
                    data.m15_tsi_dir,
                    // Layer 3
                    DoubleToString(data.m5_momentum, 2),
@@ -302,16 +305,21 @@ void OnStart()
                    DoubleToString(data.m5_velocity, 2),
                    // Composites
                    DoubleToString(data.rev_prob, 0) + "%",
-                   data.absorption
+                   data.absorption,
+                   data.mtf_align
                   );
+        }
+      else
+        {
+         Print("Scan Failed: ", sym);
         }
      }
    FileClose(file_handle);
-   Print("Done. File: ", filename);
+   Print("Done. File saved to MQL5/Files/", filename);
   }
 
 //+------------------------------------------------------------------+
-//| Core Logic                                                       |
+//| Core Logic: Run Quant Analysis                                   |
 //+------------------------------------------------------------------+
 bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
   {
@@ -333,11 +341,31 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    if(slow_atr == 0)
       return false;
 
-   data.trend_score = Calc_DSMA_Score(slow_o, slow_h, slow_l, slow_c, slow_atr);
+// DSMA & Slope
+   double dsma_series[];
+   Calc_DSMA_Series(slow_o, slow_h, slow_l, slow_c, dsma_series);
+   int idx_s = ArraySize(slow_c) - 2;
+   data.trend_score = (slow_atr!=0) ? (slow_c[idx_s] - dsma_series[idx_s]) / slow_atr : 0;
+   data.trend_slope = CMetricsTools::CalculateSlope(dsma_series[idx_s], dsma_series[idx_s - InpSlopeLookback], slow_atr, InpSlopeLookback);
+
    data.trend_qual  = Calc_ER(slow_o, slow_h, slow_l, slow_c, InpERPeriod);
    data.zone        = Calc_MurreyZone(sym, InpTFSlow);
 
-// Benchmark Stats (Beta/Alpha)
+// Session Distances
+   CSessionLevelsCalculator sess_calc;
+   if(sess_calc.Init(PERIOD_D1))
+     {
+      SessionLevels sl;
+      if(sess_calc.GetLevels(slow_t[idx_s], sl))
+        {
+         data.dist_pdh = CMetricsTools::CalculateDistance(slow_c[idx_s], sl.prev_high, slow_atr);
+         data.dist_pdl = CMetricsTools::CalculateDistance(slow_c[idx_s], sl.prev_low, slow_atr);
+        }
+     }
+
+   Calc_TSI_Dir(slow_o, slow_h, slow_l, slow_c, data.h1_tsi_dir); // For MTF
+
+// Beta/Alpha
    bool is_benchmark = (sym == InpBenchmark || sym == InpForexBench);
    if(is_benchmark)
      {
@@ -356,25 +384,27 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
         {
          CMathStatisticsCalculator stats;
          double asset_ret[], bench_ret[];
-         int size = ArraySize(slow_c);
-         double asset_sub[], bench_sub[];
-         ArrayResize(asset_sub, InpBetaLookback);
-         ArrayResize(bench_sub, InpBetaLookback);
+
+         int h1_size = ArraySize(slow_c);
+         double asset_subset[];
+         ArrayResize(asset_subset, InpBetaLookback);
+         double bench_subset[];
+         ArrayResize(bench_subset, InpBetaLookback);
 
          for(int k=0; k<InpBetaLookback; k++)
            {
-            asset_sub[k] = slow_c[size - InpBetaLookback + k];
-            bench_sub[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
+            asset_subset[k] = slow_c[h1_size - InpBetaLookback + k];
+            bench_subset[k] = bench_c[ArraySize(bench_c) - InpBetaLookback + k];
            }
 
-         stats.ComputeReturns(asset_sub, asset_ret);
-         stats.ComputeReturns(bench_sub, bench_ret);
-         double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
+         stats.ComputeReturns(asset_subset, asset_ret);
+         stats.ComputeReturns(bench_subset, bench_ret);
 
-         double a_tot = (asset_sub[InpBetaLookback-1] - asset_sub[0]) / asset_sub[0];
-         double b_tot = (bench_sub[InpBetaLookback-1] - bench_sub[0]) / bench_sub[0];
+         double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
+         double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
+         double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
          double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
-         double rel_val = (a_tot - b_tot) * 100.0;
+         double rel_val = (a_tot - b_tot) * 100.0; // Raw difference usually
 
          data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
          data.beta_str         = DoubleToString(beta_val, 2);
@@ -389,7 +419,7 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
      }
 
 // =================================================================
-// LAYER 2: FLOW (M15 - Renamed from Trigger)
+// LAYER 2: FLOW (M15)
 // =================================================================
    double mid_o[], mid_h[], mid_l[], mid_c[];
    long mid_v[];
@@ -404,14 +434,23 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    data.m15_squeeze  = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c);
    data.m15_z_score  = Calc_ZScore(mid_o, mid_h, mid_l, mid_c, InpZScorePeriod);
 
-   double mid_atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5);
-   double mid_atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50);
-   data.m15_vola_regime = (mid_atr_s!=0) ? mid_atr_f/mid_atr_s : 1.0;
+// VWAP Slope
+   double vwap_series[];
+   Calc_VWAP_Series(mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, PERIOD_SESSION, vwap_series);
+   int idx_m = ArraySize(mid_c) - 2;
+   data.m15_vwap_slope = CMetricsTools::CalculateSlope(vwap_series[idx_m], vwap_series[idx_m - InpSlopeLookback], mid_atr, InpSlopeLookback);
+
+// Cost
+   data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, mid_atr);
+
+   double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5);
+   double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50);
+   data.m15_vola_regime = (atr_s!=0) ? atr_f/atr_s : 1.0;
 
    Calc_TSI_Dir(mid_o, mid_h, mid_l, mid_c, data.m15_tsi_dir);
 
 // =================================================================
-// LAYER 3: TRIGGER (M5 - NEW)
+// LAYER 3: TRIGGER (M5)
 // =================================================================
    double fast_o[], fast_h[], fast_l[], fast_c[];
    long fast_v[];
@@ -429,7 +468,6 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 // =================================================================
 // COMPOSITES
 // =================================================================
-// Rev Prob based on Flow (M15)
    double score = 0;
    if(MathAbs(data.m15_z_score) > 3.0)
       score += 40;
@@ -442,15 +480,11 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       score += 30;
    data.rev_prob = score;
 
-// Absorption based on Flow (M15) or Trig (M5)? Standard is Flow due to volume significance.
-// Let's stick to M15 for Absorption to filter M5 noise.
    int idx_cl = ArraySize(mid_c) - 2;
    if(idx_cl >= 0 && mid_atr > 0)
      {
       double body = MathAbs(mid_c[idx_cl] - mid_o[idx_cl]);
-      CRelativeVolumeCalculator rv;
-      rv.Init(InpRVOLPeriod);
-      double bar_rvol = rv.CalculateSingle(ArraySize(mid_v), mid_v, idx_cl);
+      double bar_rvol = Calc_RVOL_Single_Help(mid_v, InpRVOLPeriod, idx_cl);
       if(bar_rvol > 2.0 && body < (0.4 * mid_atr))
          data.absorption = "YES";
       else
@@ -459,33 +493,20 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    else
       data.absorption = "-";
 
+// MTF Align
+   if(data.h1_tsi_dir == data.m15_tsi_dir && data.m15_tsi_dir == data.m5_tsi_dir)
+      data.mtf_align = "FULL_" + data.h1_tsi_dir;
+   else
+      if(data.h1_tsi_dir == data.m15_tsi_dir)
+         data.mtf_align = "MAJOR_" + data.h1_tsi_dir;
+      else
+         data.mtf_align = "MIXED";
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Velocity Calculation                                             |
-//+------------------------------------------------------------------+
-double Calc_Velocity(const double &close[], double atr, int period)
-  {
-   if(atr == 0)
-      return 0;
-   int total = ArraySize(close);
-   if(total <= period+2)
-      return 0;
-
-   double sum_move = 0;
-   for(int i=0; i<period; i++)
-     {
-      // [Total-2] is last closed.
-      sum_move += MathAbs(close[total-2-i] - close[total-3-i]);
-     }
-   double avg_move = sum_move / period;
-
-   return avg_move / atr;
-  }
-
-//+------------------------------------------------------------------+
-//| HELPERS / WRAPPERS                                               |
+//| WRAPPER FUNCTIONS (IMPLEMENTATION)                               |
 //+------------------------------------------------------------------+
 bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double &o[], double &h[], double &l[], double &c[], long &v[])
   {
@@ -505,46 +526,61 @@ bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double Calc_ER(const double &o[], const double &h[], const double &l[], const double &c[], int p)
+void Calc_DSMA_Series(const double &o[], const double &h[], const double &l[], const double &c[], double &out_buf[])
   {
-   CEfficiencyRatioCalculator calc;
-   if(!calc.Init(p))
-      return 0;
-   double buf[];
-   int total = ArraySize(c);
-   ArrayResize(buf, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
-   return buf[total-2];
+   CDSMACalculator calc;
+   if(!calc.Init(InpDSMAPeriod))
+      return;
+   int total=ArraySize(c);
+   ArrayResize(out_buf, total);
+   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, out_buf);
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double Calc_ZScore(const double &o[], const double &h[], const double &l[], const double &c[], int p)
+void Calc_VWAP_Series(const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], ENUM_VWAP_PERIOD p, double &out_buf[])
   {
-   CZScoreCalculator calc;
-   if(!calc.Init(p))
-      return 0;
-   double buf[];
-   int total = ArraySize(c);
-   ArrayResize(buf, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
-   return buf[total-2];
+   CVWAPCalculator calc;
+   if(!calc.Init(p, VOLUME_TICK, 0, true))
+      return;
+   double odd[], even[];
+   int total=ArraySize(c);
+   ArrayResize(odd, total);
+   ArrayResize(even, total);
+   calc.Calculate(total, 0, t, o, h, l, c, v, v, odd, even);
+   ArrayResize(out_buf, total);
+   for(int i=0; i<total; i++)
+      out_buf[i] = (odd[i]!=EMPTY_VALUE && odd[i]!=0) ? odd[i] : even[i];
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double Calc_RVOL(const long &vol[], int p)
+double Calc_RVOL_Single_Help(const long &vol[], int period, int index)
   {
    CRelativeVolumeCalculator calc;
-   calc.Init(p);
-   return calc.CalculateSingle(ArraySize(vol), vol, ArraySize(vol)-2);
+   calc.Init(period);
+   return calc.CalculateSingle(ArraySize(vol), vol, index);
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double Calc_Velocity(const double &close[], double atr, int period)
+  {
+   if(atr == 0)
+      return 0;
+   int total = ArraySize(close);
+   if(total <= period+2)
+      return 0;
+   double sum_move = 0;
+   for(int i=0; i<period; i++)
+      sum_move += MathAbs(close[total-2-i] - close[total-3-i]);
+   return (sum_move / period) / atr;
+  }
+
+// Reuse Short Wrappers
 double Calc_ATR(const double &o[], const double &h[], const double &l[], const double &c[], int p)
   {
    CATRCalculator calc;
@@ -555,7 +591,43 @@ double Calc_ATR(const double &o[], const double &h[], const double &l[], const d
    calc.Calculate(total, 0, o, h, l, c, buf);
    return buf[total-2];
   }
-
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double Calc_ER(const double &o[], const double &h[], const double &l[], const double &c[], int p)
+  {
+   CEfficiencyRatioCalculator calc;
+   if(!calc.Init(p))
+      return 0;
+   double buf[];
+   int total=ArraySize(c);
+   ArrayResize(buf, total);
+   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
+   return buf[total-2];
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double Calc_ZScore(const double &o[], const double &h[], const double &l[], const double &c[], int p)
+  {
+   CZScoreCalculator calc;
+   if(!calc.Init(p))
+      return 0;
+   double buf[];
+   int total=ArraySize(c);
+   ArrayResize(buf, total);
+   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
+   return buf[total-2];
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double Calc_RVOL(const long &vol[], int p)
+  {
+   CRelativeVolumeCalculator calc;
+   calc.Init(p);
+   return calc.CalculateSingle(ArraySize(vol), vol, ArraySize(vol)-2);
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -572,7 +644,6 @@ double Calc_DSMA_Score(const double &o[], const double &h[], const double &l[], 
       return 0;
    return (c[total-2] - buf[total-2]) / atr;
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -596,7 +667,6 @@ string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const dou
    int idx = total - 2;
    return ((b_up[idx] < k_up[idx]) && (b_lo[idx] > k_lo[idx])) ? "ON" : "OFF";
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -611,7 +681,6 @@ double Calc_LaguerreRSI(const double &o[], const double &h[], const double &l[],
    calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, lrsi, sig);
    return lrsi[total-2] / 100.0;
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -630,7 +699,6 @@ void Calc_TSI_Dir(const double &o[], const double &h[], const double &l[], const
    else
       dir = "BEAR";
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -658,4 +726,5 @@ string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf)
       return "6/8-7/8 (Weak)";
    return "7/8-8/8 (Top)";
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
