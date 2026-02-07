@@ -1,9 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                     SessionLevels_Calculator.mqh |
-//|      Engine for retrieving key Session Levels (D1/W1 etc).       |
+//|      Includes Data Synchronization logic.                        |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+
+#include <MyIncludes\DataSync_Tools.mqh> // Include new tool
 
 struct SessionLevels
   {
@@ -14,16 +16,14 @@ struct SessionLevels
    bool              valid;
   };
 
-//+==================================================================+
-//|             CLASS: CSessionLevelsCalculator                      |
-//+==================================================================+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 class CSessionLevelsCalculator
   {
 protected:
-   ENUM_TIMEFRAMES   m_session_tf; // Usually PERIOD_D1
-
-   // Cache to prevent repetitive CopyRates calls on every tick
-   datetime          m_last_calc_time;
+   ENUM_TIMEFRAMES   m_session_tf;
+   datetime          m_last_calc_time_bar;
    SessionLevels     m_cached_levels;
 
 public:
@@ -31,26 +31,20 @@ public:
    virtual          ~CSessionLevelsCalculator(void) {};
 
    bool              Init(ENUM_TIMEFRAMES session_tf = PERIOD_D1);
-
-   // Get levels for a specific time (usually TimeCurrent or bar time)
-   bool              GetLevels(datetime time, SessionLevels &out_levels);
-
-   // Helper to calculate distance in ATR units
+   bool              GetLevels(string symbol, datetime time, SessionLevels &out_levels); // Added 'symbol' param
    double            GetDistanceATR(double price, double level, double atr);
   };
 
 //+------------------------------------------------------------------+
-//| Constructor                                                      |
+//|                                                                  |
 //+------------------------------------------------------------------+
-CSessionLevelsCalculator::CSessionLevelsCalculator(void) :
-   m_session_tf(PERIOD_D1),
-   m_last_calc_time(0)
+CSessionLevelsCalculator::CSessionLevelsCalculator(void) : m_session_tf(PERIOD_D1), m_last_calc_time_bar(0)
   {
    m_cached_levels.valid = false;
   }
 
 //+------------------------------------------------------------------+
-//| Init                                                             |
+//|                                                                  |
 //+------------------------------------------------------------------+
 bool CSessionLevelsCalculator::Init(ENUM_TIMEFRAMES session_tf)
   {
@@ -59,65 +53,54 @@ bool CSessionLevelsCalculator::Init(ENUM_TIMEFRAMES session_tf)
   }
 
 //+------------------------------------------------------------------+
-//| Get Levels                                                       |
+//|                                                                  |
 //+------------------------------------------------------------------+
-bool CSessionLevelsCalculator::GetLevels(datetime time, SessionLevels &out_levels)
+bool CSessionLevelsCalculator::GetLevels(string symbol, datetime time, SessionLevels &out_levels)
   {
-// 1. Identify the start time of the Session bar containing 'time'
-   datetime sess_start = iTime(_Symbol, m_session_tf, iBarShift(_Symbol, m_session_tf, time));
-
-   if(sess_start == 0)
+// 0. Ensure Data is Ready (Force Sync)
+   if(!CDataSync::EnsureDataReady(symbol, m_session_tf))
       return false;
 
-// 2. Check Cache
-   if(sess_start == m_last_calc_time && m_cached_levels.valid)
-     {
-      out_levels = m_cached_levels;
-      return true;
-     }
+// 1. Identify start time
+   datetime session_start_time = iTime(symbol, m_session_tf, iBarShift(symbol, m_session_tf, time));
+   if(session_start_time == 0)
+      return false;
+
+// 2. Cache Check (Only works if symbol didn't change! Since we reuse calc, better reset cache or check symbol)
+// For safety in script usage (switching symbols), let's skip cache or add symbol check
+// Assuming script creates new calc per symbol or we just refresh. Let's force refresh for safety in Script loops.
 
 // 3. Fetch Data
-// We need the Current Open and Previous High/Low/Close
-// Index 0 in HTF = Current Session. Index 1 = Previous Session.
-   int shift = iBarShift(_Symbol, m_session_tf, time);
-
-   double opens[], highs[], lows[], closes[];
-
-// We need index 'shift' (Current) and 'shift+1' (Previous)
-// Copying 2 bars starting from shift
-   if(CopyOpen(_Symbol, m_session_tf, shift, 2, opens) < 2 ||
-      CopyHigh(_Symbol, m_session_tf, shift, 2, highs) < 2 ||
-      CopyLow(_Symbol, m_session_tf, shift, 2, lows) < 2 ||
-      CopyClose(_Symbol, m_session_tf, shift, 2, closes) < 2)
-     {
+   int shift = iBarShift(symbol, m_session_tf, time);
+   if(shift < 0)
       return false;
-     }
 
-// Array is Standard Order (0 = Oldest = Prev, 1 = Newest = Curr) due to Copy functions default behavior
-// unless ArraySetAsSeries is true (it is not here).
-// Index 0 = Previous Day
-// Index 1 = Current Day
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
 
-   m_cached_levels.prev_high  = highs[0];
-   m_cached_levels.prev_low   = lows[0];
-   m_cached_levels.prev_close = closes[0];
-   m_cached_levels.curr_open  = opens[1];
+   if(CopyRates(symbol, m_session_tf, shift, 2, rates) != 2)
+      return false;
+
+   m_cached_levels.prev_high  = rates[1].high;
+   m_cached_levels.prev_low   = rates[1].low;
+   m_cached_levels.prev_close = rates[1].close;
+   m_cached_levels.curr_open  = rates[0].open;
+
+   if(m_cached_levels.prev_high == 0 || m_cached_levels.curr_open == 0)
+      return false;
 
    m_cached_levels.valid = true;
-   m_last_calc_time = sess_start;
-
    out_levels = m_cached_levels;
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Helper: Get Signed Distance in ATR                               |
+//|                                                                  |
 //+------------------------------------------------------------------+
 double CSessionLevelsCalculator::GetDistanceATR(double price, double level, double atr)
   {
-   if(atr == 0)
+   if(atr <= 0.00000001)
       return 0.0;
    return (price - level) / atr;
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
