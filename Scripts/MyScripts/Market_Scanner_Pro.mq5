@@ -24,6 +24,7 @@
 #include <MyIncludes\RelativeVolume_Calculator.mqh>
 #include <MyIncludes\SessionLevels_Calculator.mqh>
 #include <MyIncludes\Metrics_Tools.mqh>
+#include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Input Parameters ---
 input group "Scanner Config"
@@ -356,7 +357,8 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    if(sess_calc.Init(PERIOD_D1))
      {
       SessionLevels sl;
-      if(sess_calc.GetLevels(slow_t[idx_s], sl))
+
+      if(sess_calc.GetLevels(sym, slow_t[idx_s], sl))
         {
          data.dist_pdh = CMetricsTools::CalculateDistance(slow_c[idx_s], sl.prev_high, slow_atr);
          data.dist_pdl = CMetricsTools::CalculateDistance(slow_c[idx_s], sl.prev_low, slow_atr);
@@ -508,14 +510,21 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 //+------------------------------------------------------------------+
 //| WRAPPER FUNCTIONS (IMPLEMENTATION)                               |
 //+------------------------------------------------------------------+
+// Updated FetchData with Sync Logic
 bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double &o[], double &h[], double &l[], double &c[], long &v[])
   {
+// 1. Force Sync first
+   if(!CDataSync::EnsureDataReady(sym, tf, count))
+      return false;
+
    ArraySetAsSeries(t, false);
    ArraySetAsSeries(o, false);
    ArraySetAsSeries(h, false);
    ArraySetAsSeries(l, false);
    ArraySetAsSeries(c, false);
    ArraySetAsSeries(v, false);
+
+// Now Copy should work reliably
    if(CopyTime(sym, tf, 0, count, t)!=count || CopyOpen(sym, tf, 0, count, o)!=count ||
       CopyHigh(sym, tf, 0, count, h)!=count || CopyLow(sym, tf, 0, count, l)!=count ||
       CopyClose(sym, tf, 0, count, c)!=count || CopyTickVolume(sym, tf, 0, count, v)!=count)
