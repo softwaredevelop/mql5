@@ -1,15 +1,15 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 7.0 - Market Breadth                |
+//|                    QuantScan 7.1 - Refined Logic                 |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "7.00" // Added Market Breadth Analysis (Post-Processing)
+#property version   "7.10" // Moved Session Distances to Flow Layer (M15)
 #property description "Exports 'QuantScan 7.0' dataset for LLM Analysis."
 #property description "Includes Breadth Score and Cost Metrics."
 #property script_show_inputs
 
-//--- Include Custom Calculators
+//--- Includes
 #include <MyIncludes\DSMA_Calculator.mqh>
 #include <MyIncludes\VWAP_Calculator.mqh>
 #include <MyIncludes\Laguerre_RSI_Calculator.mqh>
@@ -26,7 +26,7 @@
 #include <MyIncludes\Metrics_Tools.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
 
-//--- Input Parameters ---
+//--- Parameters
 input group "Scanner Config"
 input bool     InpUseMarketWatch = false;    // Scan all Market Watch symbols
 input string   InpSymbolList     = "EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD,XAUUSD,US500,DE40,XTIUSD,ETHUSD";
@@ -48,11 +48,11 @@ input int      InpDSMAPeriod     = 40;
 input double   InpLaguerreGamma  = 0.50;
 input int      InpMurreyPeriod   = 64;
 input int      InpATRPeriod      = 14;
-input int      InpRSBars         = 24;   // Relative Strength Lookback
-input int      InpRVOLPeriod     = 20;   // Relative Volume Lookback
-input int      InpERPeriod       = 10;   // Efficiency Ratio Lookback
-input int      InpZScorePeriod   = 20;   // Z-Score Lookback
-input int      InpSlopeLookback  = 5;    // Bars back for Slope calculation
+input int      InpRSBars         = 24;
+input int      InpRVOLPeriod     = 20;
+input int      InpERPeriod       = 10;
+input int      InpZScorePeriod   = 20;
+input int      InpSlopeLookback  = 5;
 
 input group "TSI Settings"
 input int      InpTSI_Slow       = 25;
@@ -64,7 +64,7 @@ input int      InpSqueezeLength  = 20;
 input double   InpBBMult         = 2.0;
 input double   InpKCMult         = 1.5;
 
-//--- Struct for QuantScan Data
+//--- QuantData Struct
 struct QuantData
   {
    string            timestamp;
@@ -76,14 +76,14 @@ struct QuantData
    double            trend_qual;
    double            trend_slope;
    string            zone;
-   double            dist_pdh;         // Dist to Prev High
-   double            dist_pdl;         // Dist to Prev Low
    string            rel_strength_str;
    string            beta_str;
    string            alpha_str;
    string            h1_tsi_dir;
 
-   // --- Layer 2: M15 Flow ---
+   // --- Layer 2: M15 Flow - MOVED DIST_PDH/PDL HERE
+   double            dist_pdh;
+   double            dist_pdl;
    double            m15_momentum;
    double            m15_vol_qual;
    string            m15_squeeze;
@@ -196,7 +196,6 @@ void OnStart()
    string symbols[];
    int total_symbols = 0;
 
-// 1. Symbol List Compilation
    if(InpUseMarketWatch)
      {
       total_symbols = SymbolsTotal(true);
@@ -211,7 +210,7 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// 2. Global Sentiment (Prices)
+// 2. Global Sentiment
    double bench_change_pct = 0.0;
    bool has_us500 = SymbolSelect(InpBenchmark, true);
    bool has_dxy   = SymbolSelect(InpForexBench, true);
@@ -232,7 +231,7 @@ void OnStart()
    if(file_handle == INVALID_HANDLE)
       return;
 
-// 3. SCAN & STORE (Phase 1)
+// 3. SCAN & STORE
    PrintFormat("Scanning %d symbols...", total_symbols);
 
    QuantData results[];
@@ -258,7 +257,7 @@ void OnStart()
         }
      }
 
-// 4. BREADTH CALCULATION (Phase 2)
+// 4. BREADTH & SENTIMENT
    int tsi_bull_count = 0;
    int vel_pos_count  = 0;
    int mtf_full_count = 0;
@@ -284,14 +283,12 @@ void OnStart()
    else
       sentiment_line += "Benchmarks Missing";
 
-// Append Breadth Score to Header Line 1
    sentiment_line += StringFormat(" ### BREADTH_SCORE | TSI_BULL: %d/%d (%.0f%%) | VEL_POS: %d/%d (%.0f%%) | MTF_ALIGN: %d ###",
                                   tsi_bull_count, success_count, breadth_tsi, vel_pos_count, success_count, breadth_vel, mtf_full_count);
 
-// 5. WRITE TO FILE (Phase 3)
+// 5. WRITE HEADER
    FileWrite(file_handle, sentiment_line);
 
-// Header Row
    string str_slow = EnumToString(InpTFSlow);
    StringReplace(str_slow, "PERIOD_", "");
    string str_mid  = EnumToString(InpTFMiddle);
@@ -300,9 +297,14 @@ void OnStart()
    StringReplace(str_fast, "PERIOD_", "");
 
    string csv_header = "TIME (" + InpBrokerTimeZone + ");SYMBOL;PRICE;";
-   csv_header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;DIST_PDH_%s;DIST_PDL_%s;REL_STR_%s;BETA_%s;ALPHA_%s;",str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
-   csv_header += StringFormat("MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;COST_ATR_%s;TSI_DIR_%s;",str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
+// Context Header
+   csv_header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;REL_STR_%s;BETA_%s;ALPHA_%s;",str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
+// Flow Header (Added DIST_PDH/PDL with current TF suffix)
+   csv_header += StringFormat("DIST_PDH_%s;DIST_PDL_%s;MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;COST_ATR_%s;TSI_DIR_%s;",
+                              str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
+// Trigger Header
    csv_header += StringFormat("MOM_%s;RVOL_%s;TSI_DIR_%s;VEL_%s;", str_fast, str_fast, str_fast, str_fast);
+
    csv_header += "REV_PROB;ABSORPTION;MTF_ALIGN";
 
    FileWrite(file_handle, csv_header);
@@ -318,12 +320,12 @@ void OnStart()
                 DoubleToString(results[i].trend_qual, 2),
                 DoubleToString(results[i].trend_slope, 2),
                 results[i].zone,
-                DoubleToString(results[i].dist_pdh, 2),
-                DoubleToString(results[i].dist_pdl, 2),
                 results[i].rel_strength_str,
                 results[i].beta_str,
                 results[i].alpha_str,
                 // Layer 2
+                DoubleToString(results[i].dist_pdh, 2), // PDH in Flow
+                DoubleToString(results[i].dist_pdl, 2), // PDL in Flow
                 DoubleToString(results[i].m15_momentum, 2),
                 DoubleToString(results[i].m15_vol_qual, 2),
                 results[i].m15_squeeze,
@@ -349,7 +351,7 @@ void OnStart()
   }
 
 //+------------------------------------------------------------------+
-//| Core Logic: Run Quant Analysis                                   |
+//| Core Logic                                                       |
 //+------------------------------------------------------------------+
 bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
   {
@@ -380,19 +382,6 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 
    data.trend_qual  = Calc_ER(slow_o, slow_h, slow_l, slow_c, InpERPeriod);
    data.zone        = Calc_MurreyZone(sym, InpTFSlow);
-
-// Session Distances
-   CSessionLevelsCalculator sess_calc;
-   if(sess_calc.Init(PERIOD_D1))
-     {
-      SessionLevels sl;
-
-      if(sess_calc.GetLevels(sym, slow_t[idx_s], sl))
-        {
-         data.dist_pdh = CMetricsTools::CalculateDistance(slow_c[idx_s], sl.prev_high, slow_atr);
-         data.dist_pdl = CMetricsTools::CalculateDistance(slow_c[idx_s], sl.prev_low, slow_atr);
-        }
-     }
 
    Calc_TSI_Dir(slow_o, slow_h, slow_l, slow_c, data.h1_tsi_dir); // For MTF
 
@@ -435,7 +424,7 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
          double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
          double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
          double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
-         double rel_val = (a_tot - b_tot) * 100.0; // Raw difference usually
+         double rel_val = (a_tot - b_tot) * 100.0;
 
          data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
          data.beta_str         = DoubleToString(beta_val, 2);
@@ -477,6 +466,18 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5);
    double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50);
    data.m15_vola_regime = (atr_s!=0) ? atr_f/atr_s : 1.0;
+
+// Session Distances (Moved Here)
+   CSessionLevelsCalculator sess_calc;
+   if(sess_calc.Init(PERIOD_D1))
+     {
+      SessionLevels sl;
+      if(sess_calc.GetLevels(sym, mid_t[idx_m], sl)) // Pass 'sym' for Safety
+        {
+         data.dist_pdh = CMetricsTools::CalculateDistance(mid_c[idx_m], sl.prev_high, mid_atr);
+         data.dist_pdl = CMetricsTools::CalculateDistance(mid_c[idx_m], sl.prev_low, mid_atr);
+        }
+     }
 
    Calc_TSI_Dir(mid_o, mid_h, mid_l, mid_c, data.m15_tsi_dir);
 
@@ -539,21 +540,16 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 //+------------------------------------------------------------------+
 //| WRAPPER FUNCTIONS (IMPLEMENTATION)                               |
 //+------------------------------------------------------------------+
-// Updated FetchData with Sync Logic
 bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double &o[], double &h[], double &l[], double &c[], long &v[])
   {
-// 1. Force Sync first
    if(!CDataSync::EnsureDataReady(sym, tf, count))
-      return false;
-
+      return false; // Ensure Sync
    ArraySetAsSeries(t, false);
    ArraySetAsSeries(o, false);
    ArraySetAsSeries(h, false);
    ArraySetAsSeries(l, false);
    ArraySetAsSeries(c, false);
    ArraySetAsSeries(v, false);
-
-// Now Copy should work reliably
    if(CopyTime(sym, tf, 0, count, t)!=count || CopyOpen(sym, tf, 0, count, o)!=count ||
       CopyHigh(sym, tf, 0, count, h)!=count || CopyLow(sym, tf, 0, count, l)!=count ||
       CopyClose(sym, tf, 0, count, c)!=count || CopyTickVolume(sym, tf, 0, count, v)!=count)
@@ -591,7 +587,6 @@ void Calc_VWAP_Series(const datetime &t[], const double &o[], const double &h[],
    for(int i=0; i<total; i++)
       out_buf[i] = (odd[i]!=EMPTY_VALUE && odd[i]!=0) ? odd[i] : even[i];
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -601,7 +596,6 @@ double Calc_RVOL_Single_Help(const long &vol[], int period, int index)
    calc.Init(period);
    return calc.CalculateSingle(ArraySize(vol), vol, index);
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -617,7 +611,6 @@ double Calc_Velocity(const double &close[], double atr, int period)
       sum_move += MathAbs(close[total-2-i] - close[total-3-i]);
    return (sum_move / period) / atr;
   }
-
 // Reuse Short Wrappers
 double Calc_ATR(const double &o[], const double &h[], const double &l[], const double &c[], int p)
   {
@@ -764,5 +757,4 @@ string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf)
       return "6/8-7/8 (Weak)";
    return "7/8-8/8 (Top)";
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
