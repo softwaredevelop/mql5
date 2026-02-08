@@ -110,13 +110,25 @@ struct QuantData
 //+------------------------------------------------------------------+
 bool IsForexPair(string sym)
   {
+// Safety: If symbol IS one of the benchmarks, we don't classify it as generic forex pair here
    if(sym == InpBenchmark || sym == InpForexBench)
       return false;
+
    if(StringFind(sym, "USD") != -1 || StringFind(sym, "EUR") != -1 ||
-      StringFind(sym, "JPY") != -1 || StringFind(sym, "CHF") != -1 ||
-      StringFind(sym, "AUD") != -1 || StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1)
+      StringFind(sym, "GBP") != -1 || StringFind(sym, "JPY") != -1 ||
+      StringFind(sym, "CHF") != -1 || StringFind(sym, "AUD") != -1 ||
+      StringFind(sym, "CAD") != -1 || StringFind(sym, "NZD") != -1 ||
+      StringFind(sym, "XAU") != -1 || StringFind(sym, "XAG") != -1)
      {
-      if(StringFind(sym, "XAU")!=-1 || StringFind(sym, "XTI")!=-1 || StringFind(sym, "WTI")!=-1 || StringFind(sym, "BTC")!=-1 || StringFind(sym, "ETH")!=-1)
+      if(StringFind(sym, "XTI") != -1)
+         return false;
+      if(StringFind(sym, "UKO") != -1)
+         return false;
+      if(StringFind(sym, "USO") != -1)
+         return false;
+      if(StringFind(sym, "BTC") != -1)
+         return false;
+      if(StringFind(sym, "ETH") != -1)
          return false;
       return true;
      }
