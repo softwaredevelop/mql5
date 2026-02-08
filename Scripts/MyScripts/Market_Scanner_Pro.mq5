@@ -199,19 +199,11 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// 2. Global Sentiment
-   string sentiment_line = "### GLOBAL_SENTIMENT | ";
+// 2. Global Sentiment (Prices)
+   double bench_change_pct = 0.0;
    bool has_us500 = SymbolSelect(InpBenchmark, true);
    bool has_dxy   = SymbolSelect(InpForexBench, true);
 
-   if(has_us500 && has_dxy)
-     {
-      sentiment_line += GetSentimentForTF(InpTFSlow) + " | " + GetSentimentForTF(InpTFMiddle) + " | " + GetSentimentForTF(InpTFFast) + " ###";
-     }
-   else
-      sentiment_line += "Benchmarks Missing ###";
-
-   double bench_change_pct = 0.0;
    if(has_us500)
      {
       double b_close[], b_open[];
@@ -220,20 +212,74 @@ void OnStart()
             bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
      }
 
-// 3. File Setup
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
    StringReplace(filename, " ", "_");
 
    int file_handle = FileOpen(filename, FILE_CSV|FILE_WRITE|FILE_ANSI, ";");
    if(file_handle == INVALID_HANDLE)
-     {
-      Print("Error: CSV File.");
       return;
+
+// 3. SCAN & STORE (Phase 1)
+   PrintFormat("Scanning %d symbols...", total_symbols);
+
+   QuantData results[];
+   int success_count = 0;
+
+   for(int i=0; i<total_symbols; i++)
+     {
+      string sym = symbols[i];
+      StringTrimLeft(sym);
+      StringTrimRight(sym);
+      QuantData temp_data;
+      ZeroMemory(temp_data);
+
+      if(RunQuantAnalysis(sym, bench_change_pct, temp_data))
+        {
+         ArrayResize(results, success_count + 1);
+         results[success_count] = temp_data;
+         success_count++;
+        }
+      else
+        {
+         Print("Scan Failed: ", sym);
+        }
      }
 
+// 4. BREADTH CALCULATION (Phase 2)
+   int tsi_bull_count = 0;
+   int vel_pos_count  = 0;
+   int mtf_full_count = 0;
+
+   for(int i=0; i<success_count; i++)
+     {
+      if(results[i].m15_tsi_dir == "BULL")
+         tsi_bull_count++;
+      if(results[i].m5_velocity > 0)
+         vel_pos_count++;
+      if(StringFind(results[i].mtf_align, "FULL_") != -1)
+         mtf_full_count++;
+     }
+
+   double breadth_tsi = (success_count>0) ? ((double)tsi_bull_count/success_count)*100.0 : 0;
+   double breadth_vel = (success_count>0) ? ((double)vel_pos_count/success_count)*100.0 : 0;
+
+   string sentiment_line = "### GLOBAL_SENTIMENT | ";
+   if(has_us500 && has_dxy)
+     {
+      sentiment_line += GetSentimentForTF(InpTFSlow) + " | " + GetSentimentForTF(InpTFMiddle) + " | " + GetSentimentForTF(InpTFFast);
+     }
+   else
+      sentiment_line += "Benchmarks Missing";
+
+// Append Breadth Score to Header Line 1
+   sentiment_line += StringFormat(" ### BREADTH_SCORE | TSI_BULL: %d/%d (%.0f%%) | VEL_POS: %d/%d (%.0f%%) | MTF_ALIGN: %d ###",
+                                  tsi_bull_count, success_count, breadth_tsi, vel_pos_count, success_count, breadth_vel, mtf_full_count);
+
+// 5. WRITE TO FILE (Phase 3)
    FileWrite(file_handle, sentiment_line);
 
+// Header Row
    string str_slow = EnumToString(InpTFSlow);
    StringReplace(str_slow, "PERIOD_", "");
    string str_mid  = EnumToString(InpTFMiddle);
@@ -241,82 +287,53 @@ void OnStart()
    string str_fast = EnumToString(InpTFFast);
    StringReplace(str_fast, "PERIOD_", "");
 
-   string header = "";
-   header += "TIME (" + InpBrokerTimeZone + ");";
-   header += "SYMBOL;";
-   header += "PRICE;";
+   string csv_header = "TIME (" + InpBrokerTimeZone + ");SYMBOL;PRICE;";
+   csv_header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;DIST_PDH_%s;DIST_PDL_%s;REL_STR_%s;BETA_%s;ALPHA_%s;",str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
+   csv_header += StringFormat("MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;COST_ATR_%s;TSI_DIR_%s;",str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
+   csv_header += StringFormat("MOM_%s;RVOL_%s;TSI_DIR_%s;VEL_%s;", str_fast, str_fast, str_fast, str_fast);
+   csv_header += "REV_PROB;ABSORPTION;MTF_ALIGN";
 
-// Layer 1
-   header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;DIST_PDH_%s;DIST_PDL_%s;REL_STR_%s;BETA_%s;ALPHA_%s;",
-                          str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
+   FileWrite(file_handle, csv_header);
 
-// Layer 2
-   header += StringFormat("MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;COST_ATR_%s;TSI_DIR_%s;",
-                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
-
-// Layer 3
-   header += StringFormat("MOM_%s;RVOL_%s;TSI_DIR_%s;VEL_%s;", str_fast, str_fast, str_fast, str_fast);
-
-// Composites
-   header += "REV_PROB;ABSORPTION;MTF_ALIGN";
-
-   FileWrite(file_handle, header);
-
-   PrintFormat("Scanning %d symbols...", total_symbols);
-
-// 4. Main Loop
-   for(int i=0; i<total_symbols; i++)
+   for(int i=0; i<success_count; i++)
      {
-      string sym = symbols[i];
-      StringTrimLeft(sym);
-      StringTrimRight(sym);
-
-      QuantData data;
-      ZeroMemory(data);
-
-      if(RunQuantAnalysis(sym, bench_change_pct, data))
-        {
-         FileWrite(file_handle,
-                   data.timestamp,
-                   data.symbol,
-                   DoubleToString(data.price, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)),
-                   // Layer 1
-                   DoubleToString(data.trend_score, 2),
-                   DoubleToString(data.trend_qual, 2),
-                   DoubleToString(data.trend_slope, 2),
-                   data.zone,
-                   DoubleToString(data.dist_pdh, 2),
-                   DoubleToString(data.dist_pdl, 2),
-                   data.rel_strength_str,
-                   data.beta_str,
-                   data.alpha_str,
-                   // Layer 2
-                   DoubleToString(data.m15_momentum, 2),
-                   DoubleToString(data.m15_vol_qual, 2),
-                   data.m15_squeeze,
-                   DoubleToString(data.m15_vwap_slope, 2),
-                   DoubleToString(data.m15_z_score, 2),
-                   DoubleToString(data.m15_vola_regime, 2),
-                   DoubleToString(data.spread_cost, 2),
-                   data.m15_tsi_dir,
-                   // Layer 3
-                   DoubleToString(data.m5_momentum, 2),
-                   DoubleToString(data.m5_vol_qual, 2),
-                   data.m5_tsi_dir,
-                   DoubleToString(data.m5_velocity, 2),
-                   // Composites
-                   DoubleToString(data.rev_prob, 0) + "%",
-                   data.absorption,
-                   data.mtf_align
-                  );
-        }
-      else
-        {
-         Print("Scan Failed: ", sym);
-        }
+      FileWrite(file_handle,
+                results[i].timestamp,
+                results[i].symbol,
+                DoubleToString(results[i].price, (int)SymbolInfoInteger(results[i].symbol, SYMBOL_DIGITS)),
+                // Layer 1
+                DoubleToString(results[i].trend_score, 2),
+                DoubleToString(results[i].trend_qual, 2),
+                DoubleToString(results[i].trend_slope, 2),
+                results[i].zone,
+                DoubleToString(results[i].dist_pdh, 2),
+                DoubleToString(results[i].dist_pdl, 2),
+                results[i].rel_strength_str,
+                results[i].beta_str,
+                results[i].alpha_str,
+                // Layer 2
+                DoubleToString(results[i].m15_momentum, 2),
+                DoubleToString(results[i].m15_vol_qual, 2),
+                results[i].m15_squeeze,
+                DoubleToString(results[i].m15_vwap_slope, 2),
+                DoubleToString(results[i].m15_z_score, 2),
+                DoubleToString(results[i].m15_vola_regime, 2),
+                DoubleToString(results[i].spread_cost, 2),
+                results[i].m15_tsi_dir,
+                // Layer 3
+                DoubleToString(results[i].m5_momentum, 2),
+                DoubleToString(results[i].m5_vol_qual, 2),
+                results[i].m5_tsi_dir,
+                DoubleToString(results[i].m5_velocity, 2),
+                // Composites
+                DoubleToString(results[i].rev_prob, 0) + "%",
+                results[i].absorption,
+                results[i].mtf_align
+               );
      }
+
    FileClose(file_handle);
-   Print("Done. File saved to MQL5/Files/", filename);
+   Print("Done. Analyzed ", success_count, " symbols. File saved to MQL5/Files/", filename);
   }
 
 //+------------------------------------------------------------------+
