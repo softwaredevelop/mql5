@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 6.0 - Full Feature Set              |
+//|                    QuantScan 7.0 - Market Breadth                |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "6.00" // Full: Slope, Cost, Session, MTF Align
-#property description "Exports 'QuantScan 6.0' dataset for LLM Analysis."
-#property description "Complete toolset: Context, Flow, Trigger, Metrics."
+#property version   "7.00" // Added Market Breadth Analysis (Post-Processing)
+#property description "Exports 'QuantScan 7.0' dataset for LLM Analysis."
+#property description "Includes Breadth Score and Cost Metrics."
 #property script_show_inputs
 
 //--- Include Custom Calculators
