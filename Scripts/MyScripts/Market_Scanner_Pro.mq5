@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 7.1 - Refined Logic                 |
+//|                    QuantScan 7.2 - Signed Velocity               |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "7.10" // Moved Session Distances to Flow Layer (M15)
+#property version   "7.20" // Velocity is now Directional (Signed)
 #property description "Exports 'QuantScan 7.0' dataset for LLM Analysis."
-#property description "Includes Breadth Score and Cost Metrics."
+#property description "Includes Breadth, Cost, and Velocity Vector."
 #property script_show_inputs
 
 //--- Includes
@@ -604,12 +604,16 @@ double Calc_Velocity(const double &close[], double atr, int period)
    if(atr == 0)
       return 0;
    int total = ArraySize(close);
-   if(total <= period+2)
+   if(total <= period + 2)
       return 0;
-   double sum_move = 0;
-   for(int i=0; i<period; i++)
-      sum_move += MathAbs(close[total-2-i] - close[total-3-i]);
-   return (sum_move / period) / atr;
+
+// Use Standardized Slope Logic
+// We measure displacement from [Total-2-Period] to [Total-2]
+   double current_val = close[total-2];          // Last Closed Bar
+   double prev_val    = close[total-2-period];   // Bar 'period' ago
+
+// This calculates Net Change / (Bars * ATR)
+   return CMetricsTools::CalculateSlope(current_val, prev_val, atr, period);
   }
 // Reuse Short Wrappers
 double Calc_ATR(const double &o[], const double &h[], const double &l[], const double &c[], int p)
