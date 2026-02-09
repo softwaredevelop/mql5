@@ -5,7 +5,7 @@
 #property copyright "Copyright 2026, xxxxxxxx"
 #property version   "1.00"
 #property description "Statistical Z-Score Oscillator."
-#property description "Measures deviation from the mean in Sigma units."
+#property description "Displays deviation from Mean in Sigma units."
 
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -23,7 +23,8 @@
 //--- Plot: Z-Score Histogram (Colored)
 #property indicator_label1  "Z-Score"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-#property indicator_color1  clrGray, clrRed, clrLime  // Normal, Overbought, Oversold
+// Color Index: 0=Normal, 1=High(Red), 2=Low(Lime)
+#property indicator_color1  clrGray, clrOrangeRed, clrSpringGreen
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
@@ -35,7 +36,7 @@ input ENUM_APPLIED_PRICE InpPrice      = PRICE_CLOSE; // Applied Price
 
 //--- Buffers
 double BufferZ[];
-double BufferColors[]; // 0=Gray, 1=Red (+), 2=Lime (-)
+double BufferColors[];
 
 //--- Global Object
 CZScoreCalculator *g_calculator;
@@ -85,10 +86,10 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpPeriod)
       return 0;
 
-// Calculation
+// 1. Calculate Z-Score values
    g_calculator.Calculate(rates_total, prev_calculated, InpPrice, open, high, low, close, BufferZ);
 
-// Coloring Logic (Visual Wrapper only)
+// 2. Apply Coloring Logic
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    for(int i = start_index; i < rates_total; i++)
@@ -96,16 +97,17 @@ int OnCalculate(const int rates_total,
       double z = BufferZ[i];
 
       // Color Logic:
-      // > 2.0  -> Red (Extreme High)
-      // < -2.0 -> Lime (Extreme Low)
+      // > 2.0  -> OrangeRed (Extreme High)
+      // < -2.0 -> SpringGreen (Extreme Low)
       // Else   -> Gray (Normal)
+      // Dynamic Coloring
       if(z > 2.0)
-         BufferColors[i] = 1.0;       // Red
+         BufferColors[i] = 1.0; // Index 1: OrangeRed (Overbought)
       else
          if(z < -2.0)
-            BufferColors[i] = 2.0; // Lime
+            BufferColors[i] = 2.0; // Index 2: SpringGreen (Oversold)
          else
-            BufferColors[i] = 0.0;              // Gray
+            BufferColors[i] = 0.0; // Index 0: Gray (Normal)
      }
 
    return(rates_total);
