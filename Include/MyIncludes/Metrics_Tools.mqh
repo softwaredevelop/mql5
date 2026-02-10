@@ -43,5 +43,13 @@ public:
          return 0.0;
       return (price - level) / atr;
      }
+   //--- Calculate Normalized Deviation (Score)
+   // Formula: (CurrentValue - ReferenceValue) / Normalizer (e.g. ATR)
+   static double     CalculateDeviation(double current_val, double ref_val, double normalizer)
+     {
+      if(normalizer == 0)
+         return 0.0;
+      return (current_val - ref_val) / normalizer;
+     }
   };
 //+------------------------------------------------------------------+
