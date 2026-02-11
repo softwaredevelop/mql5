@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 8.1 - Optimization                  |
+//|                    QuantScan 8.2 - Squeeze Momentum              |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "8.10" // Cost moved to M5, Squeeze Engine integrated
+#property version   "8.20" // Added Squeeze Momentum output & input
 #property description "Exports 'QuantScan 8.0' dataset for LLM Analysis."
-#property description "Features mixed Live/Closed logic and numeric TSI data."
+#property description "Now includes Squeeze Momentum direction/value."
 #property script_show_inputs
 
 //--- Include Custom Calculators
@@ -65,6 +65,7 @@ input group "Squeeze Settings"
 input int      InpSqueezeLength  = 20;
 input double   InpBBMult         = 2.0;
 input double   InpKCMult         = 1.5;
+input int      InpSqueezeMom     = 12;   // NEW: Squeeze Momentum Period
 
 //--- Struct for QuantScan Data
 struct QuantData
@@ -90,6 +91,7 @@ struct QuantData
    double            m15_momentum;
    double            m15_vol_qual;
    string            m15_squeeze;
+   double            m15_sqz_mom; // NEW: Squeeze Momentum Value
    double            m15_vwap_slope;
    double            m15_z_score;
    double            m15_vola_regime;
@@ -260,9 +262,9 @@ void OnStart()
    header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;REL_STR_%s;BETA_%s;ALPHA_%s;TSI_VAL_%s;TSI_HIST_%s;",
                           str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
 
-// M15 Header (Removed COST_ATR)
-   header += StringFormat("DIST_PDH_%s;DIST_PDL_%s;MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;TSI_VAL_%s;TSI_HIST_%s;",
-                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
+// M15 Header (Insert SQZ_MOM column next to SQZ)
+   header += StringFormat("DIST_PDH_%s;DIST_PDL_%s;MOM_%s;RVOL_%s;SQZ_%s;SQZ_MOM_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;TSI_VAL_%s;TSI_HIST_%s;",
+                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
 
 // M5 Header (Added COST_ATR)
    header += StringFormat("MOM_%s;RVOL_%s;TSI_VAL_%s;TSI_HIST_%s;VEL_%s;COST_ATR_%s;", str_fast, str_fast, str_fast, str_fast, str_fast, str_fast);
@@ -303,6 +305,7 @@ void OnStart()
                    DoubleToString(data.m15_momentum, 2),
                    DoubleToString(data.m15_vol_qual, 2),
                    data.m15_squeeze,
+                   DoubleToString(data.m15_sqz_mom, 2), // NEW
                    DoubleToString(data.m15_vwap_slope, 2),
                    DoubleToString(data.m15_z_score, 2),
                    DoubleToString(data.m15_vola_regime, 2),
@@ -443,7 +446,7 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 
    data.m15_momentum = Calc_LaguerreRSI(mid_o, mid_h, mid_l, mid_c, idx_live_mid);
    data.m15_vol_qual = Calc_RVOL(mid_v, InpRVOLPeriod, idx_live_mid);
-   data.m15_squeeze = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_live_mid);
+   Calc_Squeeze_Full(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_live_mid, data.m15_squeeze, data.m15_sqz_mom);
    data.m15_z_score  = Calc_ZScore(mid_o, mid_h, mid_l, mid_c, InpZScorePeriod, idx_live_mid);
 
    double vwap_series[];
@@ -629,31 +632,32 @@ double Calc_RVOL(const long &vol[], int p, int idx)
   }
 
 //+------------------------------------------------------------------+
-//| WRAPPER UPDATE: Calc_Squeeze using Engine                        |
+//| WRAPPER UPDATE: Calc_Squeeze_Full                                |
 //+------------------------------------------------------------------+
-string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx)
+void Calc_Squeeze_Full(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx, string &state, double &mom_val)
   {
    int total = ArraySize(c);
    CSqueezeCalculator sqz;
-// Init with Inputs: Period, BB Mult, KC Mult, Mom Period(dummy 12)
-   if(!sqz.Init(InpSqueezeLength, InpBBMult, InpKCMult, 12))
-      return "ERR";
+// Use new input InpSqueezeMom
+   if(!sqz.Init(InpSqueezeLength, InpBBMult, InpKCMult, InpSqueezeMom))
+     {
+      state="ERR";
+      mom_val=0;
+      return;
+     }
 
    double mom[], val[], col[];
    ArrayResize(mom, total);
    ArrayResize(val, total);
    ArrayResize(col, total);
 
-// Wrapper expects Calc call.
    sqz.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, mom, val, col);
 
-// Check color index at idx.
-// CSqueezeCalculator logic: out_sqz_color[i] = is_squeeze ? 1.0 : 0.0;
-// 1.0 = Red (ON), 0.0 = Green (OFF)
    if(idx < total)
-      return (col[idx] == 1.0) ? "ON" : "OFF";
-
-   return "N/A";
+     {
+      state   = (col[idx] == 1.0) ? "ON" : "OFF";
+      mom_val = mom[idx]; // The momentum hist value
+     }
   }
 
 //+------------------------------------------------------------------+
