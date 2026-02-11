@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 8.0 - Live & Value Precision        |
+//|                    QuantScan 8.1 - Optimization                  |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "8.00" // Hybrid Locking (Live/Closed) + TSI Values
+#property version   "8.10" // Cost moved to M5, Squeeze Engine integrated
 #property description "Exports 'QuantScan 8.0' dataset for LLM Analysis."
 #property description "Features mixed Live/Closed logic and numeric TSI data."
 #property script_show_inputs
@@ -25,6 +25,8 @@
 #include <MyIncludes\SessionLevels_Calculator.mqh>
 #include <MyIncludes\Metrics_Tools.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
+// NEW INCLUDE
+#include <MyIncludes\Squeeze_Calculator.mqh>
 
 //--- Input Parameters ---
 input group "Scanner Config"
@@ -93,7 +95,7 @@ struct QuantData
    double            m15_vola_regime;
    double            m15_tsi_val;
    double            m15_tsi_hist;
-   double            spread_cost;
+   // Cost moved from here
 
    // --- Layer 3: M5 Trigger (ALL LIVE) ---
    double            m5_momentum;
@@ -101,6 +103,7 @@ struct QuantData
    double            m5_tsi_val;
    double            m5_tsi_hist;
    double            m5_velocity;
+   double            spread_cost; // MOVED HERE
 
    // --- Composites ---
    double            vol_thrust;
@@ -257,10 +260,12 @@ void OnStart()
    header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;REL_STR_%s;BETA_%s;ALPHA_%s;TSI_VAL_%s;TSI_HIST_%s;",
                           str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
 
-   header += StringFormat("DIST_PDH_%s;DIST_PDL_%s;MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;COST_ATR_%s;TSI_VAL_%s;TSI_HIST_%s;",
-                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
+// M15 Header (Removed COST_ATR)
+   header += StringFormat("DIST_PDH_%s;DIST_PDL_%s;MOM_%s;RVOL_%s;SQZ_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;TSI_VAL_%s;TSI_HIST_%s;",
+                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
 
-   header += StringFormat("MOM_%s;RVOL_%s;TSI_VAL_%s;TSI_HIST_%s;VEL_%s;", str_fast, str_fast, str_fast, str_fast, str_fast);
+// M5 Header (Added COST_ATR)
+   header += StringFormat("MOM_%s;RVOL_%s;TSI_VAL_%s;TSI_HIST_%s;VEL_%s;COST_ATR_%s;", str_fast, str_fast, str_fast, str_fast, str_fast, str_fast);
 
    header += "VOL_THRUST;REV_PROB;ABSORPTION;MTF_ALIGN";
 
@@ -301,7 +306,7 @@ void OnStart()
                    DoubleToString(data.m15_vwap_slope, 2),
                    DoubleToString(data.m15_z_score, 2),
                    DoubleToString(data.m15_vola_regime, 2),
-                   DoubleToString(data.spread_cost, 2),
+                   // Removed Spread Cost from here in CSV Write order!
                    DoubleToString(data.m15_tsi_val, 2),
                    DoubleToString(data.m15_tsi_hist, 2),
                    // M5
@@ -310,6 +315,7 @@ void OnStart()
                    DoubleToString(data.m5_tsi_val, 2),
                    DoubleToString(data.m5_tsi_hist, 2),
                    DoubleToString(data.m5_velocity, 2),
+                   DoubleToString(data.spread_cost, 2), // Added Here
                    // Composites
                    DoubleToString(data.vol_thrust, 2),
                    DoubleToString(data.rev_prob, 0) + "%",
@@ -437,14 +443,14 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 
    data.m15_momentum = Calc_LaguerreRSI(mid_o, mid_h, mid_l, mid_c, idx_live_mid);
    data.m15_vol_qual = Calc_RVOL(mid_v, InpRVOLPeriod, idx_live_mid);
-   data.m15_squeeze  = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_live_mid);
+   data.m15_squeeze = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_live_mid);
    data.m15_z_score  = Calc_ZScore(mid_o, mid_h, mid_l, mid_c, InpZScorePeriod, idx_live_mid);
 
    double vwap_series[];
    Calc_VWAP_Series(mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, PERIOD_SESSION, vwap_series);
    data.m15_vwap_slope = CMetricsTools::CalculateSlope(vwap_series[idx_live_mid], vwap_series[idx_live_mid - InpSlopeLookback], mid_atr, InpSlopeLookback);
 
-   data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, mid_atr);
+//data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, mid_atr);
 
    double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5, idx_live_mid);
    double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50, idx_live_mid);
@@ -473,12 +479,13 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       return false;
 
    int idx_live_fast = ArraySize(fast_c) - 1;
-   double fast_atr   = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_live_fast);
+   double fast_atr = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_live_fast);
 
    data.m5_momentum = Calc_LaguerreRSI(fast_o, fast_h, fast_l, fast_c, idx_live_fast);
    data.m5_vol_qual = Calc_RVOL(fast_v, InpRVOLPeriod, idx_live_fast);
    Calc_TSI_Values(fast_o, fast_h, fast_l, fast_c, idx_live_fast, data.m5_tsi_val, data.m5_tsi_hist);
    data.m5_velocity = Calc_Velocity(fast_c, fast_atr, 3, idx_live_fast);
+   data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, fast_atr);
 
 // =================================================================
 // COMPOSITES
@@ -620,32 +627,33 @@ double Calc_RVOL(const long &vol[], int p, int idx)
    calc.Init(p);
    return calc.CalculateSingle(ArraySize(vol), vol, idx);
   }
-// Calc_DSMA_Score needs to take idx now inside logic if needed, but wrapper returns value?
-// No, the previous wrapper returned doubl. I updated it above to logic.
-// Please ensure all previous wrappers (Laguerre, Squeeze, etc) are updated to take 'int idx' and use it.
-// (I am including them in the final code block implicitly, ensure they are copied from v7.40 and updated).
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| WRAPPER UPDATE: Calc_Squeeze using Engine                        |
 //+------------------------------------------------------------------+
 string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx)
   {
    int total = ArraySize(c);
-   CBollingerBandsCalculator bb;
-   bb.Init(InpSqueezeLength, InpBBMult, SMA);
-   CKeltnerChannelCalculator kc;
-   kc.Init(InpSqueezeLength, SMA, InpSqueezeLength, InpKCMult, ATR_SOURCE_STANDARD);
-   double b_ma[], b_up[], b_lo[];
-   ArrayResize(b_ma, total);
-   ArrayResize(b_up, total);
-   ArrayResize(b_lo, total);
-   double k_ma[], k_up[], k_lo[];
-   ArrayResize(k_ma, total);
-   ArrayResize(k_up, total);
-   ArrayResize(k_lo, total);
-   bb.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, b_ma, b_up, b_lo);
-   kc.Calculate(total, 0, o, h, l, c, PRICE_CLOSE, k_ma, k_up, k_lo);
-   return ((b_up[idx] < k_up[idx]) && (b_lo[idx] > k_lo[idx])) ? "ON" : "OFF";
+   CSqueezeCalculator sqz;
+// Init with Inputs: Period, BB Mult, KC Mult, Mom Period(dummy 12)
+   if(!sqz.Init(InpSqueezeLength, InpBBMult, InpKCMult, 12))
+      return "ERR";
+
+   double mom[], val[], col[];
+   ArrayResize(mom, total);
+   ArrayResize(val, total);
+   ArrayResize(col, total);
+
+// Wrapper expects Calc call.
+   sqz.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, mom, val, col);
+
+// Check color index at idx.
+// CSqueezeCalculator logic: out_sqz_color[i] = is_squeeze ? 1.0 : 0.0;
+// 1.0 = Red (ON), 0.0 = Green (OFF)
+   if(idx < total)
+      return (col[idx] == 1.0) ? "ON" : "OFF";
+
+   return "N/A";
   }
 
 //+------------------------------------------------------------------+
