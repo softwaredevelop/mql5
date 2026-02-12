@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 8.2 - Squeeze Momentum              |
+//|                    QuantScan 8.3 - Squeeze Momentum              |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "8.20" // Added Squeeze Momentum output & input
+#property version   "8.30" // Updated with Sync Fix
 #property description "Exports 'QuantScan 8.0' dataset for LLM Analysis."
 #property description "Now includes Squeeze Momentum direction/value."
 #property script_show_inputs
@@ -334,7 +334,7 @@ void OnStart()
   }
 
 //+------------------------------------------------------------------+
-//| Core Logic                                                       |
+//| Core Logic (v8.30 Updated with Sync Fix)                         |
 //+------------------------------------------------------------------+
 bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
   {
@@ -373,7 +373,7 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 // TSI -> LIVE
    Calc_TSI_Values(slow_o, slow_h, slow_l, slow_c, idx_live_slow, data.h1_tsi_val, data.h1_tsi_hist);
 
-// Beta/Alpha -> LIVE
+// --- BETA / ALPHA Calculation (TIME-SYNC FIXED) ---
    bool is_benchmark = (sym == InpBenchmark || sym == InpForexBench);
    if(is_benchmark)
      {
@@ -387,48 +387,98 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       if(IsForexPair(sym) && SymbolSelect(InpForexBench, true))
          bench_sym = InpForexBench;
 
-      // Ensure sync for benchmark on H1
-      if(CDataSync::EnsureDataReady(bench_sym, InpTFSlow, InpBetaLookback+2))
+      // Fetch Benchmark Full History (Same depth as asset) to ensure we find matching times
+      double b_c[], b_o[], b_h[], b_l[];
+      long b_v[];
+      datetime b_t[];
+
+      // Force Sync Bench Data first
+      if(CDataSync::EnsureDataReady(bench_sym, InpTFSlow, InpScanHistory))
         {
-         double bench_c[];
-         if(CopyClose(bench_sym, InpTFSlow, 0, InpBetaLookback+2, bench_c) > InpBetaLookback)
+         // Fetch using helper
+         if(FetchData(bench_sym, InpTFSlow, InpScanHistory, b_t, b_o, b_h, b_l, b_c, b_v))
            {
             CMathStatisticsCalculator stats;
-            double asset_ret[], bench_ret[];
-
-            // Build subset from LIVE backwards
             int h1_size = ArraySize(slow_c);
-            int bench_size = ArraySize(bench_c);
+            int bench_size = ArraySize(b_c);
+
+            // Allocate subsets
             double asset_subset[];
             ArrayResize(asset_subset, InpBetaLookback);
             double bench_subset[];
             ArrayResize(bench_subset, InpBetaLookback);
 
-            // i=0 is oldest in subset. We want subset[last] to be current live.
+            int valid_points = 0;
+
+            // Loop backwards from current LIVE bar [size-1]
+            // We fill the subset from End (Newest) to Start (Oldest) to keep chronological order for Returns Calc
             for(int k=0; k<InpBetaLookback; k++)
               {
-               asset_subset[k] = slow_c[h1_size - InpBetaLookback + k];
-               bench_subset[k] = bench_c[bench_size - InpBetaLookback + k];
+               // Asset Index
+               int a_idx = h1_size - 1 - k;
+               if(a_idx < 0)
+                  break;
+
+               datetime a_time = slow_t[a_idx];
+
+               // Find Matching Benchmark Index by Time
+               // Since arrays are non-series (0=Oldest), we can't use simple math if gaps exist.
+               // We use Binary Search (ArrayBsearch) on bench time array
+               int b_idx_arr = ArrayBsearch(b_t, a_time);
+
+               // ArrayBsearch returns index. Check if time matches exactly (or close enough)
+               if(b_idx_arr >= 0 && b_idx_arr < bench_size && b_t[b_idx_arr] == a_time)
+                 {
+                  // Match found!
+                  int sub_idx = InpBetaLookback - 1 - k; // Fill from end
+                  asset_subset[sub_idx] = slow_c[a_idx];
+                  bench_subset[sub_idx] = b_c[b_idx_arr];
+                  valid_points++;
+                 }
+               else
+                 {
+                  // Gap found (e.g. Asset open, Bench closed).
+                  // For strict stats, we skip this point or fill with previous?
+                  // Skipping creates holes in return calc.
+                  // Simple approach: Use previous bench value (Fill forward)?
+                  // Better: Simply don't increment valid_points, leave 0? No, stats need continuous series.
+                  // Let's copy previous value if match fails (Flat return).
+                  int sub_idx = InpBetaLookback - 1 - k;
+                  asset_subset[sub_idx] = slow_c[a_idx];
+                  // Use prev from subset if k>0? Tricky loop direction.
+                  // Simple fallback: Use bench at index approx? No.
+                  // If missing, we assume price didnt change from last valid.
+                  if(k>0 && sub_idx+1 < InpBetaLookback)
+                     bench_subset[sub_idx] = bench_subset[sub_idx+1]; // Prev Loop value (Newer)
+                 }
               }
 
-            stats.ComputeReturns(asset_subset, asset_ret);
-            stats.ComputeReturns(bench_subset, bench_ret);
-            double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
-            double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
-            double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
-            double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
-            double rel_val = (a_tot - b_tot) * 100.0;
+            // Only calc if we have enough synced data
+            if(valid_points > InpBetaLookback / 2)
+              {
+               double asset_ret[], bench_ret[];
+               stats.ComputeReturns(asset_subset, asset_ret);
+               stats.ComputeReturns(bench_subset, bench_ret);
 
-            data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
-            data.beta_str         = DoubleToString(beta_val, 2);
-            data.alpha_str        = DoubleToString(alpha_val, 4);
+               double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
+
+               // Period Alpha
+               double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
+               double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
+               double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
+               double rel_val = (a_tot - b_tot) * 100.0;
+
+               data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
+               data.beta_str         = DoubleToString(beta_val, 2);
+               data.alpha_str        = DoubleToString(alpha_val, 4);
+              }
+            else
+              {
+               data.rel_strength_str = "-";
+               data.beta_str = "0";
+               data.alpha_str = "0";
+              }
            }
-        }
-      else
-        {
-         data.rel_strength_str = "0%";
-         data.beta_str = "0";
-         data.alpha_str = "0";
         }
      }
 
@@ -452,8 +502,6 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    double vwap_series[];
    Calc_VWAP_Series(mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, PERIOD_SESSION, vwap_series);
    data.m15_vwap_slope = CMetricsTools::CalculateSlope(vwap_series[idx_live_mid], vwap_series[idx_live_mid - InpSlopeLookback], mid_atr, InpSlopeLookback);
-
-//data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, mid_atr);
 
    double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5, idx_live_mid);
    double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50, idx_live_mid);
@@ -482,13 +530,14 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       return false;
 
    int idx_live_fast = ArraySize(fast_c) - 1;
-   double fast_atr = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_live_fast);
+   double fast_atr   = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_live_fast);
+
+   data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, fast_atr); // Calc cost on M5 ATR
 
    data.m5_momentum = Calc_LaguerreRSI(fast_o, fast_h, fast_l, fast_c, idx_live_fast);
    data.m5_vol_qual = Calc_RVOL(fast_v, InpRVOLPeriod, idx_live_fast);
    Calc_TSI_Values(fast_o, fast_h, fast_l, fast_c, idx_live_fast, data.m5_tsi_val, data.m5_tsi_hist);
    data.m5_velocity = Calc_Velocity(fast_c, fast_atr, 3, idx_live_fast);
-   data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, fast_atr);
 
 // =================================================================
 // COMPOSITES
@@ -511,13 +560,13 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    data.rev_prob = score;
 
 // Absorption: Use Last Closed M15 (idx_live_mid - 1) for safety
-   int idx_abs = idx_live_mid - 1;
-   if(idx_abs >= 0 && mid_atr > 0)
+   int idx_cl_mid = idx_live_mid - 1;
+   if(idx_cl_mid >= 0 && mid_atr > 0)
      {
-      double body = MathAbs(mid_c[idx_abs] - mid_o[idx_abs]);
+      double body = MathAbs(mid_c[idx_cl_mid] - mid_o[idx_cl_mid]);
       CRelativeVolumeCalculator rv;
       rv.Init(InpRVOLPeriod);
-      double bar_rvol = rv.CalculateSingle(ArraySize(mid_v), mid_v, idx_abs);
+      double bar_rvol = rv.CalculateSingle(ArraySize(mid_v), mid_v, idx_cl_mid);
       if(bar_rvol > 2.0 && body < (0.4 * mid_atr))
          data.absorption = "YES";
       else
@@ -526,7 +575,7 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    else
       data.absorption = "-";
 
-// MTF Align (Based on TSI Histogram sign)
+// MTF Align (Based on Hist direction)
    bool h1_bull = (data.h1_tsi_hist > 0);
    bool m15_bull = (data.m15_tsi_hist > 0);
    bool m5_bull = (data.m5_tsi_hist > 0);
