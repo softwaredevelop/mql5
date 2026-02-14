@@ -87,5 +87,26 @@ public:
             out_returns[i-1] = 0.0;
         }
      }
+
+   //--- Calculate Pearson Correlation Coefficient
+   // r = Cov(X,Y) / (StdDev(X) * StdDev(Y))
+   double            CalculateCorrelation(const double &x[], const double &y[])
+     {
+      int n = MathMin(ArraySize(x), ArraySize(y));
+      if(n < 2)
+         return 0.0;
+
+      double mean_x = Mean(x, n);
+      double mean_y = Mean(y, n);
+
+      double cov = Covariance(x, mean_x, y, mean_y, n); // Using (n-1) denominator
+      double var_x = Variance(x, mean_x, n); // (n-1)
+      double var_y = Variance(y, mean_y, n); // (n-1)
+
+      if(var_x <= 0 || var_y <= 0)
+         return 0.0;
+
+      return cov / MathSqrt(var_x * var_y);
+     }
   };
 //+------------------------------------------------------------------+
