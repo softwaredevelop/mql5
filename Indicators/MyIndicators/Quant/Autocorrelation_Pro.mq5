@@ -11,13 +11,6 @@
 #property indicator_buffers 2
 #property indicator_plots   1
 
-// Levels
-#property indicator_level1 0.0
-#property indicator_levelcolor clrSilver
-#property indicator_levelstyle STYLE_DOT
-#property indicator_minimum -1.0
-#property indicator_maximum 1.0
-
 // Plot: Histogram
 #property indicator_label1  "AutoCorr"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
