@@ -1,0 +1,31 @@
+; Scanner Config
+InpUseMarketWatch=true
+InpSymbolList=
+InpBenchmark=US500
+InpForexBench=DXY
+InpBrokerTimeZone=EET (UTC+2)
+InpScanHistory=610
+; Benchmark Settings
+InpBetaLookback=55
+; Timeframes
+InpTFFast=5
+InpTFMiddle=15
+InpTFSlow=16385
+; Metric Settings
+InpVHFPeriod=21
+InpR2Period=21
+InpVScorePeriod=21
+InpAutoCorrPeriod=21
+InpMurreyPeriod=64
+InpATRPeriod=13
+InpRSBars=21
+InpRVOLPeriod=21
+; TSI Settings (For MTF Align)
+InpTSI_Slow=21
+InpTSI_Fast=13
+InpTSI_Signal=13
+; Squeeze Settings
+InpSqueezeLength=21
+InpBBMult=2.0
+InpKCMult=1.5
+InpSqueezeMom=13
