@@ -12,11 +12,11 @@
 #property indicator_plots   1
 
 //--- Levels
-#property indicator_level1 0.0
-#property indicator_level2 2.0
-#property indicator_level3 -2.0
-#property indicator_level4 3.0
-#property indicator_level5 -3.0
+//#property indicator_level1 0.0
+#property indicator_level1 2.0
+#property indicator_level2 -2.0
+#property indicator_level3 3.0
+#property indicator_level4 -3.0
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
