@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 9.0 - Next Gen Statistics           |
+//|                    QuantScan 9.1 - Next Gen Statistics           |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "9.00" // VHF, R2, V-Score, AutoCorr Integration
+#property version   "9.10" // Squeeze Momentum Integration
 #property description "Exports 'QuantScan 9.0' dataset for LLM Analysis."
 #property description "Features Advanced Statistical Filters (VHF, R2, V-Score)."
 #property script_show_inputs
@@ -86,6 +86,9 @@ struct QuantData
    double            autocorr;         // Lag-1 Correlation
    double            vol_regime;       // ATR(5)/ATR(50)
    string            sqz;              // Squeeze State
+   double            sqz_mom;          // New
+   double            m15_vhf;          // New
+   double            m15_r2;           // New
    double            dist_pdh;
    double            dist_pdl;
 
@@ -280,7 +283,7 @@ void OnStart()
 // Layer 1
    header += StringFormat("ALPHA_%s;BETA_%s;VHF_%s;R2_%s;ZONE_%s;", str_slow, str_slow, str_slow, str_slow, str_slow);
 // Layer 2
-   header += StringFormat("V_SCORE_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid);
+   header += StringFormat("V_SCORE_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;SQZ_MOM_%s;VHF_%s;R2_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
 // Layer 3
    header += StringFormat("VEL_%s;VOL_THRUST;COST_ATR_%s;", str_fast, str_fast);
 // Composites
@@ -306,6 +309,9 @@ void OnStart()
                 DoubleToString(results[i].autocorr, 2),
                 DoubleToString(results[i].vol_regime, 2),
                 results[i].sqz,
+                DoubleToString(results[i].sqz_mom, 2),
+                DoubleToString(results[i].m15_vhf, 2),
+                DoubleToString(results[i].m15_r2, 2),
                 DoubleToString(results[i].dist_pdh, 2),
                 DoubleToString(results[i].dist_pdl, 2),
                 // L3
@@ -509,9 +515,13 @@ bool RunQuantAnalysis(string sym, QuantData &data)
    data.vol_regime = (atr_s!=0) ? atr_f/atr_s : 1.0;
 
 // 4. Squeeze
-   data.sqz = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_l2);
+   Calc_Squeeze_Full(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_l2, data.sqz, data.sqz_mom);
 
-// 5. Dist PDH/PDL
+// 5. VHF & R2 (Live)
+   data.m15_vhf = Calc_VHF(mid_o, mid_h, mid_l, mid_c, InpVHFPeriod, idx_l2);
+   data.m15_r2  = Calc_R2(mid_o, mid_h, mid_l, mid_c, InpR2Period, idx_l2);
+
+// 6. Dist PDH/PDL
    CSessionLevelsCalculator sess_calc;
    if(sess_calc.Init(PERIOD_D1))
      {
@@ -654,13 +664,16 @@ double Calc_Velocity(const double &close[], double atr, int period, int idx)
 //+------------------------------------------------------------------+
 //| WRAPPER: Squeeze                                                 |
 //+------------------------------------------------------------------+
-string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx)
+void Calc_Squeeze_Full(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx, string &state, double &mom_val)
   {
    int total = ArraySize(c);
    CSqueezeCalculator sqz;
-
-   if(!sqz.Init(InpSqueezeLength, InpBBMult, InpKCMult, InpSqueezeMom))
-      return "ERR";
+   if(!sqz.Init(InpSqueezeLength, InpBBMult, InpKCMult, 12))
+     {
+      state="ERR";
+      mom_val=0;
+      return;
+     }
 
    double mom[], val[], col[];
    ArrayResize(mom, total);
@@ -671,9 +684,9 @@ string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const dou
 
    if(idx < total)
      {
-      return (col[idx] == 1.0) ? "ON" : "OFF";
+      state   = (col[idx] == 1.0) ? "ON" : "OFF";
+      mom_val = mom[idx];
      }
-   return "N/A";
   }
 
 //+------------------------------------------------------------------+
