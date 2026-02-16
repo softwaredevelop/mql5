@@ -1,34 +1,31 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 8.3 - Squeeze Momentum              |
+//|                    QuantScan 9.0 - Next Gen Statistics           |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "8.30" // Updated with Sync Fix
-#property description "Exports 'QuantScan 8.0' dataset for LLM Analysis."
-#property description "Now includes Squeeze Momentum direction/value."
+#property version   "9.00" // VHF, R2, V-Score, AutoCorr Integration
+#property description "Exports 'QuantScan 9.0' dataset for LLM Analysis."
+#property description "Features Advanced Statistical Filters (VHF, R2, V-Score)."
 #property script_show_inputs
 
-//--- Include Custom Calculators
-#include <MyIncludes\DSMA_Calculator.mqh>
-#include <MyIncludes\VWAP_Calculator.mqh>
-#include <MyIncludes\Laguerre_RSI_Calculator.mqh>
+//--- Includes
 #include <MyIncludes\TSI_Calculator.mqh>
 #include <MyIncludes\MurreyMath_Calculator.mqh>
 #include <MyIncludes\ATR_Calculator.mqh>
-#include <MyIncludes\Bollinger_Bands_Calculator.mqh>
-#include <MyIncludes\KeltnerChannel_Calculator.mqh>
 #include <MyIncludes\MathStatistics_Calculator.mqh>
-#include <MyIncludes\ZScore_Calculator.mqh>
-#include <MyIncludes\EfficiencyRatio_Calculator.mqh>
 #include <MyIncludes\RelativeVolume_Calculator.mqh>
 #include <MyIncludes\SessionLevels_Calculator.mqh>
 #include <MyIncludes\Metrics_Tools.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
-// NEW INCLUDE
 #include <MyIncludes\Squeeze_Calculator.mqh>
+// NEW Integrations:
+#include <MyIncludes\VHF_Calculator.mqh>
+#include <MyIncludes\LinearRegression_Calculator.mqh>
+#include <MyIncludes\VScore_Calculator.mqh>
+#include <MyIncludes\Autocorrelation_Calculator.mqh>
 
-//--- Input Parameters ---
+//--- Input Parameters
 input group "Scanner Config"
 input bool     InpUseMarketWatch = false;
 input string   InpSymbolList     = "EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD,XAUUSD,US500,DE40,XTIUSD,ETHUSD";
@@ -46,17 +43,20 @@ input ENUM_TIMEFRAMES InpTFMiddle= PERIOD_M15; // Layer 2 (Flow)
 input ENUM_TIMEFRAMES InpTFSlow  = PERIOD_H1;  // Layer 1 (Context)
 
 input group "Metric Settings"
-input int      InpDSMAPeriod     = 40;
-input double   InpLaguerreGamma  = 0.50;
+input int      InpVHFPeriod      = 28;   // VHF Lookback
+input int      InpR2Period       = 20;   // R-Squared Lookback
+input int      InpVScorePeriod   = 20;   // V-Score Period
+input int      InpAutoCorrPeriod = 20;   // Autocorrelation Window
+// Standard settings
 input int      InpMurreyPeriod   = 64;
 input int      InpATRPeriod      = 14;
 input int      InpRSBars         = 24;
 input int      InpRVOLPeriod     = 20;
-input int      InpERPeriod       = 10;
-input int      InpZScorePeriod   = 20;
-input int      InpSlopeLookback  = 5;
 
-input group "TSI Settings"
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+input group "TSI Settings (For MTF Align)"
 input int      InpTSI_Slow       = 25;
 input int      InpTSI_Fast       = 13;
 input int      InpTSI_Signal     = 13;
@@ -65,53 +65,43 @@ input group "Squeeze Settings"
 input int      InpSqueezeLength  = 20;
 input double   InpBBMult         = 2.0;
 input double   InpKCMult         = 1.5;
-input int      InpSqueezeMom     = 12;   // NEW: Squeeze Momentum Period
+input int      InpSqueezeMom     = 12; // NEW
 
-//--- Struct for QuantScan Data
+//--- QuantData Struct (Updated Layout)
 struct QuantData
   {
    string            timestamp;
    string            symbol;
    double            price;
 
-   // --- Layer 1: H1 Context ---
-   double            trend_score;      // Closed
-   double            trend_qual;       // Closed
-   double            trend_slope;      // Closed
-   string            zone;             // Levels Closed, Price Live
-   string            rel_strength_str; // Live
-   string            beta_str;         // Live
-   string            alpha_str;        // Live
-   double            h1_tsi_val;       // Live
-   double            h1_tsi_hist;      // Live
+   // H1 Context
+   string            alpha_str;        // Alpha
+   string            beta_str;         // Beta
+   double            vhf;              // VHF
+   double            r2;               // R-Squared
+   string            zone;             // Murrey Zone
 
-   // --- Layer 2: M15 Flow (ALL LIVE) ---
+   // M15 Flow
+   double            v_score;          // VWAP Z-Score
+   double            autocorr;         // Lag-1 Correlation
+   double            vol_regime;       // ATR(5)/ATR(50)
+   string            sqz;              // Squeeze State
    double            dist_pdh;
    double            dist_pdl;
-   double            m15_momentum;
-   double            m15_vol_qual;
-   string            m15_squeeze;
-   double            m15_sqz_mom; // NEW: Squeeze Momentum Value
-   double            m15_vwap_slope;
-   double            m15_z_score;
-   double            m15_vola_regime;
-   double            m15_tsi_val;
-   double            m15_tsi_hist;
-   // Cost moved from here
 
-   // --- Layer 3: M5 Trigger (ALL LIVE) ---
-   double            m5_momentum;
-   double            m5_vol_qual;
-   double            m5_tsi_val;
-   double            m5_tsi_hist;
-   double            m5_velocity;
-   double            spread_cost; // MOVED HERE
+   // M5 Trigger
+   double            velocity;
+   double            vol_thrust;       // M5 RVOL / M15 RVOL
+   double            cost_atr;
 
-   // --- Composites ---
-   double            vol_thrust;
-   double            rev_prob;
+   // Composites
    string            absorption;
    string            mtf_align;
+
+   // Internal TSI Hist for Breadth/Align
+   double            h1_tsi_hist;
+   double            m15_tsi_hist;
+   double            m5_tsi_hist;
   };
 
 //--- Helper: Detect Asset Class
@@ -142,7 +132,9 @@ bool IsForexPair(string sym)
    return false;
   }
 
-//--- Helper: Get Sentiment
+//+------------------------------------------------------------------+
+//| Helper: Get Sentiment String for TF (Extended Format)            |
+//+------------------------------------------------------------------+
 string GetSentimentForTF(ENUM_TIMEFRAMES tf)
   {
    if(!CDataSync::EnsureDataReady(InpBenchmark, tf, 2))
@@ -150,50 +142,51 @@ string GetSentimentForTF(ENUM_TIMEFRAMES tf)
    if(!CDataSync::EnsureDataReady(InpForexBench, tf, 2))
       return "N/A";
 
-   double u_close[2], d_close[2];
-   if(CopyClose(InpBenchmark, tf, 1, 2, u_close) != 2)
+   double u_clos[2], d_clos[2];
+   if(CopyClose(InpBenchmark, tf, 1, 2, u_clos) != 2)
       return "N/A";
-   if(CopyClose(InpForexBench, tf, 1, 2, d_close) != 2)
+   if(CopyClose(InpForexBench, tf, 1, 2, d_clos) != 2)
       return "N/A";
 
-   double us500_chg = (u_close[1] - u_close[0]);
-   double dxy_chg   = (d_close[1] - d_close[0]);
-   double us500_pct = (u_close[0]!=0) ? (us500_chg / u_close[0])*100 : 0;
-   double dxy_pct   = (d_close[0]!=0) ? (dxy_chg / d_close[0])*100 : 0;
+   double u_chg = u_clos[1] - u_clos[0];
+   double d_chg = d_clos[1] - d_clos[0];
+   double u_pct = (u_clos[0]!=0) ? (u_chg / u_clos[0])*100.0 : 0;
+   double d_pct = (d_clos[0]!=0) ? (d_chg / d_clos[0])*100.0 : 0;
 
    string state = "MIXED";
-   if(dxy_chg < 0 && us500_chg > 0)
+   if(d_chg < 0 && u_chg > 0)
       state = "RISK-ON";
    else
-      if(dxy_chg > 0 && us500_chg < 0)
+      if(d_chg > 0 && u_chg < 0)
          state = "RISK-OFF";
       else
-         if(dxy_chg > 0 && us500_chg > 0)
+         if(d_chg > 0 && u_chg > 0)
             state = "STRESS";
          else
-            if(dxy_chg < 0 && us500_chg < 0)
+            if(d_chg < 0 && u_chg < 0)
                state = "DEFLATION";
 
    string tf_name = EnumToString(tf);
    StringReplace(tf_name, "PERIOD_", "");
-   return StringFormat("%s: %s (US:%.2f%% DX:%.2f%%)", tf_name, state, us500_pct, dxy_pct);
+
+// FIX: Return full format string
+   return StringFormat("%s: %s (US:%.2f%% DX:%.2f%%)", tf_name, state, u_pct, d_pct);
   }
 
-//--- Wrappers Declarations
+//--- Forward Declarations
+// Updated list of wrappers
 bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double &o[], double &h[], double &l[], double &c[], long &v[]);
 double Calc_ATR(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx);
-double Calc_ER(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx);
-double Calc_ZScore(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx);
-double Calc_RVOL(const long &vol[], int p, int idx);
-double Calc_DSMA_Score(const double &o[], const double &h[], const double &l[], const double &c[], double atr, int idx);
 string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx);
-double Calc_LaguerreRSI(const double &o[], const double &h[], const double &l[], const double &c[], int idx);
-void Calc_TSI_Values(const double &o[], const double &h[], const double &l[], const double &c[], int idx, double &val, double &hist);
 string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf);
-void Calc_DSMA_Series(const double &o[], const double &h[], const double &l[], const double &c[], double &out_buf[]);
-void Calc_VWAP_Series(const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], ENUM_VWAP_PERIOD p, double &out_buf[]);
 double Calc_Velocity(const double &close[], double atr, int period, int idx);
-
+double Calc_RVOL(const long &vol[], int p, int idx);
+void Calc_TSI_Values(const double &o[], const double &h[], const double &l[], const double &c[], int idx, double &val, double &hist);
+// New Wrappers
+double Calc_VHF(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx);
+double Calc_R2(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx);
+double Calc_VScore(string sym, const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], int p, int idx);
+double Calc_AutoCorr(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx);
 
 //+------------------------------------------------------------------+
 //| Script Start                                                     |
@@ -217,7 +210,7 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
-// Global Sentiment
+// --- Global Sentiment ---
    string sentiment_line = "### GLOBAL_SENTIMENT | ";
    bool has_us500 = SymbolSelect(InpBenchmark, true);
    bool has_dxy   = SymbolSelect(InpForexBench, true);
@@ -228,17 +221,9 @@ void OnStart()
    else
       sentiment_line += "Benchmarks Missing ###";
 
-   double bench_change_pct = 0.0;
+// Sync for RS
    if(has_us500)
-     {
-      if(CDataSync::EnsureDataReady(InpBenchmark, InpTFSlow))
-        {
-         double b_close[], b_open[];
-         if(CopyClose(InpBenchmark, InpTFSlow, 1, 1, b_close) > 0 && CopyOpen(InpBenchmark, InpTFSlow, InpRSBars, 1, b_open) > 0)
-            if(b_open[0] != 0)
-               bench_change_pct = ((b_close[0] - b_open[0]) / b_open[0]) * 100.0;
-        }
-     }
+      CDataSync::EnsureDataReady(InpBenchmark, InpTFSlow);
 
    string filename = "QuantScan_" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".csv";
    StringReplace(filename, ":", "");
@@ -248,9 +233,42 @@ void OnStart()
    if(file_handle == INVALID_HANDLE)
       return;
 
+// --- SCAN & STORE for Breadth ---
+   PrintFormat("Scanning %d symbols...", total_symbols);
+   QuantData results[];
+   int success_count = 0;
+
+   for(int i=0; i<total_symbols; i++)
+     {
+      string sym = symbols[i];
+      StringTrimLeft(sym);
+      StringTrimRight(sym);
+      QuantData temp_data;
+      ZeroMemory(temp_data);
+      if(RunQuantAnalysis(sym, temp_data))
+        {
+         ArrayResize(results, success_count + 1);
+         results[success_count] = temp_data;
+         success_count++;
+        }
+      else
+         Print("Scan Failed: ", sym);
+     }
+
+// --- BREADTH SCORE ---
+// Count TSI Bullishness across portfolio (H1 or M15?) usually Trend Context (H1) matters most for Breadth.
+   int bulls = 0;
+   for(int i=0; i<success_count; i++)
+     {
+      if(results[i].h1_tsi_hist > 0)
+         bulls++; // Using H1 Histogram direction
+     }
+   double breadth_pct = (success_count>0) ? ((double)bulls/success_count)*100.0 : 0;
+   sentiment_line += StringFormat(" BREADTH: %d/%d (%.0f%% Bullish)", bulls, success_count, breadth_pct);
+
+// --- WRITE HEADERS ---
    FileWrite(file_handle, sentiment_line);
 
-// Header
    string str_slow = EnumToString(InpTFSlow);
    StringReplace(str_slow, "PERIOD_", "");
    string str_mid  = EnumToString(InpTFMiddle);
@@ -259,84 +277,55 @@ void OnStart()
    StringReplace(str_fast, "PERIOD_", "");
 
    string header = "TIME (" + InpBrokerTimeZone + ");SYMBOL;PRICE;";
-   header += StringFormat("TREND_SC_%s;TREND_QUAL_%s;TREND_SLOPE_%s;ZONE_%s;REL_STR_%s;BETA_%s;ALPHA_%s;TSI_VAL_%s;TSI_HIST_%s;",
-                          str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow, str_slow);
-
-// M15 Header (Insert SQZ_MOM column next to SQZ)
-   header += StringFormat("DIST_PDH_%s;DIST_PDL_%s;MOM_%s;RVOL_%s;SQZ_%s;SQZ_MOM_%s;VWAP_SLOPE_%s;Z_SCORE_%s;VOL_REGIME_%s;TSI_VAL_%s;TSI_HIST_%s;",
-                          str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
-
-// M5 Header (Added COST_ATR)
-   header += StringFormat("MOM_%s;RVOL_%s;TSI_VAL_%s;TSI_HIST_%s;VEL_%s;COST_ATR_%s;", str_fast, str_fast, str_fast, str_fast, str_fast, str_fast);
-
-   header += "VOL_THRUST;REV_PROB;ABSORPTION;MTF_ALIGN";
+// Layer 1
+   header += StringFormat("ALPHA_%s;BETA_%s;VHF_%s;R2_%s;ZONE_%s;", str_slow, str_slow, str_slow, str_slow, str_slow);
+// Layer 2
+   header += StringFormat("V_SCORE_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid);
+// Layer 3
+   header += StringFormat("VEL_%s;VOL_THRUST;COST_ATR_%s;", str_fast, str_fast);
+// Composites
+   header += "ABSORPTION;MTF_ALIGN";
 
    FileWrite(file_handle, header);
 
-   PrintFormat("Scanning %d symbols...", total_symbols);
-
-   for(int i=0; i<total_symbols; i++)
+// --- WRITE DATA ---
+   for(int i=0; i<success_count; i++)
      {
-      string sym = symbols[i];
-      StringTrimLeft(sym);
-      StringTrimRight(sym);
-      QuantData data;
-      ZeroMemory(data);
-
-      if(RunQuantAnalysis(sym, bench_change_pct, data))
-        {
-         FileWrite(file_handle,
-                   data.timestamp,
-                   data.symbol,
-                   DoubleToString(data.price, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)),
-                   // H1
-                   DoubleToString(data.trend_score, 2),
-                   DoubleToString(data.trend_qual, 2),
-                   DoubleToString(data.trend_slope, 2),
-                   data.zone,
-                   data.rel_strength_str,
-                   data.beta_str,
-                   data.alpha_str,
-                   DoubleToString(data.h1_tsi_val, 2),
-                   DoubleToString(data.h1_tsi_hist, 2),
-                   // M15
-                   DoubleToString(data.dist_pdh, 2),
-                   DoubleToString(data.dist_pdl, 2),
-                   DoubleToString(data.m15_momentum, 2),
-                   DoubleToString(data.m15_vol_qual, 2),
-                   data.m15_squeeze,
-                   DoubleToString(data.m15_sqz_mom, 2), // NEW
-                   DoubleToString(data.m15_vwap_slope, 2),
-                   DoubleToString(data.m15_z_score, 2),
-                   DoubleToString(data.m15_vola_regime, 2),
-                   // Removed Spread Cost from here in CSV Write order!
-                   DoubleToString(data.m15_tsi_val, 2),
-                   DoubleToString(data.m15_tsi_hist, 2),
-                   // M5
-                   DoubleToString(data.m5_momentum, 2),
-                   DoubleToString(data.m5_vol_qual, 2),
-                   DoubleToString(data.m5_tsi_val, 2),
-                   DoubleToString(data.m5_tsi_hist, 2),
-                   DoubleToString(data.m5_velocity, 2),
-                   DoubleToString(data.spread_cost, 2), // Added Here
-                   // Composites
-                   DoubleToString(data.vol_thrust, 2),
-                   DoubleToString(data.rev_prob, 0) + "%",
-                   data.absorption,
-                   data.mtf_align
-                  );
-        }
-      else
-         Print("Scan Failed (Sync): ", sym);
+      FileWrite(file_handle,
+                results[i].timestamp,
+                results[i].symbol,
+                DoubleToString(results[i].price, (int)SymbolInfoInteger(results[i].symbol, SYMBOL_DIGITS)),
+                // L1
+                results[i].alpha_str,
+                results[i].beta_str,
+                DoubleToString(results[i].vhf, 2),
+                DoubleToString(results[i].r2, 2),
+                results[i].zone,
+                // L2
+                DoubleToString(results[i].v_score, 2),
+                DoubleToString(results[i].autocorr, 2),
+                DoubleToString(results[i].vol_regime, 2),
+                results[i].sqz,
+                DoubleToString(results[i].dist_pdh, 2),
+                DoubleToString(results[i].dist_pdl, 2),
+                // L3
+                DoubleToString(results[i].velocity, 2),
+                DoubleToString(results[i].vol_thrust, 2),
+                DoubleToString(results[i].cost_atr, 2),
+                // Composite
+                results[i].absorption,
+                results[i].mtf_align
+               );
      }
+
    FileClose(file_handle);
    Print("Done. File: ", filename);
   }
 
 //+------------------------------------------------------------------+
-//| Core Logic (v8.30 Updated with Sync Fix)                         |
+//| Core Logic                                                       |
 //+------------------------------------------------------------------+
-bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
+bool RunQuantAnalysis(string sym, QuantData &data)
   {
    data.timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES);
    StringReplace(data.timestamp, ".", ".");
@@ -344,40 +333,21 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    data.price     = SymbolInfoDouble(sym, SYMBOL_BID);
 
 // =================================================================
-// LAYER 1: CONTEXT (H1)
+// LAYER 1: CONTEXT (H1) - LIVE
 // =================================================================
    double slow_o[], slow_h[], slow_l[], slow_c[];
    long slow_v[];
    datetime slow_t[];
    if(!FetchData(sym, InpTFSlow, InpScanHistory, slow_t, slow_o, slow_h, slow_l, slow_c, slow_v))
       return false;
+   int idx_l1 = ArraySize(slow_c) - 1;
 
-// Indices
-   int idx_live_slow   = ArraySize(slow_c) - 1;
-   int idx_closed_slow = ArraySize(slow_c) - 2;
-
-   double slow_atr = Calc_ATR(slow_o, slow_h, slow_l, slow_c, InpATRPeriod, idx_closed_slow);
-   if(slow_atr == 0)
-      return false;
-
-// Trend Score/Qual/Slope -> CLOSED (Stability)
-   double dsma_series[];
-   Calc_DSMA_Series(slow_o, slow_h, slow_l, slow_c, dsma_series);
-   data.trend_score = (slow_atr!=0) ? (slow_c[idx_closed_slow] - dsma_series[idx_closed_slow]) / slow_atr : 0;
-   data.trend_slope = CMetricsTools::CalculateSlope(dsma_series[idx_closed_slow], dsma_series[idx_closed_slow - InpSlopeLookback], slow_atr, InpSlopeLookback);
-   data.trend_qual  = Calc_ER(slow_o, slow_h, slow_l, slow_c, InpERPeriod, idx_closed_slow);
-
-// Zone (Murrey) - Calcs on history, Checks against LIVE Price
-   data.zone        = Calc_MurreyZone(sym, InpTFSlow);
-
-// TSI -> LIVE
-   Calc_TSI_Values(slow_o, slow_h, slow_l, slow_c, idx_live_slow, data.h1_tsi_val, data.h1_tsi_hist);
-
-// --- BETA / ALPHA Calculation (TIME-SYNC FIXED) ---
+// 1. Alpha / Beta (Live)
+// --- BETA / ALPHA + REL STRENGTH (Time-Synced) ---
    bool is_benchmark = (sym == InpBenchmark || sym == InpForexBench);
    if(is_benchmark)
      {
-      data.rel_strength_str="BENCH";
+      //data.rel_strength_str="BENCH";
       data.beta_str="1.0";
       data.alpha_str="0.0";
      }
@@ -387,74 +357,84 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
       if(IsForexPair(sym) && SymbolSelect(InpForexBench, true))
          bench_sym = InpForexBench;
 
-      // Fetch Benchmark Full History (Same depth as asset) to ensure we find matching times
-      double b_c[], b_o[], b_h[], b_l[];
-      long b_v[];
+      // Fetch Benchmark Full History
+      double b_c[], dum_o[], dum_h[], dum_l[];
+      long dum_v[];
       datetime b_t[];
-
-      // Force Sync Bench Data first
       if(CDataSync::EnsureDataReady(bench_sym, InpTFSlow, InpScanHistory))
         {
-         // Fetch using helper
-         if(FetchData(bench_sym, InpTFSlow, InpScanHistory, b_t, b_o, b_h, b_l, b_c, b_v))
+         if(FetchData(bench_sym, InpTFSlow, InpScanHistory, b_t, dum_o, dum_h, dum_l, b_c, dum_v))
            {
             CMathStatisticsCalculator stats;
             int h1_size = ArraySize(slow_c);
             int bench_size = ArraySize(b_c);
 
-            // Allocate subsets
+            // Allocate for Beta (Longer period usually)
+            int lookback_beta = InpBetaLookback;
             double asset_subset[];
-            ArrayResize(asset_subset, InpBetaLookback);
+            ArrayResize(asset_subset, lookback_beta);
             double bench_subset[];
-            ArrayResize(bench_subset, InpBetaLookback);
+            ArrayResize(bench_subset, lookback_beta);
 
             int valid_points = 0;
 
-            // Loop backwards from current LIVE bar [size-1]
-            // We fill the subset from End (Newest) to Start (Oldest) to keep chronological order for Returns Calc
-            for(int k=0; k<InpBetaLookback; k++)
+            // Variables for RS Calculation (Shorter period)
+            double rs_asset_start = 0, rs_bench_start = 0;
+            double rs_asset_end = 0, rs_bench_end = 0;
+            bool rs_start_found = false;
+
+            // Loop backwards from current LIVE bar
+            for(int k=0; k<lookback_beta; k++)
               {
-               // Asset Index
                int a_idx = h1_size - 1 - k;
                if(a_idx < 0)
                   break;
 
                datetime a_time = slow_t[a_idx];
+               int b_idx_arr = ArrayBsearch(b_t, a_time); // Binary search for time match
 
-               // Find Matching Benchmark Index by Time
-               // Since arrays are non-series (0=Oldest), we can't use simple math if gaps exist.
-               // We use Binary Search (ArrayBsearch) on bench time array
-               int b_idx_arr = ArrayBsearch(b_t, a_time);
+               // Value to store
+               double a_val = slow_c[a_idx];
+               double b_val = (b_idx_arr >= 0 && b_idx_arr < bench_size && b_t[b_idx_arr] == a_time) ?
+                              b_c[b_idx_arr] : (k>0 ? bench_subset[lookback_beta - k] : 0);
 
-               // ArrayBsearch returns index. Check if time matches exactly (or close enough)
                if(b_idx_arr >= 0 && b_idx_arr < bench_size && b_t[b_idx_arr] == a_time)
                  {
-                  // Match found!
-                  int sub_idx = InpBetaLookback - 1 - k; // Fill from end
-                  asset_subset[sub_idx] = slow_c[a_idx];
-                  bench_subset[sub_idx] = b_c[b_idx_arr];
-                  valid_points++;
+                  b_val = b_c[b_idx_arr];
                  }
                else
                  {
-                  // Gap found (e.g. Asset open, Bench closed).
-                  // For strict stats, we skip this point or fill with previous?
-                  // Skipping creates holes in return calc.
-                  // Simple approach: Use previous bench value (Fill forward)?
-                  // Better: Simply don't increment valid_points, leave 0? No, stats need continuous series.
-                  // Let's copy previous value if match fails (Flat return).
-                  int sub_idx = InpBetaLookback - 1 - k;
-                  asset_subset[sub_idx] = slow_c[a_idx];
-                  // Use prev from subset if k>0? Tricky loop direction.
-                  // Simple fallback: Use bench at index approx? No.
-                  // If missing, we assume price didnt change from last valid.
-                  if(k>0 && sub_idx+1 < InpBetaLookback)
-                     bench_subset[sub_idx] = bench_subset[sub_idx+1]; // Prev Loop value (Newer)
+                  // Gap filling
+                  if(k>0 && (lookback_beta-k) < lookback_beta)
+                     b_val = bench_subset[lookback_beta-k]; // Next element in array (which is 'newer' since we fill from end)
+                  else
+                     b_val = b_c[MathMin(bench_size-1, b_idx_arr>0?b_idx_arr:0)]; // Fallback
+                 }
+
+               int sub_idx = lookback_beta - 1 - k;
+               asset_subset[sub_idx] = a_val;
+               bench_subset[sub_idx] = b_val;
+               valid_points++;
+
+               // --- RS Logic Capture ---
+               // End Price (k=0)
+               if(k==0)
+                 {
+                  rs_asset_end = a_val;
+                  rs_bench_end = b_val;
+                 }
+
+               // Start Price (k = InpRSBars)
+               if(k == InpRSBars)
+                 {
+                  rs_asset_start = a_val;
+                  rs_bench_start = b_val;
+                  rs_start_found = true;
                  }
               }
 
-            // Only calc if we have enough synced data
-            if(valid_points > InpBetaLookback / 2)
+            // 1. Calc Beta/Alpha (Long Term)
+            if(valid_points > lookback_beta / 2)
               {
                double asset_ret[], bench_ret[];
                stats.ComputeReturns(asset_subset, asset_ret);
@@ -462,111 +442,132 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
 
                double beta_val = stats.CalculateBeta(asset_ret, bench_ret);
 
-               // Period Alpha
-               double a_tot = (asset_subset[InpBetaLookback-1] - asset_subset[0]) / asset_subset[0];
-               double b_tot = (bench_subset[InpBetaLookback-1] - bench_subset[0]) / bench_subset[0];
-               double alpha_val = stats.CalculateAlpha(a_tot, b_tot, beta_val);
-               double rel_val = (a_tot - b_tot) * 100.0;
+               // Alpha on Beta Period
+               double a_tot_beta = (asset_subset[lookback_beta-1] - asset_subset[0]) / asset_subset[0];
+               double b_tot_beta = (bench_subset[lookback_beta-1] - bench_subset[0]) / bench_subset[0];
+               double alpha_val = stats.CalculateAlpha(a_tot_beta, b_tot_beta, beta_val);
 
-               data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
-               data.beta_str         = DoubleToString(beta_val, 2);
-               data.alpha_str        = DoubleToString(alpha_val, 4);
+               data.beta_str  = DoubleToString(beta_val, 2);
+               data.alpha_str = DoubleToString(alpha_val, 4);
               }
             else
               {
-               data.rel_strength_str = "-";
                data.beta_str = "0";
                data.alpha_str = "0";
               }
+
+            // 2. Calc Relative Strength (Short Term - InpRSBars)
+            //if(rs_start_found && rs_asset_start != 0 && rs_bench_start != 0)
+            //  {
+            //   double a_perf = (rs_asset_end - rs_asset_start) / rs_asset_start;
+            //   double b_perf = (rs_bench_end - rs_bench_start) / rs_bench_start;
+            //   double rel_val = (a_perf - b_perf) * 100.0;
+            //data.rel_strength_str = DoubleToString(rel_val, 2) + "%";
+            //}
+            //else
+            //  {
+            //   data.rel_strength_str = "-";
+            //  }
            }
         }
      }
 
+// 2. VHF (Live)
+   data.vhf = Calc_VHF(slow_o, slow_h, slow_l, slow_c, InpVHFPeriod, idx_l1);
+
+// 3. R-Squared (Live)
+   data.r2  = Calc_R2(slow_o, slow_h, slow_l, slow_c, InpR2Period, idx_l1);
+
+// 4. Zone (Murrey)
+   data.zone = Calc_MurreyZone(sym, InpTFSlow);
+
+// 5. Calc TSI H1 (Hidden from CSV but used for MTF Align Breadth)
+   double tsi_main_h1=0;
+   Calc_TSI_Values(slow_o, slow_h, slow_l, slow_c, idx_l1, tsi_main_h1, data.h1_tsi_hist);
+
 // =================================================================
-// LAYER 2: FLOW (M15) - ALL LIVE (idx-1)
+// LAYER 2: FLOW (M15) - LIVE
 // =================================================================
    double mid_o[], mid_h[], mid_l[], mid_c[];
    long mid_v[];
    datetime mid_t[];
    if(!FetchData(sym, InpTFMiddle, InpScanHistory, mid_t, mid_o, mid_h, mid_l, mid_c, mid_v))
       return false;
+   int idx_l2 = ArraySize(mid_c) - 1;
 
-   int idx_live_mid = ArraySize(mid_c) - 1;
-   double mid_atr   = Calc_ATR(mid_o, mid_h, mid_l, mid_c, InpATRPeriod, idx_live_mid);
+   double mid_atr = Calc_ATR(mid_o, mid_h, mid_l, mid_c, InpATRPeriod, idx_l2);
 
-   data.m15_momentum = Calc_LaguerreRSI(mid_o, mid_h, mid_l, mid_c, idx_live_mid);
-   data.m15_vol_qual = Calc_RVOL(mid_v, InpRVOLPeriod, idx_live_mid);
-   Calc_Squeeze_Full(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_live_mid, data.m15_squeeze, data.m15_sqz_mom);
-   data.m15_z_score  = Calc_ZScore(mid_o, mid_h, mid_l, mid_c, InpZScorePeriod, idx_live_mid);
+// 1. V-Score (Live)
+   data.v_score = Calc_VScore(sym, mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, InpVScorePeriod, idx_l2);
 
-   double vwap_series[];
-   Calc_VWAP_Series(mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, PERIOD_SESSION, vwap_series);
-   data.m15_vwap_slope = CMetricsTools::CalculateSlope(vwap_series[idx_live_mid], vwap_series[idx_live_mid - InpSlopeLookback], mid_atr, InpSlopeLookback);
+// 2. Autocorrelation (Live)
+   data.autocorr = Calc_AutoCorr(mid_o, mid_h, mid_l, mid_c, InpAutoCorrPeriod, idx_l2);
 
-   double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5, idx_live_mid);
-   double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50, idx_live_mid);
-   data.m15_vola_regime = (atr_s!=0) ? atr_f/atr_s : 1.0;
+// 3. Vol Regime (Live)
+   double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5, idx_l2);
+   double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50, idx_l2);
+   data.vol_regime = (atr_s!=0) ? atr_f/atr_s : 1.0;
 
+// 4. Squeeze
+   data.sqz = Calc_Squeeze(sym, InpTFMiddle, mid_o, mid_h, mid_l, mid_c, idx_l2);
+
+// 5. Dist PDH/PDL
    CSessionLevelsCalculator sess_calc;
    if(sess_calc.Init(PERIOD_D1))
      {
       SessionLevels sl;
-      if(sess_calc.GetLevels(sym, mid_t[idx_live_mid], sl))
+      if(sess_calc.GetLevels(sym, mid_t[idx_l2], sl))
         {
-         data.dist_pdh = CMetricsTools::CalculateDistance(mid_c[idx_live_mid], sl.prev_high, mid_atr);
-         data.dist_pdl = CMetricsTools::CalculateDistance(mid_c[idx_live_mid], sl.prev_low, mid_atr);
+         data.dist_pdh = CMetricsTools::CalculateDistance(mid_c[idx_l2], sl.prev_high, mid_atr);
+         data.dist_pdl = CMetricsTools::CalculateDistance(mid_c[idx_l2], sl.prev_low, mid_atr);
         }
      }
 
-   Calc_TSI_Values(mid_o, mid_h, mid_l, mid_c, idx_live_mid, data.m15_tsi_val, data.m15_tsi_hist);
+// M15 TSI for Align
+   double tsi_main_m15=0;
+   Calc_TSI_Values(mid_o, mid_h, mid_l, mid_c, idx_l2, tsi_main_m15, data.m15_tsi_hist);
+
+// RVOL M15 for Thrust
+   double rvol_m15 = Calc_RVOL(mid_v, InpRVOLPeriod, idx_l2);
 
 // =================================================================
-// LAYER 3: TRIGGER (M5) - ALL LIVE (idx-1)
+// LAYER 3: TRIGGER (M5) - LIVE
 // =================================================================
    double fast_o[], fast_h[], fast_l[], fast_c[];
    long fast_v[];
    datetime fast_t[];
    if(!FetchData(sym, InpTFFast, 300, fast_t, fast_o, fast_h, fast_l, fast_c, fast_v))
       return false;
+   int idx_l3 = ArraySize(fast_c) - 1;
 
-   int idx_live_fast = ArraySize(fast_c) - 1;
-   double fast_atr   = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_live_fast);
+   double fast_atr = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_l3);
 
-   data.spread_cost = CMetricsTools::CalculateSpreadCost(sym, fast_atr); // Calc cost on M5 ATR
+// 1. Velocity
+   data.velocity = Calc_Velocity(fast_c, fast_atr, 3, idx_l3);
 
-   data.m5_momentum = Calc_LaguerreRSI(fast_o, fast_h, fast_l, fast_c, idx_live_fast);
-   data.m5_vol_qual = Calc_RVOL(fast_v, InpRVOLPeriod, idx_live_fast);
-   Calc_TSI_Values(fast_o, fast_h, fast_l, fast_c, idx_live_fast, data.m5_tsi_val, data.m5_tsi_hist);
-   data.m5_velocity = Calc_Velocity(fast_c, fast_atr, 3, idx_live_fast);
+// 2. Volume Thrust
+   double rvol_m5 = Calc_RVOL(fast_v, InpRVOLPeriod, idx_l3);
+   if(rvol_m15 > 0)
+      data.vol_thrust = rvol_m5 / rvol_m15;
+   else
+      data.vol_thrust = 0;
+
+// 3. Cost
+   data.cost_atr = CMetricsTools::CalculateSpreadCost(sym, fast_atr);
+
+   double tsi_main_m5 = 0;
+   Calc_TSI_Values(fast_o, fast_h, fast_l, fast_c, idx_l3, tsi_main_m5, data.m5_tsi_hist);
 
 // =================================================================
 // COMPOSITES
 // =================================================================
-   if(data.m15_vol_qual > 0)
-      data.vol_thrust = data.m5_vol_qual / data.m15_vol_qual;
-   else
-      data.vol_thrust = 0;
 
-   double score = 0;
-   if(MathAbs(data.m15_z_score) > 3.0)
-      score += 40;
-   else
-      if(MathAbs(data.m15_z_score) > 2.0)
-         score += 20;
-   if(StringFind(data.zone, "Extreme") >= 0)
-      score += 30;
-   if(data.m15_momentum > 0.90 || data.m15_momentum < 0.10)
-      score += 30;
-   data.rev_prob = score;
-
-// Absorption: Use Last Closed M15 (idx_live_mid - 1) for safety
-   int idx_cl_mid = idx_live_mid - 1;
+// Using Last Closed M15 for pattern recognition safety
+   int idx_cl_mid = idx_l2 - 1;
    if(idx_cl_mid >= 0 && mid_atr > 0)
      {
       double body = MathAbs(mid_c[idx_cl_mid] - mid_o[idx_cl_mid]);
-      CRelativeVolumeCalculator rv;
-      rv.Init(InpRVOLPeriod);
-      double bar_rvol = rv.CalculateSingle(ArraySize(mid_v), mid_v, idx_cl_mid);
+      double bar_rvol = Calc_RVOL(mid_v, InpRVOLPeriod, idx_cl_mid);
       if(bar_rvol > 2.0 && body < (0.4 * mid_atr))
          data.absorption = "YES";
       else
@@ -575,7 +576,8 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
    else
       data.absorption = "-";
 
-// MTF Align (Based on Hist direction)
+// MTF Align (Based on TSI Histogram Direction)
+// + Hist = Bull pressure, - Hist = Bear pressure
    bool h1_bull = (data.h1_tsi_hist > 0);
    bool m15_bull = (data.m15_tsi_hist > 0);
    bool m5_bull = (data.m5_tsi_hist > 0);
@@ -592,7 +594,7 @@ bool RunQuantAnalysis(string sym, double bench_change, QuantData &data)
   }
 
 //+------------------------------------------------------------------+
-//| WRAPPERS (Helpers) UPDATED FOR INDEX                             |
+//| WRAPPERS (Helpers) - NEW ONES INCLUDED                           |
 //+------------------------------------------------------------------+
 bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double &o[], double &h[], double &l[], double &c[], long &v[])
   {
@@ -614,24 +616,6 @@ bool FetchData(string sym, ENUM_TIMEFRAMES tf, int count, datetime &t[], double 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void Calc_TSI_Values(const double &o[], const double &h[], const double &l[], const double &c[], int idx, double &val, double &hist)
-  {
-   CTSICalculator calc;
-   calc.Init(InpTSI_Slow, EMA, InpTSI_Fast, EMA, InpTSI_Signal, EMA);
-   double tsi[], sig[], osc[];
-   int total=ArraySize(c);
-   ArrayResize(tsi, total);
-   ArrayResize(sig, total);
-   ArrayResize(osc, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, tsi, sig, osc);
-   if(idx < total)
-     {
-      val = tsi[idx];
-      hist = tsi[idx] - sig[idx];
-     }
-  }
-
-// Other wrappers updated to take 'int idx' and return buf[idx]
 double Calc_ATR(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx)
   {
    CATRCalculator calc;
@@ -642,34 +626,7 @@ double Calc_ATR(const double &o[], const double &h[], const double &l[], const d
    calc.Calculate(total, 0, o, h, l, c, buf);
    return buf[idx];
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-double Calc_ER(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx)
-  {
-   CEfficiencyRatioCalculator calc;
-   if(!calc.Init(p))
-      return 0;
-   double buf[];
-   int total=ArraySize(c);
-   ArrayResize(buf, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
-   return buf[idx];
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-double Calc_ZScore(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx)
-  {
-   CZScoreCalculator calc;
-   if(!calc.Init(p))
-      return 0;
-   double buf[];
-   int total=ArraySize(c);
-   ArrayResize(buf, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
-   return buf[idx];
-  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -681,19 +638,29 @@ double Calc_RVOL(const long &vol[], int p, int idx)
   }
 
 //+------------------------------------------------------------------+
-//| WRAPPER UPDATE: Calc_Squeeze_Full                                |
+//|                                                                  |
 //+------------------------------------------------------------------+
-void Calc_Squeeze_Full(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx, string &state, double &mom_val)
+double Calc_Velocity(const double &close[], double atr, int period, int idx)
+  {
+   if(atr == 0)
+      return 0;
+   int total = ArraySize(close);
+// We measure displacement from [idx - period] to [idx]
+   if(idx < period)
+      return 0;
+   return CMetricsTools::CalculateSlope(close[idx], close[idx-period], atr, period);
+  }
+
+//+------------------------------------------------------------------+
+//| WRAPPER: Squeeze                                                 |
+//+------------------------------------------------------------------+
+string Calc_Squeeze(string sym, ENUM_TIMEFRAMES tf, const double &o[], const double &h[], const double &l[], const double &c[], int idx)
   {
    int total = ArraySize(c);
    CSqueezeCalculator sqz;
-// Use new input InpSqueezeMom
+
    if(!sqz.Init(InpSqueezeLength, InpBBMult, InpKCMult, InpSqueezeMom))
-     {
-      state="ERR";
-      mom_val=0;
-      return;
-     }
+      return "ERR";
 
    double mom[], val[], col[];
    ArrayResize(mom, total);
@@ -704,24 +671,9 @@ void Calc_Squeeze_Full(string sym, ENUM_TIMEFRAMES tf, const double &o[], const 
 
    if(idx < total)
      {
-      state   = (col[idx] == 1.0) ? "ON" : "OFF";
-      mom_val = mom[idx]; // The momentum hist value
+      return (col[idx] == 1.0) ? "ON" : "OFF";
      }
-  }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-double Calc_LaguerreRSI(const double &o[], const double &h[], const double &l[], const double &c[], int idx)
-  {
-   CLaguerreRSICalculator calc;
-   calc.Init(InpLaguerreGamma, 3, SMA);
-   double lrsi[], sig[];
-   int total=ArraySize(c);
-   ArrayResize(lrsi, total);
-   ArrayResize(sig, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, lrsi, sig);
-   return lrsi[idx] / 100.0;
+   return "N/A";
   }
 
 //+------------------------------------------------------------------+
@@ -755,46 +707,83 @@ string Calc_MurreyZone(string symbol, ENUM_TIMEFRAMES tf)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void Calc_DSMA_Series(const double &o[], const double &h[], const double &l[], const double &c[], double &out_buf[])
+void Calc_TSI_Values(const double &o[], const double &h[], const double &l[], const double &c[], int idx, double &val, double &hist)
   {
-   CDSMACalculator calc;
-   if(!calc.Init(InpDSMAPeriod))
-      return;
+   CTSICalculator calc;
+   calc.Init(InpTSI_Slow, EMA, InpTSI_Fast, EMA, InpTSI_Signal, EMA);
+   double tsi[], sig[], osc[];
    int total=ArraySize(c);
-   ArrayResize(out_buf, total);
-   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, out_buf);
+   ArrayResize(tsi, total);
+   ArrayResize(sig, total);
+   ArrayResize(osc, total);
+   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, tsi, sig, osc);
+   if(idx < total)
+     {
+      val = tsi[idx];
+      hist = tsi[idx] - sig[idx];
+     }
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void Calc_VWAP_Series(const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], ENUM_VWAP_PERIOD p, double &out_buf[])
+double Calc_VHF(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx)
   {
-   CVWAPCalculator calc;
-   if(!calc.Init(p, VOLUME_TICK, 0, true))
-      return;
-   double odd[], even[];
-   int total=ArraySize(c);
-   ArrayResize(odd, total);
-   ArrayResize(even, total);
-   calc.Calculate(total, 0, t, o, h, l, c, v, v, odd, even);
-   ArrayResize(out_buf, total);
-   for(int i=0; i<total; i++)
-      out_buf[i] = (odd[i]!=EMPTY_VALUE && odd[i]!=0) ? odd[i] : even[i];
+   CVHFCalculator calc;
+   calc.Init(p, VHF_MODE_HIGH_LOW); // Using High-Low mode for Pro
+   double buf[];
+   int total = ArraySize(c);
+   ArrayResize(buf, total);
+// VHF Calc expects OHLC if using HighLow mode
+   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
+   return buf[idx];
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double Calc_Velocity(const double &close[], double atr, int period, int idx)
+double Calc_R2(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx)
   {
-   if(atr == 0)
-      return 0;
-   int total = ArraySize(close);
-// We measure displacement from [idx - period] to [idx]
-   if(idx < period)
-      return 0;
-   return CMetricsTools::CalculateSlope(close[idx], close[idx-period], atr, period);
+   CLinearRegressionCalculator calc;
+   calc.Init(p);
+   double s[], r2[], f[];
+   int total = ArraySize(c);
+   ArrayResize(s, total);
+   ArrayResize(r2, total);
+   ArrayResize(f, total);
+
+// FIX: Pass explicit arrays for all OHLC positions
+   calc.CalculateState(total, 0, o, h, l, c, PRICE_CLOSE, s, r2, f);
+
+   return r2[idx];
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double Calc_VScore(string sym, const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], int p, int idx)
+  {
+   CVScoreCalculator calc;
+   calc.Init(p, PERIOD_SESSION);
+   double buf[];
+   int total = ArraySize(c);
+   ArrayResize(buf, total);
+   calc.Calculate(total, 0, t, o, h, l, c, v, v, buf);
+   return buf[idx];
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double Calc_AutoCorr(const double &o[], const double &h[], const double &l[], const double &c[], int p, int idx)
+  {
+   CAutocorrelationCalculator calc;
+   calc.Init(p);
+   double buf[];
+   int total = ArraySize(c);
+   ArrayResize(buf, total);
+   calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
+   return buf[idx];
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
