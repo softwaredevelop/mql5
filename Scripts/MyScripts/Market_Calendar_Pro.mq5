@@ -15,7 +15,7 @@ input bool     InpFilterHighOnly = false; // Show only High Impact?
 input bool     InpIncludeMedium  = true;  // Include Medium Impact?
 
 //--- Selected Currencies
-string g_currencies[] = {"USD", "EUR", "GBP", "JPY", "CHF", "AUD", "CAD"};
+string g_currencies[] = {"USD", "EUR", "GBP", "JPY", "CHF", "AUD"};
 
 //+------------------------------------------------------------------+
 //| Script Start                                                     |
