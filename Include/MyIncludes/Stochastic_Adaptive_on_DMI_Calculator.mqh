@@ -1,8 +1,7 @@
 //+------------------------------------------------------------------+
 //|                     Stochastic_Adaptive_on_DMI_Calculator.mqh    |
 //|      Engine: Adaptive Stochastic applied to DMI Oscillator.      |
-//|      Concept: Combines DMI trend strength with Adaptive Logic.   |
-//|      VERSION 1.10: Added Safe Enum Definitions (Guards)          |
+//|      VERSION 2.00: ER Calculated on DMI (Pure Logic).            |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
@@ -10,25 +9,13 @@
 #include <MyIncludes\DMI_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
-//--- Enum for Candle Source (Safe Definition)
+//--- Enums Definitions
 #ifndef ENUM_CANDLE_SOURCE_DEFINED
 #define ENUM_CANDLE_SOURCE_DEFINED
-enum ENUM_CANDLE_SOURCE
-  {
-   CANDLE_STANDARD,
-   CANDLE_HEIKIN_ASHI
-  };
+enum ENUM_CANDLE_SOURCE { CANDLE_STANDARD, CANDLE_HEIKIN_ASHI };
 #endif
 
-//--- Enum for DMI Osc Type (Safe Definition)
-#ifndef ENUM_DMI_ADAPTIVE_OSC_TYPE_DEFINED
-#define ENUM_DMI_ADAPTIVE_OSC_TYPE_DEFINED
-enum ENUM_DMI_ADAPTIVE_OSC_TYPE
-  {
-   OSC_PDI_MINUS_NDI,
-   OSC_NDI_MINUS_PDI
-  };
-#endif
+enum ENUM_DMI_OSC_TYPE { OSC_PDI_MINUS_NDI, OSC_NDI_MINUS_PDI };
 
 //+==================================================================+
 //| CLASS: CStochAdaptiveOnDMICalculator                             |
@@ -36,55 +23,47 @@ enum ENUM_DMI_ADAPTIVE_OSC_TYPE
 class CStochAdaptiveOnDMICalculator
   {
 protected:
-   //--- Components
-   CDMIEngine              *m_dmi_engine;
+   // Parameters
+   int               m_dmi_p;
+   ENUM_DMI_OSC_TYPE m_osc_type;
+   int               m_er_p;
+   int               m_min_stoch_p;
+   int               m_max_stoch_p;
+
+   // Engines
+   CDMIEngine        *m_dmi_engine;
    CMovingAverageCalculator m_slowing_engine;
    CMovingAverageCalculator m_signal_engine;
 
-   bool                     m_is_ha;
+   // Buffers
+   double            m_pDI[], m_nDI[];
+   double            m_dmi_osc[];    // DMI Oscillator
+   double            m_er_buffer[];  // Efficiency Ratio of DMI
+   double            m_nsp_buffer[]; // Dynamic Period
+   double            m_raw_k[];      // Raw Adaptive %K
 
-   //--- Parameters
-   int                      m_dmi_p;
-   int                      m_er_p;
-   int                      m_min_stoch_p;
-   int                      m_max_stoch_p;
-   ENUM_DMI_ADAPTIVE_OSC_TYPE m_osc_type;
-
-   //--- Internal Buffers
-   double                   m_pDI[];
-   double                   m_nDI[];
-   double                   m_dmi_osc[];    // The "Source Price"
-   double                   m_er_buffer[];  // Efficiency Ratio
-   double                   m_nsp_buffer[]; // Dynamic Period
-   double                   m_raw_k[];      // Raw Adaptive %K
-
-   //--- Factory Method
-   virtual void             CreateDMIEngine();
+   // Factory Method
+   virtual void      CreateDMIEngine();
 
 public:
                      CStochAdaptiveOnDMICalculator();
-   virtual                 ~CStochAdaptiveOnDMICalculator();
+   virtual          ~CStochAdaptiveOnDMICalculator();
 
-   bool                     Init(int dmi_period, int er_period, int min_stoch, int max_stoch,
-                                 int slow_k, ENUM_MA_TYPE slow_ma,
-                                 int d_p, ENUM_MA_TYPE d_ma,
-                                 ENUM_DMI_ADAPTIVE_OSC_TYPE osc_type);
+   bool              Init(int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma);
 
-   void                     Calculate(int rates_total, int prev_calculated,
-                                      const double &open[], const double &high[],
-                                      const double &low[], const double &close[],
-                                      double &out_k[], double &out_d[]);
+   void              Calculate(int rates_total, int prev_calculated,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               double &out_k[], double &out_d[]);
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CStochAdaptiveOnDMICalculator::CStochAdaptiveOnDMICalculator() : m_dmi_engine(NULL), m_is_ha(false)
-  {
-  }
+CStochAdaptiveOnDMICalculator::CStochAdaptiveOnDMICalculator() : m_dmi_engine(NULL) {}
 
 //+------------------------------------------------------------------+
-//| Destructor                                                       |
+//|                                                                  |
 //+------------------------------------------------------------------+
 CStochAdaptiveOnDMICalculator::~CStochAdaptiveOnDMICalculator()
   {
@@ -93,7 +72,7 @@ CStochAdaptiveOnDMICalculator::~CStochAdaptiveOnDMICalculator()
   }
 
 //+------------------------------------------------------------------+
-//| Factory Method (Standard)                                        |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void CStochAdaptiveOnDMICalculator::CreateDMIEngine()
   {
@@ -101,25 +80,20 @@ void CStochAdaptiveOnDMICalculator::CreateDMIEngine()
   }
 
 //+------------------------------------------------------------------+
-//| Initialization                                                   |
+//| Init                                                             |
 //+------------------------------------------------------------------+
-bool CStochAdaptiveOnDMICalculator::Init(int dmi_period, int er_period, int min_stoch, int max_stoch,
-      int slow_k, ENUM_MA_TYPE slow_ma,
-      int d_p, ENUM_MA_TYPE d_ma,
-      ENUM_DMI_ADAPTIVE_OSC_TYPE osc_type)
+bool CStochAdaptiveOnDMICalculator::Init(int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma)
   {
-   m_dmi_p       = dmi_period;
-   m_er_p        = (er_period < 1) ? 1 : er_period;
-   m_min_stoch_p = (min_stoch < 2) ? 2 : min_stoch;
-   m_max_stoch_p = (max_stoch <= m_min_stoch_p) ? m_min_stoch_p + 1 : max_stoch;
+   m_dmi_p       = dmi_p;
    m_osc_type    = osc_type;
+   m_er_p        = er_p;
+   m_min_stoch_p = min_p;
+   m_max_stoch_p = max_p;
 
    CreateDMIEngine();
    if(!m_dmi_engine.Init(m_dmi_p))
       return false;
-
-// Initialize MA Engines for smoothing
-   if(!m_slowing_engine.Init(slow_k, slow_ma))
+   if(!m_slowing_engine.Init(slow_p, slow_ma))
       return false;
    if(!m_signal_engine.Init(d_p, d_ma))
       return false;
@@ -135,13 +109,12 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
       const double &low[], const double &close[],
       double &out_k[], double &out_d[])
   {
-// Safety check: DMI Period + ER Period + Smoothing
    if(rates_total < m_dmi_p + m_er_p + m_max_stoch_p)
       return;
 
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
-// 1. Resize Internal Buffers
+// 1. Resize Buffers
    if(ArraySize(m_pDI) != rates_total)
      {
       ArrayResize(m_pDI, rates_total);
@@ -156,8 +129,8 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
    m_dmi_engine.Calculate(rates_total, prev_calculated, open, high, low, close, m_pDI, m_nDI);
 
 // 3. Calculate DMI Oscillator
-   int loop_start = MathMax(m_dmi_p, start_index);
-   for(int i = loop_start; i < rates_total; i++)
+   int loop_start_dmi = MathMax(m_dmi_p, start_index);
+   for(int i = loop_start_dmi; i < rates_total; i++)
      {
       if(m_osc_type == OSC_PDI_MINUS_NDI)
          m_dmi_osc[i] = m_pDI[i] - m_nDI[i];
@@ -165,11 +138,10 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
          m_dmi_osc[i] = m_nDI[i] - m_pDI[i];
      }
 
-// 4. Calculate Efficiency Ratio (ER) on DMI Oscillator
-   int er_start = m_dmi_p + m_er_p;
-   loop_start = MathMax(er_start, start_index);
+// 4. Calculate Efficiency Ratio (ER) on DMI OSCILLATOR (Pure Logic)
+   int loop_start_er = MathMax(m_dmi_p + m_er_p, start_index);
 
-   for(int i = loop_start; i < rates_total; i++)
+   for(int i = loop_start_er; i < rates_total; i++)
      {
       double direction = MathAbs(m_dmi_osc[i] - m_dmi_osc[i - m_er_p]);
       double volatility = 0;
@@ -180,7 +152,7 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
      }
 
 // 5. Calculate Adaptive Period (NSP)
-   for(int i = loop_start; i < rates_total; i++)
+   for(int i = loop_start_er; i < rates_total; i++)
      {
       m_nsp_buffer[i] = (int)MathRound(m_min_stoch_p + (1.0 - m_er_buffer[i]) * (m_max_stoch_p - m_min_stoch_p));
       if(m_nsp_buffer[i] < 2)
@@ -188,27 +160,26 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
      }
 
 // 6. Calculate Raw %K on DMI Oscillator
-   int stoch_start = er_start + m_max_stoch_p;
-   loop_start = MathMax(stoch_start, start_index);
+   int stoch_start = m_dmi_p + m_er_p + m_max_stoch_p - 1;
+   int loop_start_k = MathMax(stoch_start, start_index);
 
-   for(int i = loop_start; i < rates_total; i++)
+   for(int i = loop_start_k; i < rates_total; i++)
      {
       int current_nsp = (int)m_nsp_buffer[i];
-
       double highest = m_dmi_osc[i];
-      double lowest  = m_dmi_osc[i];
+      double lowest = m_dmi_osc[i];
 
-      // Dynamic Lookback
       for(int k = 1; k < current_nsp; k++)
         {
-         if(i - k < 0)
+         if(i-k < 0)
             break;
-         highest = MathMax(highest, m_dmi_osc[i - k]);
-         lowest  = MathMin(lowest, m_dmi_osc[i - k]);
+         if(m_dmi_osc[i-k] > highest)
+            highest = m_dmi_osc[i-k];
+         if(m_dmi_osc[i-k] < lowest)
+            lowest = m_dmi_osc[i-k];
         }
 
       double range = highest - lowest;
-
       if(range > 1.0e-9)
          m_raw_k[i] = 100.0 * (m_dmi_osc[i] - lowest) / range;
       else
@@ -233,4 +204,5 @@ protected:
       m_dmi_engine = new CDMIEngine_HA();
      }
   };
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
