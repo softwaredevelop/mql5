@@ -573,7 +573,7 @@ bool RunQuantAnalysis(string sym, QuantData &data)
 // =================================================================
 
 // =================================================================
-// ADVANCED ABSORPTION LOGIC v3 (Wyckoff + Velocity Confirmation)
+// ADVANCED ABSORPTION LOGIC (Wyckoff Effort/Result)
 // =================================================================
 // Using Last Closed M15 Bar for pattern validation
    int idx_cl_mid = idx_l2 - 1;
@@ -581,35 +581,39 @@ bool RunQuantAnalysis(string sym, QuantData &data)
    if(idx_cl_mid >= 0 && mid_atr > 0)
      {
       double body = MathAbs(mid_c[idx_cl_mid] - mid_o[idx_cl_mid]);
-      // double total_range = mid_h[idx_cl_mid] - mid_l[idx_cl_mid]; // Kept if needed later
+      double total_range = mid_h[idx_cl_mid] - mid_l[idx_cl_mid];
 
       // Calculate specific bar RVOL using helper
+      // Note: We use a local calculator instance to be safe or reuse helper logic
       CRelativeVolumeCalculator rv_calc;
       rv_calc.Init(InpRVOLPeriod);
       double bar_rvol = rv_calc.CalculateSingle(ArraySize(mid_v), mid_v, idx_cl_mid);
 
       bool high_effort = (bar_rvol > 2.0);
-      bool low_result  = (body < (0.35 * mid_atr));
+      bool low_result  = (body < (0.35 * mid_atr)); // Stricter 35% ATR rule
 
       data.absorption = "NO"; // Default
 
       if(high_effort && low_result)
         {
-         // Logic Update: Use VELOCITY (Immediate Impulse) to determine direction
-         // Why? Because structural absorption (M15) confirmed by speed (M5) is a cleaner signal.
+         // Analyze Close Position relative to High-Low Range
+         // Position 0.0 (Low) to 1.0 (High)
+         double close_pos = 0.5;
+         if(total_range > 0)
+            close_pos = (mid_c[idx_cl_mid] - mid_l[idx_cl_mid]) / total_range;
 
-         if(data.velocity > 0)
-            data.absorption = "BULL_ABS"; // Volume halted price, now moving UP
+         if(close_pos > 0.66)
+            data.absorption = "BULL_ABS"; // Closing High = Demand absorbed Supply
          else
-            if(data.velocity < 0)
-               data.absorption = "BEAR_ABS"; // Volume halted price, now moving DOWN
+            if(close_pos < 0.33)
+               data.absorption = "BEAR_ABS"; // Closing Low = Supply absorbed Demand
             else
-               data.absorption = "NEUT_ABS"; // Volume halted price, and it stalled (0 velocity)
+               data.absorption = "NEUT_ABS"; // Doji-like struggle
         }
       else
          if(bar_rvol > 3.5 && body < (0.6 * mid_atr))
            {
-            // Volume Climax: Extreme volume override
+            // Volume Climax: Excessive volume with moderate move implies churn/exhaustion
             data.absorption = "CLIMAX";
            }
      }
