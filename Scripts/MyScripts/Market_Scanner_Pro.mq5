@@ -84,7 +84,7 @@ struct QuantData
    // M15 Flow
    double            v_score;          // VWAP Z-Score
    double            autocorr;         // Lag-1 Correlation
-   double            vol_regime;       // ATR(5)/ATR(50)
+   double            vol_regime;       // ATR(5)/ATR(55)
    string            sqz;              // Squeeze State
    double            sqz_mom;          // New
    double            m15_vhf;          // New
@@ -511,7 +511,7 @@ bool RunQuantAnalysis(string sym, QuantData &data)
 
 // 3. Vol Regime (Live)
    double atr_f = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 5, idx_l2);
-   double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 50, idx_l2);
+   double atr_s = Calc_ATR(mid_o, mid_h, mid_l, mid_c, 55, idx_l2);
    data.vol_regime = (atr_s!=0) ? atr_f/atr_s : 1.0;
 
 // 4. Squeeze
