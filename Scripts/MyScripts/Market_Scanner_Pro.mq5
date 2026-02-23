@@ -65,7 +65,7 @@ input group "Squeeze Settings"
 input int      InpSqueezeLength  = 20;
 input double   InpBBMult         = 2.0;
 input double   InpKCMult         = 1.5;
-input int      InpSqueezeMom     = 12; // NEW
+input int      InpSqueezeMom     = 12;
 
 //--- QuantData Struct (Updated Layout)
 struct QuantData
