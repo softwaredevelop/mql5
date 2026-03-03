@@ -1,13 +1,22 @@
 //+------------------------------------------------------------------+
 //|                                     Market_Inspector_Pro_MTF.mq5 |
-//|                    Real-Time Dashboard - iCustom Architecture    |
+//|                    Real-Time Dashboard - v1.10 (Configurable)    |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
-#property description "Active Trading Panel using MTF Indicators via iCustom."
+#property version   "1.10" // Full Input exposure + Robust Handle Init
+#property description "Active Trading Panel using MTF Indicators."
 #property indicator_chart_window
 #property indicator_plots 0
+
+// Need enum definitions for iCustom calls that use them
+enum ENUM_AB_MODE { MODE_ALPHA, MODE_BETA };
+enum ENUM_VHF_MODE { VHF_MODE_CLOSE_ONLY, VHF_MODE_HIGH_LOW };
+enum ENUM_VWAP_PERIOD { PERIOD_SESSION, PERIOD_WEEK, PERIOD_MONTH, PERIOD_CUSTOM_SESSION };
+#ifndef ENUM_APPLIED_PRICE_HA_ALL_DEFINED
+#define ENUM_APPLIED_PRICE_HA_ALL_DEFINED
+enum ENUM_APPLIED_PRICE_HA_ALL { PRICE_CLOSE_STD=1 }; // Simplified for compilation if header missing
+#endif
 
 //--- Visual Settings
 input group             "Visual Layout"
@@ -18,6 +27,8 @@ input color             InpColorBase      = clrSilver;
 input color             InpColorHead      = clrGold;
 input color             InpColorTxt       = clrSilver;
 input color             InpColorLbl       = clrGray;
+input color             InpColorBull      = clrLime;
+input color             InpColorBear      = clrRed;
 input ENUM_BASE_CORNER  InpCorner         = CORNER_LEFT_UPPER;
 
 //--- Timeframes
@@ -26,51 +37,58 @@ input ENUM_TIMEFRAMES   InpTFSlow         = PERIOD_H1;  // Context
 input ENUM_TIMEFRAMES   InpTFMid          = PERIOD_M15; // Flow
 input ENUM_TIMEFRAMES   InpTFFast         = PERIOD_M5;  // Trigger
 
-//--- Indicator Settings (Must match source files!)
-input group             "Settings"
+//--- Indicator Parameters
+input group             "Metric Periods"
+//input int               InpDSMAPeriod     = 40;
+input int               InpVHFPeriod      = 28;
+input int               InpR2Period       = 20;
+input int               InpVScorePeriod   = 20;
+input int               InpAutoCorrPeriod = 20;
+input int               InpATRPeriod      = 14;
+input int               InpRVOLPeriod     = 20;
+input int               InpBetaLookback   = 60;
+//input double            InpLaguerreGamma  = 0.5;
+
+input group             "TSI Settings"
+input int               InpTSI_Slow       = 25;
+input int               InpTSI_Fast       = 13;
+input int               InpTSI_Signal     = 13;
+
+input group             "Squeeze Settings"
+input int               InpSqueezeLength  = 20;
+input double            InpBBMult         = 2.0;
+input double            InpKCMult         = 1.5;
+input int               InpSqueezeMom     = 12;
+
+input group             "Vol Regime"
+input int               InpVRFast         = 5;   // Vol Regime Fast ATR
+input int               InpVRSlow         = 50;  // Vol Regime Slow ATR
+input double            InpVRThresh       = 1.0; // Vol Regime Threshold
+
+input group             "Thresholds & Options"
+input double            InpR2Threshold    = 0.7;  // Strong Trend Level (R2)
+input double            InpAutoCorrThresh = 0.1;  // AC Significance
+input double            InpVelThreshold   = 1.0;  // Velocity High Level
+input double            InpRVOLThreshold  = 2.0;  // High Volume Level
+input int               InpVelPeriod      = 3;    // Velocity Lookback
+input int               InpAbsHistory     = 500;  // Absorption History Steps
+
+input group             "Benchmarks"
 input string            InpBenchmark      = "US500";
 input string            InpForexBench     = "DX";
-input int               InpBetaLookback   = 60;
-
-input int InpVHFPeriod=28;
-input int InpR2Period=20;
-input int InpVScorePeriod=20;
-input int InpAutoCorrPeriod=20;
-input int InpATRPeriod=14;
-input int InpRVOLPeriod=20;
-input double InpLaguerreGamma=0.5;
-
-input int InpTSI_Slow=25;
-input int InpTSI_Fast=13;
-input int InpTSI_Signal=13;
-input int InpSqueezeLength=20;
-input double InpBBMult=2.0;
-input double InpKCMult=1.5;
-input int InpSqueezeMom=12;
-input int InpVelPeriod=3;
 
 //--- Handles
 int h_alpha_h1, h_beta_h1;
 int h_vhf_h1, h_r2_h1, h_tsi_h1;
 int h_vscore_m15, h_ac_m15, h_sqz_m15;
 int h_vhf_m15, h_r2_m15, h_tsi_m15;
-int h_vola_reg_m15; // Uses VolatilityRegime_MTF_Pro
+int h_vola_reg_m15;
 int h_vel_m5, h_tsi_m5;
-int h_rvol_m15, h_rvol_m5; // For Thrust & Absorption
-int h_atr_m5; // For Cost & Absorption
+int h_rvol_m15, h_rvol_m5;
+int h_atr_m5;
 int h_abs;
 
-// --- Enums needed for iCustom calls (must match source file definition)
-enum ENUM_AB_MODE { MODE_ALPHA, MODE_BETA };
-enum ENUM_VHF_MODE { VHF_MODE_CLOSE_ONLY, VHF_MODE_HIGH_LOW };
-// Need this enum for V-Score Input
-enum ENUM_VWAP_PERIOD
-  {
-   PERIOD_SESSION,
-   PERIOD_WEEK,
-   PERIOD_MONTH,
-   PERIOD_CUSTOM_SESSION
-  };
+bool g_init_failed = false; // Flag to track initialization status
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
@@ -80,58 +98,133 @@ int OnInit()
 // Helper to format path. Assuming indicators are in root or same folder based on terminal.
 // Typically iCustom uses "IndicatorName" if in same folder.
 
-// --- H1 HANDLES ---
-// AlphaBeta MTF: Params(TF, Mode, Lookback, Bench, ForexBench)
+// --- H1 ---
    h_alpha_h1 = iCustom(_Symbol, Period(), "AlphaBeta_MTF_Pro", InpTFSlow, MODE_ALPHA, InpBetaLookback, InpBenchmark, InpForexBench);
+   if(h_alpha_h1 == INVALID_HANDLE)
+     {
+      Print("Failed to load AlphaBeta_MTF_Pro");
+      g_init_failed=true;
+     }
+
    h_beta_h1  = iCustom(_Symbol, Period(), "AlphaBeta_MTF_Pro", InpTFSlow, MODE_BETA, InpBetaLookback, InpBenchmark, InpForexBench);
+   if(h_beta_h1 == INVALID_HANDLE)
+     {
+      Print("Failed to load AlphaBeta_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// VHF MTF: Params(TF, Period, Mode, Price)
    h_vhf_h1   = iCustom(_Symbol, Period(), "VHF_MTF_Pro", InpTFSlow, InpVHFPeriod, VHF_MODE_HIGH_LOW, PRICE_CLOSE);
+   if(h_vhf_h1 == INVALID_HANDLE)
+     {
+      Print("Failed to load VHF_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// R2 MTF: Params(TF, Period, Level)
-   h_r2_h1    = iCustom(_Symbol, Period(), "LinReg_R2_MTF_Pro", InpTFSlow, InpR2Period, 0.7);
+   h_r2_h1    = iCustom(_Symbol, Period(), "LinReg_R2_MTF_Pro", InpTFSlow, InpR2Period, InpR2Threshold);
+   if(h_r2_h1 == INVALID_HANDLE)
+     {
+      Print("Failed to load LinReg_R2_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// TSI MTF: Params(TF, Slow, Fast, Signal, Price)
-   h_tsi_h1 = iCustom(_Symbol, Period(), "TSI_MTF_Simple_Pro", InpTFSlow, InpTSI_Slow, InpTSI_Fast, InpTSI_Signal, PRICE_CLOSE);
+   h_tsi_h1   = iCustom(_Symbol, Period(), "TSI_MTF_Simple_Pro", InpTFSlow, InpTSI_Slow, InpTSI_Fast, InpTSI_Signal, PRICE_CLOSE);
+   if(h_tsi_h1 == INVALID_HANDLE)
+     {
+      Print("Failed to load TSI_MTF_Simple_Pro");
+      g_init_failed=true;
+     }
 
-// --- M15 HANDLES ---
+// --- M15 ---
    h_vscore_m15 = iCustom(_Symbol, Period(), "VScore_MTF_Pro", InpTFMid, InpVScorePeriod, PERIOD_SESSION);
-   h_ac_m15     = iCustom(_Symbol, Period(), "AutoCorr_MTF_Pro", InpTFMid, InpAutoCorrPeriod, 0.1);
+   if(h_vscore_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load VScore_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// Vol Regime MTF: Params(TF, Fast, Slow, Thresh)
-   h_vola_reg_m15 = iCustom(_Symbol, Period(), "VolatilityRegime_MTF_Pro", InpTFMid, 5, 50, 1.0);
+   h_ac_m15     = iCustom(_Symbol, Period(), "AutoCorr_MTF_Pro", InpTFMid, InpAutoCorrPeriod, InpAutoCorrThresh);
+   if(h_ac_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load AutoCorr_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// Squeeze MTF: Params(TF, Len, BB, KC, Mom, Price)
+   h_vola_reg_m15 = iCustom(_Symbol, Period(), "VolatilityRegime_MTF_Pro", InpTFMid, InpVRFast, InpVRSlow, InpVRThresh);
+   if(h_vola_reg_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load VolatilityRegime_MTF_Pro");
+      g_init_failed=true;
+     }
    h_sqz_m15    = iCustom(_Symbol, Period(), "Squeeze_MTF_Pro", InpTFMid, InpSqueezeLength, InpBBMult, InpKCMult, InpSqueezeMom, PRICE_CLOSE);
+   if(h_sqz_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load Squeeze_MTF_Pro");
+      g_init_failed=true;
+     }
 
    h_vhf_m15    = iCustom(_Symbol, Period(), "VHF_MTF_Pro", InpTFMid, InpVHFPeriod, VHF_MODE_HIGH_LOW, PRICE_CLOSE);
-   h_r2_m15     = iCustom(_Symbol, Period(), "LinReg_R2_MTF_Pro", InpTFMid, InpR2Period, 0.7);
-   h_tsi_m15 = iCustom(_Symbol, Period(), "TSI_MTF_Simple_Pro", InpTFMid, InpTSI_Slow, InpTSI_Fast, InpTSI_Signal, PRICE_CLOSE);
+   if(h_vhf_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load VHF_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// RVOL MTF: Params(TF, Period, Thresh)
-   h_rvol_m15   = iCustom(_Symbol, Period(), "RVOL_MTF_Pro", InpTFMid, InpRVOLPeriod, 2.0);
+   h_r2_m15     = iCustom(_Symbol, Period(), "LinReg_R2_MTF_Pro", InpTFMid, InpR2Period, InpR2Threshold);
+   if(h_r2_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load LinReg_R2_MTF_Pro");
+      g_init_failed=true;
+     }
+
+   h_tsi_m15    = iCustom(_Symbol, Period(), "TSI_MTF_Simple_Pro", InpTFMid, InpTSI_Slow, InpTSI_Fast, InpTSI_Signal, PRICE_CLOSE);
+   if(h_tsi_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load TSI_MTF_Simple_Pro");
+      g_init_failed=true;
+     }
+
+   h_rvol_m15   = iCustom(_Symbol, Period(), "RVOL_MTF_Pro", InpTFMid, InpRVOLPeriod, InpRVOLThreshold);
+   if(h_rvol_m15 == INVALID_HANDLE)
+     {
+      Print("Failed to load RVOL_MTF_Pro");
+      g_init_failed=true;
+     }
 
 // --- M5 HANDLES ---
-// Velocity MTF: Params(TF, VelP, ATRP, Thresh, ShowSpeed)
-   h_vel_m5     = iCustom(_Symbol, Period(), "Velocity_MTF_Pro", InpTFFast, InpVelPeriod, InpATRPeriod, 1.0, false);
+   h_vel_m5     = iCustom(_Symbol, Period(), "Velocity_MTF_Pro", InpTFFast, InpVelPeriod, InpATRPeriod, InpVelThreshold, false); // false=Hide Speed Line
+   if(h_vel_m5 == INVALID_HANDLE)
+     {
+      Print("Failed to load Velocity_MTF_Pro");
+      g_init_failed=true;
+     }
 
-   h_rvol_m5    = iCustom(_Symbol, Period(), "RVOL_MTF_Pro", InpTFFast, InpRVOLPeriod, 2.0);
-   h_tsi_m5  = iCustom(_Symbol, Period(), "TSI_MTF_Simple_Pro", InpTFFast, InpTSI_Slow, InpTSI_Fast, InpTSI_Signal, PRICE_CLOSE);
+   h_rvol_m5    = iCustom(_Symbol, Period(), "RVOL_MTF_Pro", InpTFFast, InpRVOLPeriod, InpRVOLThreshold);
+   if(h_rvol_m5 == INVALID_HANDLE)
+     {
+      Print("Failed to load RVOL_MTF_Pro");
+      g_init_failed=true;
+     }
 
-// Need generic ATR for Cost. Using iATR on M5.
-   h_atr_m5     = iATR(_Symbol, InpTFFast, InpATRPeriod);
+   h_tsi_m5     = iCustom(_Symbol, Period(), "TSI_MTF_Simple_Pro", InpTFFast, InpTSI_Slow, InpTSI_Fast, InpTSI_Signal, PRICE_CLOSE);
+   if(h_tsi_m5 == INVALID_HANDLE)
+     {
+      Print("Failed to load TSI_MTF_Simple_Pro");
+      g_init_failed=true;
+     }
+
+   h_atr_m5     = iATR(_Symbol, InpTFFast, InpATRPeriod); // Standard iATR is fine for simple value
 
 // --- COMPOSITE ---
-// Absorption MTF (Run on M15) -> iCustom takes params: ATRPeriod, RVOLPeriod, History
-// Input InpTFMid is M15.
-   h_abs = iCustom(_Symbol, InpTFMid, "Absorption_Pro", InpATRPeriod, InpRVOLPeriod, 500, false);
+   h_abs = iCustom(_Symbol, InpTFMid, "Absorption_Pro", InpTFMid, InpATRPeriod, InpRVOLPeriod, InpAbsHistory, false); // false=Hide Objects
    if(h_abs == INVALID_HANDLE)
-      Print("Absorption Handle Error");
-
-// Check Handles
-   if(h_alpha_h1==INVALID_HANDLE || h_sqz_m15==INVALID_HANDLE || h_vel_m5==INVALID_HANDLE)
      {
-      Print("Error creating iCustom handles. Check if indicators are compiled!");
+      Print("Failed to load Absorption_Pro");
+      g_init_failed=true;
+     }
+
+   if(g_init_failed)
+     {
+      Print("Critical Error: Some indicators failed to load. Check Experts log.");
       return INIT_FAILED;
      }
 
