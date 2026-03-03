@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 9.1 - Next Gen Statistics           |
+//|                    QuantScan 9.2 - Next Gen Statistics           |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "9.10" // Squeeze Momentum Integration
+#property version   "9.20" // W1 VWAP Z-Score Integration
 #property description "Exports 'QuantScan 9.0' dataset for LLM Analysis."
 #property description "Features Advanced Statistical Filters (VHF, R2, V-Score)."
 #property script_show_inputs
@@ -82,7 +82,8 @@ struct QuantData
    string            zone;             // Murrey Zone
 
    // M15 Flow
-   double            v_score;          // VWAP Z-Score
+   double            v_score_week;     // NEW: W1 VWAP Z-Score
+   double            v_score_day;      // VWAP Z-Score
    double            autocorr;         // Lag-1 Correlation
    double            vol_regime;       // ATR(5)/ATR(55)
    string            sqz;              // Squeeze State
@@ -100,6 +101,7 @@ struct QuantData
    // Composites
    string            absorption;
    string            mtf_align;
+   string            vwap_align;       // NEW: Alignment state
 
    // Internal TSI Hist for Breadth/Align
    double            h1_tsi_hist;
@@ -283,11 +285,10 @@ void OnStart()
 // Layer 1
    header += StringFormat("ALPHA_%s;BETA_%s;VHF_%s;R2_%s;ZONE_%s;", str_slow, str_slow, str_slow, str_slow, str_slow);
 // Layer 2
-   header += StringFormat("V_SCORE_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;SQZ_MOM_%s;VHF_%s;R2_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
-// Layer 3
+   header += StringFormat("V_SCORE_W1_%s;V_SCORE_D1_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;SQZ_MOM_%s;VHF_%s;R2_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);// Layer 3
    header += StringFormat("VEL_%s;VOL_THRUST;COST_ATR_%s;", str_fast, str_fast);
 // Composites
-   header += "ABSORPTION;MTF_ALIGN";
+   header += "ABSORPTION;MTF_ALIGN;VWAP_ALIGN";
 
    FileWrite(file_handle, header);
 
@@ -305,7 +306,8 @@ void OnStart()
                 DoubleToString(results[i].r2, 2),
                 results[i].zone,
                 // L2
-                DoubleToString(results[i].v_score, 2),
+                DoubleToString(results[i].v_score_week, 2), // New
+                DoubleToString(results[i].v_score_day, 2),  // Renamed from v_score
                 DoubleToString(results[i].autocorr, 2),
                 DoubleToString(results[i].vol_regime, 2),
                 results[i].sqz,
@@ -320,7 +322,8 @@ void OnStart()
                 DoubleToString(results[i].cost_atr, 2),
                 // Composite
                 results[i].absorption,
-                results[i].mtf_align
+                results[i].mtf_align,
+                results[i].vwap_align // New
                );
      }
 
@@ -504,7 +507,7 @@ bool RunQuantAnalysis(string sym, QuantData &data)
    double mid_atr = Calc_ATR(mid_o, mid_h, mid_l, mid_c, InpATRPeriod, idx_l2);
 
 // 1. V-Score (Live)
-   data.v_score = Calc_VScore(sym, mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, InpVScorePeriod, idx_l2);
+   data.v_score_day = Calc_VScore(sym, mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, InpVScorePeriod, PERIOD_SESSION, idx_l2);
 
 // 2. Autocorrelation (Live)
    data.autocorr = Calc_AutoCorr(mid_o, mid_h, mid_l, mid_c, InpAutoCorrPeriod, idx_l2);
@@ -532,6 +535,9 @@ bool RunQuantAnalysis(string sym, QuantData &data)
          data.dist_pdl = CMetricsTools::CalculateDistance(mid_c[idx_l2], sl.prev_low, mid_atr);
         }
      }
+
+// 7. V-Score Weekly (W1)
+   data.v_score_week = Calc_VScore(sym, slow_t, slow_o, slow_h, slow_l, slow_c, slow_v, InpVScorePeriod, PERIOD_WEEK, idx_l2);
 
 // M15 TSI for Align
    double tsi_main_m15=0;
@@ -635,6 +641,22 @@ bool RunQuantAnalysis(string sym, QuantData &data)
          data.mtf_align = "MAJOR_" + (h1_bull ? "BULL" : "BEAR");
       else
          data.mtf_align = "MIXED";
+
+// VWAP Alignment Logic (New)
+// Compares Price location relative to Daily and Weekly Institutional Average
+// V_Score > 0 implies Price > VWAP (Bullish Hold)
+// V_Score < 0 implies Price < VWAP (Bearish Hold)
+
+   bool day_bull = (data.v_score_day > 0);
+   bool week_bull = (data.v_score_week > 0);
+
+   if(day_bull && week_bull)
+      data.vwap_align = "FULL_BULL";
+   else
+      if(!day_bull && !week_bull)
+         data.vwap_align = "FULL_BEAR";
+      else
+         data.vwap_align = "MIXED";
 
    return true;
   }
@@ -807,16 +829,33 @@ double Calc_R2(const double &o[], const double &h[], const double &l[], const do
    return r2[idx];
   }
 
+////+------------------------------------------------------------------+
+////|                                                                  |
+////+------------------------------------------------------------------+
+//double Calc_VScore(string sym, const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], int p, int idx)
+//  {
+//   CVScoreCalculator calc;
+//   calc.Init(p, PERIOD_SESSION);
+//   double buf[];
+//   int total = ArraySize(c);
+//   ArrayResize(buf, total);
+//   calc.Calculate(total, 0, t, o, h, l, c, v, v, buf);
+//   return buf[idx];
+//  }
+
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| WRAPPER: Calculator V-Score (Updated with Reset Period param)    |
 //+------------------------------------------------------------------+
-double Calc_VScore(string sym, const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], int p, int idx)
+double Calc_VScore(string sym, const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], int p, ENUM_VWAP_PERIOD reset, int idx)
   {
    CVScoreCalculator calc;
-   calc.Init(p, PERIOD_SESSION);
+// Init with specific Reset Period (Session or Week)
+   calc.Init(p, reset);
+
    double buf[];
    int total = ArraySize(c);
    ArrayResize(buf, total);
+
    calc.Calculate(total, 0, t, o, h, l, c, v, v, buf);
    return buf[idx];
   }
