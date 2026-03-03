@@ -1,0 +1,46 @@
+; Visual Layout
+InpXOffset=20
+InpYOffset=30
+InpFontSize=9
+InpColorBase=12632256
+InpColorHead=55295
+InpColorTxt=12632256
+InpColorLbl=8421504
+InpColorBull=65280
+InpColorBear=255
+InpCorner=0
+; Timeframes
+InpTFSlow=16385
+InpTFMid=15
+InpTFFast=5
+; Metric Periods
+InpVHFPeriod=21
+InpR2Period=21
+InpVScorePeriod=21
+InpAutoCorrPeriod=21
+InpATRPeriod=13
+InpRVOLPeriod=21
+InpBetaLookback=55
+; TSI Settings
+InpTSI_Slow=21
+InpTSI_Fast=13
+InpTSI_Signal=13
+; Squeeze Settings
+InpSqueezeLength=21
+InpBBMult=2.0
+InpKCMult=1.5
+InpSqueezeMom=13
+; Vol Regime
+InpVRFast=5
+InpVRSlow=55
+InpVRThresh=1.0
+; Thresholds & Options
+InpR2Threshold=0.7
+InpAutoCorrThresh=0.1
+InpVelThreshold=1.0
+InpRVOLThreshold=2.0
+InpVelPeriod=3
+InpAbsHistory=610
+; Benchmarks
+InpBenchmark=US500
+InpForexBench=DXY
