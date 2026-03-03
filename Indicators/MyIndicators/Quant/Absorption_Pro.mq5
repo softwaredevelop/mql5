@@ -3,20 +3,21 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
-#property description "Institutional Absorption Detector (Wyckoff)."
-#property description "Draws Supply/Demand zones based on Volume/Price anomalies."
+#property version   "1.10"
+#property description "Institutional Absorption Detector."
+#property description "Draws Supply/Demand zones & Outputs State Buffer."
 
 #property indicator_chart_window
-#property indicator_buffers 4
+#property indicator_buffers 5
 #property indicator_plots   2
 
-// Use arrow buffers just to mark the signal bar visually on top/bottom
+// Plot 1: Bull Arrow
 #property indicator_label1  "Bull Abs"
 #property indicator_type1   DRAW_ARROW
 #property indicator_color1  clrLime
 #property indicator_width1  2
 
+// Plot 2: Bear Arrow
 #property indicator_label2  "Bear Abs"
 #property indicator_type2   DRAW_ARROW
 #property indicator_color2  clrRed
@@ -26,22 +27,22 @@
 #include <MyIncludes\RelativeVolume_Calculator.mqh>
 
 //--- Parameters
-input int      InpATRPeriod      = 14;       // Volatility Period
-input int      InpRVOLPeriod     = 20;       // Volume Period
-input int      InpHistoryBars    = 500;      // Max Bars to analyze (for objects)
+input int      InpATRPeriod      = 14;
+input int      InpRVOLPeriod     = 20;
+input int      InpHistoryBars    = 500; // Limit object creation history
 
 //--- Buffers
 double BufBull[];
 double BufBear[];
-double BufATR[];  // Internal
-double BufRVOL[]; // Internal
+double BufATR[];
+double BufRVOL[];
+double BufState[]; // 0=None, 1=Bull, -1=Bear, 2=Climax, 0.5=Neut
 
-//--- Objects
 CATRCalculator            *g_atr;
 CRelativeVolumeCalculator *g_rvol;
 
 //+------------------------------------------------------------------+
-//| Init                                                             |
+//|                                                                  |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -49,17 +50,15 @@ int OnInit()
    SetIndexBuffer(1, BufBear, INDICATOR_DATA);
    SetIndexBuffer(2, BufATR, INDICATOR_CALCULATIONS);
    SetIndexBuffer(3, BufRVOL, INDICATOR_CALCULATIONS);
+   SetIndexBuffer(4, BufState, INDICATOR_CALCULATIONS);
 
-   PlotIndexSetInteger(0, PLOT_ARROW, 233); // Up Arrow
-   PlotIndexSetInteger(1, PLOT_ARROW, 234); // Down Arrow
+   PlotIndexSetInteger(0, PLOT_ARROW, 233);
+   PlotIndexSetInteger(1, PLOT_ARROW, 234);
 
    g_atr = new CATRCalculator();
-   if(!g_atr.Init(InpATRPeriod, ATR_POINTS))
-      return INIT_FAILED;
-
+   g_atr.Init(InpATRPeriod, ATR_POINTS);
    g_rvol = new CRelativeVolumeCalculator();
-   if(!g_rvol.Init(InpRVOLPeriod))
-      return INIT_FAILED;
+   g_rvol.Init(InpRVOLPeriod);
 
    IndicatorSetString(INDICATOR_SHORTNAME, "Absorption Pro");
    return(INIT_SUCCEEDED);
@@ -78,47 +77,35 @@ void OnDeinit(const int r)
   }
 
 //+------------------------------------------------------------------+
-//| Calculate                                                        |
+//|                                                                  |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total,
-                const int prev_calculated,
-                const datetime &time[],
-                const double &open[],
-                const double &high[],
-                const double &low[],
-                const double &close[],
-                const long &tick_volume[],
-                const long &volume[],
-                const int &spread[])
+int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
   {
-// Safety
    if(rates_total < InpATRPeriod + InpRVOLPeriod)
       return 0;
 
-// 1. Data Prep & Calc
    g_atr.Calculate(rates_total, prev_calculated, open, high, low, close, BufATR);
    g_rvol.Calculate(rates_total, prev_calculated, tick_volume, BufRVOL);
 
-// Limit loop for objects (don't draw 100000 objects)
-// Always recalc recent history to update "Open" zones
-   int start = rates_total - InpHistoryBars;
-   if(start < 0)
-      start = 0;
+   int start = (prev_calculated > 0) ? prev_calculated - 1 : InpATRPeriod + InpRVOLPeriod;
 
-// Optimization: Only create objects if not exists. But update "End Time" of active zones.
-// Simplified approach: scan history, manage objects.
+// Limit Drawing loop to history bars to avoid lag on recompiles with huge history
+   int draw_limit = rates_total - InpHistoryBars;
+   if(draw_limit < 0)
+      draw_limit = 0;
+   if(start < draw_limit)
+      start = draw_limit;
 
    for(int i = start; i < rates_total; i++)
      {
-      // Reset arrow buffers
       BufBull[i] = EMPTY_VALUE;
       BufBear[i] = EMPTY_VALUE;
+      BufState[i] = 0;
 
       double atr = BufATR[i];
       if(atr == 0)
          continue;
 
-      // LOGIC from Script
       double body = MathAbs(close[i] - open[i]);
       double total_range = high[i] - low[i];
       double rvol = BufRVOL[i];
@@ -137,70 +124,70 @@ int OnCalculate(const int rates_total,
             close_pos = (close[i] - low[i]) / total_range;
 
          if(close_pos > 0.66)
+           {
+            BufState[i] = 1.0;
             is_bull = true;
+           }
          else
             if(close_pos < 0.33)
+              {
+               BufState[i] = -1.0;
                is_bear = true;
+              }
             else
               {
-               // Neutral Abs - maybe mark as yellow?
+               BufState[i] = 0.5;
               }
         }
       else
          if(rvol > 3.5 && body < (0.6 * atr))
            {
-            is_climax = true; // Use neutral/warning color
+            BufState[i] = 2.0;
+            is_climax = true;
            }
 
-      // Drawing Logic
+      // Visuals & Objects
       if(is_bull || is_bear || is_climax)
         {
-         // Mark Arrow
+         // Arrows
          if(is_bull)
-            BufBull[i] = low[i] - atr * 0.5;
+            BufBull[i] = low[i] - atr*0.3;
          if(is_bear)
-            BufBear[i] = high[i] + atr * 0.5;
-         if(is_climax) { /* Maybe draw both or special? */ }
+            BufBear[i] = high[i] + atr*0.3;
 
-         // Create/Update Zone Object
+         // ZONES (Rectangles)
          string name = "AbsZone_" + TimeToString(time[i]);
-         color zone_col = is_bull ? clrGreen : (is_bear ? clrRed : clrGold);
-         if(is_bull)
-            zone_col = C'0,64,0'; // Darker Green for fill
-         if(is_bear)
-            zone_col = C'64,0,0'; // Darker Red
+         color zone_col = is_bull ? C'0,64,0' : (is_bear ? C'64,0,0' : C'184,134,11'); // Dark Green/Red/Gold
 
+         // Create if not exists
          if(ObjectFind(0, name) < 0)
            {
             ObjectCreate(0, name, OBJ_RECTANGLE, 0, time[i], high[i], time[i], low[i]);
             ObjectSetInteger(0, name, OBJPROP_COLOR, zone_col);
             ObjectSetInteger(0, name, OBJPROP_FILL, true);
-            ObjectSetInteger(0, name, OBJPROP_BACK, true); // Draw behind candles
-            ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+            ObjectSetInteger(0, name, OBJPROP_BACK, true);
+            ObjectSetInteger(0, name, OBJPROP_WIDTH, 1); // Borderless look if fill
            }
 
-         // Manage Zone Extension
-         // Find if/when price broke the zone
-         datetime end_time = time[rates_total-1] + PeriodSeconds()*5; // Default: Live into future
-
+         // Extend Logic: Find breaker candle
+         datetime end_time = time[rates_total-1] + PeriodSeconds()*5; // Default: Live
          bool broken = false;
+
+         // Scan forward from signal bar
          for(int k = i + 1; k < rates_total; k++)
            {
-            // Bull Zone broken if Close < Low
             if(is_bull && close[k] < low[i])
               {
                end_time = time[k];
                broken = true;
                break;
               }
-            // Bear Zone broken if Close > High
             if(is_bear && close[k] > high[i])
               {
                end_time = time[k];
                broken = true;
                break;
               }
-            // Climax broken if broken either way
             if(is_climax)
               {
                if(close[k] > high[i] || close[k] < low[i])
@@ -212,14 +199,13 @@ int OnCalculate(const int rates_total,
               }
            }
 
-         // FIX: Use Modifier Index 1 for Time2
+         // Update Time2
          ObjectSetInteger(0, name, OBJPROP_TIME, 1, end_time);
-
-         // Visual Polish: If broken, make it lighter or dashed?
-         // For now, standard rectangle.
+         // Optional: Change style if broken
+         if(broken)
+            ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
         }
      }
-
    return(rates_total);
   }
 //+------------------------------------------------------------------+
