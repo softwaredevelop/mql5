@@ -9,9 +9,6 @@
 #property indicator_chart_window
 #property indicator_plots 0
 
-////--- Includes
-//#include <MyIncludes\HeikinAshi_Tools.mqh>
-
 //--- Visual Settings
 input group             "Visual Layout"
 input int               InpXOffset        = 20;
@@ -61,6 +58,7 @@ int h_vola_reg_m15; // Uses VolatilityRegime_MTF_Pro
 int h_vel_m5, h_tsi_m5;
 int h_rvol_m15, h_rvol_m5; // For Thrust & Absorption
 int h_atr_m5; // For Cost & Absorption
+int h_abs;
 
 // --- Enums needed for iCustom calls (must match source file definition)
 enum ENUM_AB_MODE { MODE_ALPHA, MODE_BETA };
@@ -123,6 +121,13 @@ int OnInit()
 // Need generic ATR for Cost. Using iATR on M5.
    h_atr_m5     = iATR(_Symbol, InpTFFast, InpATRPeriod);
 
+// --- COMPOSITE ---
+// Absorption MTF (Run on M15) -> iCustom takes params: ATRPeriod, RVOLPeriod, History
+// Input InpTFMid is M15.
+   h_abs = iCustom(_Symbol, InpTFMid, "Absorption_Pro", InpATRPeriod, InpRVOLPeriod, 500, false);
+   if(h_abs == INVALID_HANDLE)
+      Print("Absorption Handle Error");
+
 // Check Handles
    if(h_alpha_h1==INVALID_HANDLE || h_sqz_m15==INVALID_HANDLE || h_vel_m5==INVALID_HANDLE)
      {
@@ -160,6 +165,8 @@ void OnDeinit(const int r)
    IndicatorRelease(h_rvol_m5);
    IndicatorRelease(h_tsi_m5);
    IndicatorRelease(h_atr_m5);
+
+   IndicatorRelease(h_abs);
   }
 
 //+------------------------------------------------------------------+
@@ -253,11 +260,41 @@ void DrawDashboard()
    DrawRow("Data", "Cost: "+DoubleToString(cost,1)+"%", "TSI H: "+DoubleToString(tsi_m5_hist,3), y, col_w);
    y+=row_h+5;
 
-// --- L4: COMPOSITE (Simplified) ---
-   CreateLabel("T_L4", "--- COMPOSITE ---", InpXOffset, y, InpColorHead);
+// --- L4: COMPOSITE (Updated) ---
+   CreateLabel("T_L4", "--- COMPOSITES ---", InpXOffset, y, InpColorHead);
    y+=row_h;
 
-// MTF Align
+// 1. Absorption from Indicator
+   double abs_buf[1];
+   string absorp = "NO";
+
+// Read Buffer 4 (State) from Last Closed Bar (Index 1) on M15 logic
+// Why Index 1? Absorption pattern is confirmed when bar closes.
+   if(CopyBuffer(h_abs, 4, 1, 1, abs_buf) > 0)
+     {
+      double st = abs_buf[0];
+      if(st == 1.0)
+        {
+         absorp = "BULL ABS";
+        }
+      else
+         if(st == -1.0)
+           {
+            absorp = "BEAR ABS";
+           }
+         else
+            if(st == 2.0)
+              {
+               absorp = "CLIMAX";
+              }
+            else
+               if(st == 0.5)
+                 {
+                  absorp = "NEUT ABS";
+                 }
+     }
+
+// 2. MTF Align
    bool h1_bull = (tsi_h1_hist > 0);
    bool m15_bull = (tsi_m15_hist > 0);
    bool m5_bull = (tsi_m5_hist > 0);
@@ -269,11 +306,8 @@ void DrawDashboard()
       if(h1_bull == m15_bull)
          mtf = "MAJOR " + (h1_bull ? "BULL" : "BEAR");
 
-// Absorption requires Candles. We don't have candles here easily without FetchData.
-// To keep iCustom version pure, create an Absorption indicator? Or skip for now.
-// Let's display MTF Align.
-
-   DrawRow("Signal", "Absorp: N/A", "MTF: "+mtf, y, col_w);
+//DrawRow("Signal", "Absorp: "+absorp, c_abs, "", clrNone, y, col_w);
+   DrawRow("Signal", "Absorp: "+absorp, "MTF: "+mtf, y, col_w);
   }
 
 //+------------------------------------------------------------------+
