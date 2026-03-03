@@ -30,6 +30,7 @@
 input int      InpATRPeriod      = 14;
 input int      InpRVOLPeriod     = 20;
 input int      InpHistoryBars    = 500; // Limit object creation history
+input bool     InpShowObjects    = true; // Toggle visuals
 
 //--- Buffers
 double BufBull[];
@@ -149,61 +150,64 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
       // Visuals & Objects
       if(is_bull || is_bear || is_climax)
         {
-         // Arrows
-         if(is_bull)
-            BufBull[i] = low[i] - atr*0.3;
-         if(is_bear)
-            BufBear[i] = high[i] + atr*0.3;
-
-         // ZONES (Rectangles)
-         string name = "AbsZone_" + TimeToString(time[i]);
-         color zone_col = is_bull ? C'0,64,0' : (is_bear ? C'64,0,0' : C'184,134,11'); // Dark Green/Red/Gold
-
-         // Create if not exists
-         if(ObjectFind(0, name) < 0)
+         if(InpShowObjects)
            {
-            ObjectCreate(0, name, OBJ_RECTANGLE, 0, time[i], high[i], time[i], low[i]);
-            ObjectSetInteger(0, name, OBJPROP_COLOR, zone_col);
-            ObjectSetInteger(0, name, OBJPROP_FILL, true);
-            ObjectSetInteger(0, name, OBJPROP_BACK, true);
-            ObjectSetInteger(0, name, OBJPROP_WIDTH, 1); // Borderless look if fill
-           }
+            // Arrows
+            if(is_bull)
+               BufBull[i] = low[i] - atr*0.3;
+            if(is_bear)
+               BufBear[i] = high[i] + atr*0.3;
 
-         // Extend Logic: Find breaker candle
-         datetime end_time = time[rates_total-1] + PeriodSeconds()*5; // Default: Live
-         bool broken = false;
+            // ZONES (Rectangles)
+            string name = "AbsZone_" + TimeToString(time[i]);
+            color zone_col = is_bull ? C'0,64,0' : (is_bear ? C'64,0,0' : C'184,134,11'); // Dark Green/Red/Gold
 
-         // Scan forward from signal bar
-         for(int k = i + 1; k < rates_total; k++)
-           {
-            if(is_bull && close[k] < low[i])
+            // Create if not exists
+            if(ObjectFind(0, name) < 0)
               {
-               end_time = time[k];
-               broken = true;
-               break;
+               ObjectCreate(0, name, OBJ_RECTANGLE, 0, time[i], high[i], time[i], low[i]);
+               ObjectSetInteger(0, name, OBJPROP_COLOR, zone_col);
+               ObjectSetInteger(0, name, OBJPROP_FILL, true);
+               ObjectSetInteger(0, name, OBJPROP_BACK, true);
+               ObjectSetInteger(0, name, OBJPROP_WIDTH, 1); // Borderless look if fill
               }
-            if(is_bear && close[k] > high[i])
+
+            // Extend Logic: Find breaker candle
+            datetime end_time = time[rates_total-1] + PeriodSeconds()*5; // Default: Live
+            bool broken = false;
+
+            // Scan forward from signal bar
+            for(int k = i + 1; k < rates_total; k++)
               {
-               end_time = time[k];
-               broken = true;
-               break;
-              }
-            if(is_climax)
-              {
-               if(close[k] > high[i] || close[k] < low[i])
+               if(is_bull && close[k] < low[i])
                  {
                   end_time = time[k];
                   broken = true;
                   break;
                  }
+               if(is_bear && close[k] > high[i])
+                 {
+                  end_time = time[k];
+                  broken = true;
+                  break;
+                 }
+               if(is_climax)
+                 {
+                  if(close[k] > high[i] || close[k] < low[i])
+                    {
+                     end_time = time[k];
+                     broken = true;
+                     break;
+                    }
+                 }
               }
-           }
 
-         // Update Time2
-         ObjectSetInteger(0, name, OBJPROP_TIME, 1, end_time);
-         // Optional: Change style if broken
-         if(broken)
-            ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
+            // Update Time2
+            ObjectSetInteger(0, name, OBJPROP_TIME, 1, end_time);
+            // Optional: Change style if broken
+            if(broken)
+               ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
+           }
         }
      }
    return(rates_total);
