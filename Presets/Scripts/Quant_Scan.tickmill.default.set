@@ -29,3 +29,5 @@ InpSqueezeLength=21
 InpBBMult=2.0
 InpKCMult=1.5
 InpSqueezeMom=13
+; Output Settings
+InpPrecision=3
