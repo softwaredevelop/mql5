@@ -829,20 +829,6 @@ double Calc_R2(const double &o[], const double &h[], const double &l[], const do
    return r2[idx];
   }
 
-////+------------------------------------------------------------------+
-////|                                                                  |
-////+------------------------------------------------------------------+
-//double Calc_VScore(string sym, const datetime &t[], const double &o[], const double &h[], const double &l[], const double &c[], const long &v[], int p, int idx)
-//  {
-//   CVScoreCalculator calc;
-//   calc.Init(p, PERIOD_SESSION);
-//   double buf[];
-//   int total = ArraySize(c);
-//   ArrayResize(buf, total);
-//   calc.Calculate(total, 0, t, o, h, l, c, v, v, buf);
-//   return buf[idx];
-//  }
-
 //+------------------------------------------------------------------+
 //| WRAPPER: Calculator V-Score (Updated with Reset Period param)    |
 //+------------------------------------------------------------------+
