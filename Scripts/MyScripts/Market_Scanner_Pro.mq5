@@ -67,6 +67,9 @@ input double   InpBBMult         = 2.0;
 input double   InpKCMult         = 1.5;
 input int      InpSqueezeMom     = 12;
 
+input group "Output Settings"
+input int      InpPrecision      = 3; // Decimal places for CSV Output
+
 //--- QuantData Struct (Updated Layout)
 struct QuantData
   {
@@ -302,24 +305,24 @@ void OnStart()
                 // L1
                 results[i].alpha_str,
                 results[i].beta_str,
-                DoubleToString(results[i].vhf, 2),
-                DoubleToString(results[i].r2, 2),
+                DoubleToString(results[i].vhf, InpPrecision),
+                DoubleToString(results[i].r2, InpPrecision),
                 results[i].zone,
                 // L2
-                DoubleToString(results[i].v_score_week, 2), // New
-                DoubleToString(results[i].v_score_day, 2),  // Renamed from v_score
-                DoubleToString(results[i].autocorr, 2),
-                DoubleToString(results[i].vol_regime, 2),
+                DoubleToString(results[i].v_score_week, InpPrecision), // New
+                DoubleToString(results[i].v_score_day, InpPrecision),  // Renamed from v_score
+                DoubleToString(results[i].autocorr, InpPrecision),
+                DoubleToString(results[i].vol_regime, InpPrecision),
                 results[i].sqz,
-                DoubleToString(results[i].sqz_mom, 2),
-                DoubleToString(results[i].m15_vhf, 2),
-                DoubleToString(results[i].m15_r2, 2),
-                DoubleToString(results[i].dist_pdh, 2),
-                DoubleToString(results[i].dist_pdl, 2),
+                DoubleToString(results[i].sqz_mom, InpPrecision),
+                DoubleToString(results[i].m15_vhf, InpPrecision),
+                DoubleToString(results[i].m15_r2, InpPrecision),
+                DoubleToString(results[i].dist_pdh, InpPrecision),
+                DoubleToString(results[i].dist_pdl, InpPrecision),
                 // L3
-                DoubleToString(results[i].velocity, 2),
-                DoubleToString(results[i].vol_thrust, 2),
-                DoubleToString(results[i].cost_atr, 2),
+                DoubleToString(results[i].velocity, InpPrecision),
+                DoubleToString(results[i].vol_thrust, InpPrecision),
+                DoubleToString(results[i].cost_atr, InpPrecision),
                 // Composite
                 results[i].absorption,
                 results[i].mtf_align,
