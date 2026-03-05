@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.00" // Objects Only (No Buffers)
+#property version   "2.10" // Optimized Calculation Loop
 #property description "Draws Historical VWAP Close Levels as Support/Resistance."
 
 #property indicator_chart_window
@@ -81,7 +81,24 @@ int OnCalculate(const int rates_total,
    if(rates_total < 2)
       return 0;
 
-// Resize internal buffers
+// OPTIMIZATION: Limit Lookback
+// We only show last N days/weeks. We don't need to calc VWAP from 1990.
+// Let's safe-limit to last ~5000 bars (usually enough for monthly VWAP on M5).
+// Or dynamically based on Period.
+   int limit_bars = 5000;
+   if(InpShowMonthly)
+      limit_bars = 40000; // Need more history for months on M1
+
+   int start_calc = rates_total - limit_bars;
+   if(start_calc < 0)
+      start_calc = 0;
+
+// Respect prev_calculated but apply floor limit
+   int start_loop = (prev_calculated > 0) ? prev_calculated - 1 : start_calc;
+   if(start_loop < start_calc)
+      start_loop = start_calc; // Force start if full recalc requested but limit history
+
+// Resize buffers
    if(ArraySize(calc_daily) != rates_total)
      {
       ArrayResize(calc_daily, rates_total);
@@ -89,38 +106,42 @@ int OnCalculate(const int rates_total,
       ArrayResize(calc_monthly, rates_total);
      }
 
-// 1. Calculate VWAP History in background
+// 1. Calculate VWAP History
+// Note: The Calculator Engine usually iterates from start_index to end.
+// We can pass start_loop to it.
+
    double odd[], even[];
 
    if(InpShowDaily)
      {
-      g_vwap_d.Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, odd, even);
-      MergeBuffers(rates_total, odd, even, calc_daily);
+      g_vwap_d.Calculate(rates_total, start_loop, time, open, high, low, close, tick_volume, volume, odd, even);
+      MergeBuffers(rates_total, odd, even, calc_daily, start_loop);
      }
 
    if(InpShowWeekly)
      {
-      g_vwap_w.Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, odd, even);
-      MergeBuffers(rates_total, odd, even, calc_weekly);
+      g_vwap_w.Calculate(rates_total, start_loop, time, open, high, low, close, tick_volume, volume, odd, even);
+      MergeBuffers(rates_total, odd, even, calc_weekly, start_loop);
      }
 
    if(InpShowMonthly)
      {
-      g_vwap_m.Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, odd, even);
-      MergeBuffers(rates_total, odd, even, calc_monthly);
+      g_vwap_m.Calculate(rates_total, start_loop, time, open, high, low, close, tick_volume, volume, odd, even);
+      MergeBuffers(rates_total, odd, even, calc_monthly, start_loop);
      }
 
-// 2. Manage Objects (Detect Period End)
-   int start = (prev_calculated > 0) ? prev_calculated - 1 : 1;
+// 2. Manage Objects
+// Only scan from start_loop, but start_loop is usually total-1 (Live).
+// Historical objects must be created on Full Recalculation (prev==0).
 
-   for(int i = start; i < rates_total; i++)
+// OPTIMIZATION: Don't check objects on every tick if not needed.
+// Only check if new candle or full recalc.
+
+   for(int i = start_loop; i < rates_total; i++)
      {
       MqlDateTime dt, dt_prev;
       TimeToStruct(time[i], dt);
       TimeToStruct(time[i-1], dt_prev);
-
-      // Look for transition at i
-      // Valid Level is at i-1 (the close of previous session)
 
       // Daily
       if(InpShowDaily && dt.day_of_year != dt_prev.day_of_year)
@@ -128,12 +149,11 @@ int OnCalculate(const int rates_total,
          CreateLevelObject(time[i-1], calc_daily[i-1], "D", InpDailyColor, InpDailyCount);
         }
 
-      // Weekly (Monday check or week change)
-      // Robust way: int week = (int)(time[i] / 604800);
-      datetime t_week_start = iTime(_Symbol, PERIOD_W1, iBarShift(_Symbol, PERIOD_W1, time[i]));
-      datetime t_prev_week_start = iTime(_Symbol, PERIOD_W1, iBarShift(_Symbol, PERIOD_W1, time[i-1]));
+      // Weekly
+      datetime t_week = iTime(_Symbol, PERIOD_W1, iBarShift(_Symbol, PERIOD_W1, time[i]));
+      datetime t_p_week = iTime(_Symbol, PERIOD_W1, iBarShift(_Symbol, PERIOD_W1, time[i-1]));
 
-      if(InpShowWeekly && t_week_start != t_prev_week_start)
+      if(InpShowWeekly && t_week != t_p_week)
         {
          CreateLevelObject(time[i-1], calc_weekly[i-1], "W", InpWeeklyColor, InpWeeklyCount);
         }
@@ -146,6 +166,18 @@ int OnCalculate(const int rates_total,
      }
 
    return(rates_total);
+  }
+
+// Updated MergeBuffer to respect start index
+void MergeBuffers(int total, const double &src1[], const double &src2[], double &dst[], int start)
+  {
+   for(int i=start; i<total; i++)
+     {
+      if(src1[i] != EMPTY_VALUE && src1[i] != 0)
+         dst[i] = src1[i];
+      else
+         dst[i] = src2[i];
+     }
   }
 
 //+------------------------------------------------------------------+
