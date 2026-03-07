@@ -1,4 +1,4 @@
-InpUseMarketWatch=false
+InpUseMarketWatch=true
 InpSymbols=EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD
 ; Chart Configuration 1
 InpPeriod_1=15
