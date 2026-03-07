@@ -194,7 +194,7 @@ color=
 <inputs>
 <unnamed>=
 InpShowDaily=true
-InpDailyCount=3
+InpDailyCount=4
 InpDailyColor=9639167
 <unnamed>=
 InpShowWeekly=true
