@@ -1,10 +1,10 @@
-InpUseMarketWatch=false
+InpUseMarketWatch=true
 InpSymbols=EURUSD,USDJPY,GBPUSD,USDCHF,AUDUSD
 ; Chart Configuration 1
 InpPeriod_1=15
 InpTemplate_1=MyTemplates\Common\Default.tpl
 ; Chart Configuration 2
-InpPeriod_2=15
+InpPeriod_2=5
 InpTemplate_2=MyTemplates\Strategies\trend.ha.adx_dmi_murrey_ss_vwap.tlxn_win.tpl
 ; Chart Configuration 3
 InpPeriod_3=0
