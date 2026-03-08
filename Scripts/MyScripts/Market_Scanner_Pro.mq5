@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 9.2 - Next Gen Statistics           |
+//|                    QuantScan 10.2 - Next Gen Statistics           |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "9.20" // W1 VWAP Z-Score Integration
+#property version   "10.20" // Volume Pressure (Tick Delta Proxy) Integration
 #property description "Exports 'QuantScan 9.0' dataset for LLM Analysis."
 #property description "Features Advanced Statistical Filters (VHF, R2, V-Score)."
 #property script_show_inputs
@@ -24,6 +24,7 @@
 #include <MyIncludes\LinearRegression_Calculator.mqh>
 #include <MyIncludes\VScore_Calculator.mqh>
 #include <MyIncludes\Autocorrelation_Calculator.mqh>
+#include <MyIncludes\VolumePressure_Calculator.mqh>
 
 //--- Input Parameters
 input group "Scanner Config"
@@ -98,6 +99,7 @@ struct QuantData
 
    // M5 Trigger
    double            velocity;
+   double            v_pressure;       // NEW
    double            vol_thrust;       // M5 RVOL / M15 RVOL
    double            cost_atr;
 
@@ -289,7 +291,7 @@ void OnStart()
    header += StringFormat("ALPHA_%s;BETA_%s;VHF_%s;R2_%s;ZONE_%s;", str_slow, str_slow, str_slow, str_slow, str_slow);
 // Layer 2
    header += StringFormat("V_SCORE_W1_%s;V_SCORE_D1_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;SQZ_MOM_%s;VHF_%s;R2_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);// Layer 3
-   header += StringFormat("VEL_%s;VOL_THRUST;COST_ATR_%s;", str_fast, str_fast);
+   header += StringFormat("VEL_%s;V_PRES_%s;VOL_THRUST;COST_ATR_%s;", str_fast, str_fast, str_fast);
 // Composites
    header += "ABSORPTION;MTF_ALIGN;VWAP_ALIGN";
 
@@ -321,6 +323,7 @@ void OnStart()
                 DoubleToString(results[i].dist_pdl, InpPrecision),
                 // L3
                 DoubleToString(results[i].velocity, InpPrecision),
+                DoubleToString(results[i].v_pressure, InpPrecision), // NEW
                 DoubleToString(results[i].vol_thrust, InpPrecision),
                 DoubleToString(results[i].cost_atr, InpPrecision),
                 // Composite
@@ -564,14 +567,17 @@ bool RunQuantAnalysis(string sym, QuantData &data)
 // 1. Velocity
    data.velocity = Calc_Velocity(fast_c, fast_atr, 3, idx_l3);
 
-// 2. Volume Thrust
+// 2. Volume Pressure (Tick Delta Proxy)
+   data.v_pressure = Calc_VPressure(fast_h, fast_l, fast_c, idx_l3); // NEW
+
+// 3. Volume Thrust
    double rvol_m5 = Calc_RVOL(fast_v, InpRVOLPeriod, idx_l3);
    if(rvol_m15 > 0)
       data.vol_thrust = rvol_m5 / rvol_m15;
    else
       data.vol_thrust = 0;
 
-// 3. Cost
+// 4. Cost
    data.cost_atr = CMetricsTools::CalculateSpreadCost(sym, fast_atr);
 
    double tsi_main_m5 = 0;
@@ -860,6 +866,28 @@ double Calc_AutoCorr(const double &o[], const double &h[], const double &l[], co
    int total = ArraySize(c);
    ArrayResize(buf, total);
    calc.Calculate(total, 0, PRICE_CLOSE, o, h, l, c, buf);
+   return buf[idx];
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double Calc_VPressure(const double &h[], const double &l[], const double &c[], int idx)
+  {
+// Use raw calc (smooth=1) for pure candle analysis
+   CVolumePressureCalculator calc;
+   if(!calc.Init(1))
+      return 0;
+
+   double buf[];
+   int total = ArraySize(c);
+   ArrayResize(buf, total);
+
+// Need Arrays. H/L/C passed directly.
+// But Calc takes full arrays and fills buffer.
+// Assuming wrapper logic similar to others.
+// Wait, calc.CalculateSignature: (total, prev, h, l, c, buf).
+   calc.Calculate(total, 0, h, l, c, buf);
    return buf[idx];
   }
 //+------------------------------------------------------------------+
