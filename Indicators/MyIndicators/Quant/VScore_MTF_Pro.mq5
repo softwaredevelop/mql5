@@ -14,7 +14,6 @@
 // Levels
 #property indicator_level1 2.0
 #property indicator_level2 -2.0
-#property indicator_level3 0.0
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
