@@ -14,15 +14,15 @@
 // Plot 1-2: VWAP (Odd/Even for Gapped Drawing)
 #property indicator_label1  "VWAP"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrGold
+#property indicator_color1  clrOrange
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 #property indicator_label2  ""
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrGold
+#property indicator_color2  clrOrange
 #property indicator_style2  STYLE_SOLID
-#property indicator_width2  2
+#property indicator_width2  1
 
 // Plot 3-4: Band 1 (+/-)
 #property indicator_label3  "Upper Band 1"
