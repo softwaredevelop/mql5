@@ -38,12 +38,12 @@
 // Plot 5-6: Band 2 (+/-)
 #property indicator_label5  "Upper Band 2"
 #property indicator_type5   DRAW_LINE
-#property indicator_color5  clrOrange
+#property indicator_color5  clrCoral
 #property indicator_style5  STYLE_SOLID
 
 #property indicator_label6  "Lower Band 2"
 #property indicator_type6   DRAW_LINE
-#property indicator_color6  clrOrange
+#property indicator_color6  clrCoral
 #property indicator_style6  STYLE_SOLID
 
 // Plot 7-8: Band 3 (+/-)
