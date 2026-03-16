@@ -28,14 +28,14 @@
 //--- Plot 2: Speed Positive (Top)
 #property indicator_label2  "Speed (+)"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrGold
+#property indicator_color2  clrDarkOrange
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
 //--- Plot 3: Speed Negative (Bottom)
 #property indicator_label3  "Speed (-)"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrGold
+#property indicator_color3  clrDarkOrange
 #property indicator_style3  STYLE_SOLID
 #property indicator_width3  1
 
