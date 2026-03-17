@@ -930,7 +930,7 @@ objects=0
 
 <indicator>
 name=Custom Indicator
-path=Indicators\MyIndicators\Quant\Velocity_MTF_Pro.ex5
+path=Indicators\MyIndicators\Quant\Velocity_Pro.ex5
 apply=0
 show_data=1
 scale_inherit=0
@@ -945,7 +945,7 @@ expertmode=4
 fixed_height=-1
 
 <graph>
-name=Velocity MTF
+name=Velocity
 draw=11
 style=0
 width=2
@@ -953,7 +953,7 @@ color=8421504,65280,255
 </graph>
 
 <graph>
-name=Speed (+) MTF
+name=Speed (+)
 draw=1
 style=0
 width=1
@@ -961,7 +961,7 @@ color=36095
 </graph>
 
 <graph>
-name=Speed (-) MTF
+name=Speed (-)
 draw=1
 style=0
 width=1
@@ -984,8 +984,7 @@ width=1
 descr=
 </level>
 <inputs>
-InpTimeframe=5
-InpVelPeriod=3
+InpVelPeriod=5
 InpATRPeriod=13
 InpThreshold=1.0
 InpShowSpeed=true
