@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.10" // Optimized Calculation Loop
+#property version   "2.11" // BUGFIX: Prevent array out of range on TF switch
 #property description "Draws Historical VWAP Close Levels as Support/Resistance."
 
 #property indicator_chart_window
@@ -54,7 +54,7 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Deinit                                                           |
 //+------------------------------------------------------------------+
 void OnDeinit(const int r)
   {
@@ -107,9 +107,7 @@ int OnCalculate(const int rates_total,
      }
 
 // 1. Calculate VWAP History
-// Note: The Calculator Engine usually iterates from start_index to end.
-// We can pass start_loop to it.
-
+// Note: The Calculator Engine iterates safely from 0 if required.
    double odd[], even[];
 
    if(InpShowDaily)
@@ -131,13 +129,14 @@ int OnCalculate(const int rates_total,
      }
 
 // 2. Manage Objects
-// Only scan from start_loop, but start_loop is usually total-1 (Live).
-// Historical objects must be created on Full Recalculation (prev==0).
-
 // OPTIMIZATION: Don't check objects on every tick if not needed.
 // Only check if new candle or full recalc.
 
-   for(int i = start_loop; i < rates_total; i++)
+// CRITICAL FIX: To prevent "Array out of range" when querying [i-1],
+// the object scanner must start at minimum index 1.
+   int start_obj = (start_loop == 0) ? 1 : start_loop;
+
+   for(int i = start_obj; i < rates_total; i++)
      {
       MqlDateTime dt, dt_prev;
       TimeToStruct(time[i], dt);
@@ -168,6 +167,10 @@ int OnCalculate(const int rates_total,
    return(rates_total);
   }
 
+//+------------------------------------------------------------------+
+//| Helpers                                                          |
+//+------------------------------------------------------------------+
+
 // Updated MergeBuffer to respect start index
 void MergeBuffers(int total, const double &src1[], const double &src2[], double &dst[], int start)
   {
@@ -181,7 +184,7 @@ void MergeBuffers(int total, const double &src1[], const double &src2[], double 
   }
 
 //+------------------------------------------------------------------+
-//| Helpers                                                          |
+//|                                                                  |
 //+------------------------------------------------------------------+
 void MergeBuffers(int total, const double &src1[], const double &src2[], double &dst[])
   {
@@ -195,7 +198,7 @@ void MergeBuffers(int total, const double &src1[], const double &src2[], double 
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Object Creation Logic                                            |
 //+------------------------------------------------------------------+
 void CreateLevelObject(datetime time_start, double price, string suffix, color clr, int limit_count)
   {
@@ -229,7 +232,7 @@ void CreateLevelObject(datetime time_start, double price, string suffix, color c
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Garbage Collection (Clears old lines to keep chart clean)        |
 //+------------------------------------------------------------------+
 void CleanOldObjects(string prefix, int max_count)
   {
