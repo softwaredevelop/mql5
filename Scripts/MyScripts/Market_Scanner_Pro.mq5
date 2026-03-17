@@ -565,7 +565,7 @@ bool RunQuantAnalysis(string sym, QuantData &data)
    double fast_atr = Calc_ATR(fast_o, fast_h, fast_l, fast_c, InpATRPeriod, idx_l3);
 
 // 1. Velocity
-   data.velocity = Calc_Velocity(fast_c, fast_atr, 3, idx_l3);
+   data.velocity = Calc_Velocity(fast_c, fast_atr, 5, idx_l3);
 
 // 2. Volume Pressure (Tick Delta Proxy)
    data.v_pressure = Calc_VPressure(fast_h, fast_l, fast_c, idx_l3); // NEW
