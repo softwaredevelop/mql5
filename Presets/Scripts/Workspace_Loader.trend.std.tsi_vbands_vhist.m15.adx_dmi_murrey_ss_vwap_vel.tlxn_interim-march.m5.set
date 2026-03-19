@@ -5,7 +5,7 @@ InpPeriod_1=15
 InpTemplate_1=MyTemplates\Strategies\trend.std.tsi_vbands_vhist.tpl
 ; Chart Configuration 2
 InpPeriod_2=5
-InpTemplate_2=MyTemplates\Strategies\trend.ha.adx_dmi_murrey_ss_vwap.tlxn_interim-march.tpl
+InpTemplate_2=MyTemplates\Strategies\trend.ha.adx_dmi_murrey_ss_vwap_vel.tlxn_interim-march.tpl
 ; Chart Configuration 3
 InpPeriod_3=0
 InpTemplate_3=
