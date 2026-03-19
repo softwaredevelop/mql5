@@ -240,7 +240,7 @@ name=VWAP
 draw=1
 style=0
 width=1
-color=17919
+color=11829830
 </graph>
 
 <graph>
@@ -248,7 +248,7 @@ name=VWAP (Segment)
 draw=1
 style=0
 width=1
-color=17919
+color=11829830
 </graph>
 <inputs>
 <unnamed>=
