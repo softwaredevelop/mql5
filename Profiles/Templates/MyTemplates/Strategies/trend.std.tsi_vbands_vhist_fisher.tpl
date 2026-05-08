@@ -304,7 +304,7 @@ InpMonthlyColor=13422920
 </window>
 
 <window>
-height=30.000000
+height=25.000000
 objects=0
 
 <indicator>
@@ -409,7 +409,7 @@ InpSignalMAType=1
 </window>
 
 <window>
-height=30.000000
+height=25.000000
 objects=0
 
 <indicator>
