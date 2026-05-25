@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           MovingAverage_Pro.mq5  |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
-#property description "Universal Moving Average (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA)."
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.30" // Optimized for incremental calculation with VWMA
+#property description "Universal Moving Average (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, VWMA)."
 #property indicator_chart_window
 #property indicator_buffers 1
 #property indicator_plots   1
@@ -44,9 +44,9 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- Dynamically set the indicator name (CORRECTED LOGIC) ---
+//--- Dynamically set the indicator name
    string ma_name = EnumToString(InpMAType);
-   StringToUpper(ma_name); // CORRECTED function name
+   StringToUpper(ma_name);
 
    string short_name = StringFormat("%s%s(%d)", ma_name, (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpPeriod);
 
@@ -66,7 +66,7 @@ void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVAL
 //| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -81,8 +81,18 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferMA);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Safe dynamic array routing to avoid local array reference compilation errors
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, BufferMA);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, tick_volume, BufferMA);
+     }
 
    return(rates_total);
   }
