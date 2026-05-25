@@ -1,9 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 2.20: Fixed EMA initialization bug on timeframe change.|
+//|      VERSION 2.45: Added VWMA support with empty-value fallback. |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.45"
+
+#ifndef MOVING_AVERAGE_ENGINE_MQH
+#define MOVING_AVERAGE_ENGINE_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -16,7 +20,8 @@ enum ENUM_MA_TYPE
    LWMA,
    TMA,
    DEMA,
-   TEMA
+   TEMA,
+   VWMA
   };
 
 //+==================================================================+
@@ -30,6 +35,7 @@ protected:
 
    //--- Persistent Buffers
    double            m_price[];
+   double            m_volume[]; // Kept for VWMA support
    double            m_temp_buffer1[];
    double            m_temp_buffer2[];
    double            m_temp_buffer3[];
@@ -37,7 +43,7 @@ protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
    void              CalculateEMA(int rates_total, int start_index, int period, const double &source[], double &dest[]);
 
-   //--- Internal Core Calculation that works on m_price
+   //--- Internal Core Calculation that works on m_price and m_volume
    //--- data_offset: The index where valid data starts in m_price
    void              RunCalculation(int rates_total, int start_index, double &output_buffer[], int data_offset = 0);
 
@@ -47,12 +53,18 @@ public:
 
    bool              Init(int period, ENUM_MA_TYPE ma_type);
 
-   //--- Standard Calculation (OHLC input)
+   //--- Standard Calculation (OHLC input - No Volume, legacy/fallback compatible)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &ma_buffer[]);
 
-   //--- Calculation on Custom Array (e.g. for smoothing other indicators)
+   //--- Overloaded Calculation with Volume (Specifically for VWMA support)
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[], double &ma_buffer[]);
+
+   //--- Calculation on Custom Array (No Volume)
    //--- src_start_index: The index where valid data starts in src_buffer (default 0)
    void              CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &output_buffer[], int src_start_index = 0);
+
+   //--- Overloaded Calculation on Custom Array with Volume
+   void              CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], const double &volume_buffer[], double &output_buffer[], int src_start_index = 0);
 
    int               GetPeriod(void) const { return m_period; }
   };
@@ -68,7 +80,7 @@ bool CMovingAverageCalculator::Init(int period, ENUM_MA_TYPE ma_type)
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Standard OHLC)                                        |
+//| Calculate (Standard OHLC - No Volume)                           |
 //+------------------------------------------------------------------+
 void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &ma_buffer[])
   {
@@ -97,11 +109,49 @@ void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, E
   }
 
 //+------------------------------------------------------------------+
-//| CalculateOnArray (Custom Input)                                  |
+//| Calculate (Overloaded OHLC - With Volume)                       |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &output_buffer[], int src_start_index = 0)
+void CMovingAverageCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[], double &ma_buffer[])
   {
-// We need at least (offset + period) bars to calculate one value
+   if(rates_total < m_period)
+      return;
+
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer1, rates_total);
+      if(m_ma_type == DEMA || m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer2, rates_total);
+      if(m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer3, rates_total);
+     }
+
+// Dynamic allocation check for volume buffer (Crucial for parameter switches)
+   if(ArraySize(m_volume) != rates_total)
+     {
+      ArrayResize(m_volume, rates_total);
+     }
+
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
+
+// Copy volumes locally with casting
+   for(int i = start_index; i < rates_total; i++)
+     {
+      m_volume[i] = (double)volume[i];
+     }
+
+   RunCalculation(rates_total, start_index, ma_buffer, 0);
+  }
+
+//+------------------------------------------------------------------+
+//| CalculateOnArray (Custom Input - No Volume)                      |
+//+------------------------------------------------------------------+
+void CMovingAverageCalculator::CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &output_buffer[], int src_start_index)
+  {
    if(rates_total < src_start_index + m_period)
       return;
 
@@ -124,6 +174,45 @@ void CMovingAverageCalculator::CalculateOnArray(int rates_total, int prev_calcul
 
    for(int i = copy_start; i < rates_total; i++)
       m_price[i] = src_buffer[i];
+
+   RunCalculation(rates_total, start_index, output_buffer, src_start_index);
+  }
+
+//+------------------------------------------------------------------+
+//| CalculateOnArray (Overloaded Custom Input - With Volume)         |
+//+------------------------------------------------------------------+
+void CMovingAverageCalculator::CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], const double &volume_buffer[], double &output_buffer[], int src_start_index)
+  {
+   if(rates_total < src_start_index + m_period)
+      return;
+
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+// Resize internal buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer1, rates_total);
+      if(m_ma_type == DEMA || m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer2, rates_total);
+      if(m_ma_type == TEMA)
+         ArrayResize(m_temp_buffer3, rates_total);
+     }
+
+   if(ArraySize(m_volume) != rates_total)
+     {
+      ArrayResize(m_volume, rates_total);
+     }
+
+// Copy source array and volume to internal buffers
+   int copy_start = MathMax(start_index, src_start_index);
+
+   for(int i = copy_start; i < rates_total; i++)
+     {
+      m_price[i] = src_buffer[i];
+      m_volume[i] = volume_buffer[i];
+     }
 
    RunCalculation(rates_total, start_index, output_buffer, src_start_index);
   }
@@ -208,13 +297,9 @@ void CMovingAverageCalculator::RunCalculation(int rates_total, int start_index, 
       break;
 
       case DEMA:
-         // DEMA/TEMA use EMA internally. We trust CalculateEMA to handle start_index correctly.
-         // However, DEMA needs 2x lag, TEMA 3x lag.
-         // CalculateEMA handles initialization if passed correct start index.
          CalculateEMA(rates_total, loop_start, m_period, m_price, m_temp_buffer1);
          CalculateEMA(rates_total, loop_start, m_period, m_temp_buffer1, m_temp_buffer2);
 
-         // Final loop
          for(int i = loop_start; i < rates_total; i++)
             output_buffer[i] = 2 * m_temp_buffer1[i] - m_temp_buffer2[i];
          break;
@@ -227,6 +312,37 @@ void CMovingAverageCalculator::RunCalculation(int rates_total, int start_index, 
          for(int i = loop_start; i < rates_total; i++)
             output_buffer[i] = 3 * m_temp_buffer1[i] - 3 * m_temp_buffer2[i] + m_temp_buffer3[i];
          break;
+
+      case VWMA:
+        {
+         // Robust empty-value fallback pattern
+         if(ArraySize(m_volume) != rates_total)
+           {
+            if(start_index == 0)
+               Print("Warning: VWMA selected but no volume data provided. Line will not be drawn.");
+
+            for(int i = loop_start; i < rates_total; i++)
+              {
+               output_buffer[i] = EMPTY_VALUE;
+              }
+           }
+         else
+           {
+            for(int i = loop_start; i < rates_total; i++)
+              {
+               double sum_pv = 0;
+               double sum_v = 0;
+               for(int j = 0; j < m_period; j++)
+                 {
+                  double v = m_volume[i-j];
+                  sum_pv += m_price[i-j] * v;
+                  sum_v  += v;
+                 }
+               output_buffer[i] = (sum_v > 0) ? (sum_pv / sum_v) : m_price[i];
+              }
+           }
+        }
+      break;
 
       default: // SMA
          for(int i = loop_start; i < rates_total; i++)
@@ -393,5 +509,6 @@ bool CMovingAverageCalculator_HA::PreparePriceSeries(int rates_total, int start_
      }
    return true;
   }
-//+------------------------------------------------------------------+
+
+#endif // MOVING_AVERAGE_ENGINE_MQH
 //+------------------------------------------------------------------+
