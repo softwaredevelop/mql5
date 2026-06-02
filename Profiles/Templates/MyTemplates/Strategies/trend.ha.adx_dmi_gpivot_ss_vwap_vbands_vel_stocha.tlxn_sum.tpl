@@ -624,7 +624,7 @@ UseCalcType=0
 ShowMedians=1
 s_Visual==== Lines and labels ===
 ContinuousLines=0
-ShowLabels=1
+ShowLabels=0
 LabelBarOffset=8
 LabelFontName=Arial
 LabelFontSize=8
