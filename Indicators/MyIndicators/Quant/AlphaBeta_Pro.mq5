@@ -4,8 +4,8 @@
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Fixed Display Logic using Unified Buffer
-#property description "Rolling Alpha (Excess Return) or Beta (Volatility)."
+#property version   "1.30" // Optimized with incremental benchmark alignment
+#property description "Rolling Alpha (Excess Return) or Beta (Volatility) aligned incrementally."
 
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -32,6 +32,9 @@ input string       InpForexBench     = "DX";       // Forex Bench
 double BufDisplay[]; // The Visible Output
 double BufColors[];  // The Color Index
 
+//--- Aligned benchmark close prices array
+double g_bench_close[];
+
 CMathStatisticsCalculator *g_stats;
 string g_bench_symbol;
 
@@ -53,7 +56,6 @@ int OnInit()
 
       PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_COLOR_HISTOGRAM);
       PlotIndexSetString(0, PLOT_LABEL, "Alpha");
-      // Levels
       IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, 0.0);
      }
    else // BETA
@@ -63,7 +65,6 @@ int OnInit()
 
       PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_COLOR_LINE);
       PlotIndexSetString(0, PLOT_LABEL, "Beta");
-      // Levels
       IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, 1.0);
      }
 
@@ -76,68 +77,86 @@ int OnInit()
    return(INIT_SUCCEEDED);
   }
 
-void OnDeinit(const int r) { if(CheckPointer(g_stats)==POINTER_DYNAMIC) delete g_stats; }
+//+------------------------------------------------------------------+
+//| Deinit                                                           |
+//+------------------------------------------------------------------+
+void OnDeinit(const int r)
+  {
+   if(CheckPointer(g_stats) == POINTER_DYNAMIC)
+      delete g_stats;
+  }
 
 //+------------------------------------------------------------------+
 //| Calculate                                                        |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
    if(rates_total < InpLookback + 5)
       return 0;
 
+//--- 1. Incremental Benchmark Price Alignment (O(1) complexity per tick)
+   ArrayResize(g_bench_close, rates_total);
+   int loop_start_sync = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+   if(loop_start_sync < 0)
+      loop_start_sync = 0;
+
+   for(int i = loop_start_sync; i < rates_total; i++)
+     {
+      int shift = iBarShift(g_bench_symbol, _Period, time[i], false);
+      if(shift >= 0)
+        {
+         g_bench_close[i] = iClose(g_bench_symbol, _Period, shift);
+        }
+      else
+        {
+         g_bench_close[i] = (i > 0) ? g_bench_close[i-1] : close[i];
+        }
+     }
+
+//--- 2. Main Stats Calculation
    int start = (prev_calculated > InpLookback) ? prev_calculated - 1 : InpLookback;
 
    for(int i = start; i < rates_total; i++)
      {
-      // 1. Fetch Local Data
+      // Extract Local Data (Optimized via lightning-fast ArrayCopy)
       double asset_sub[];
       ArrayResize(asset_sub, InpLookback);
-      for(int k=0; k<InpLookback; k++)
-         asset_sub[k] = close[i - InpLookback + 1 + k];
-
-      // 2. Fetch Bench Data
-      double bench_sub[];
-      ArrayResize(bench_sub, InpLookback);
-      bool data_ok = true;
-      for(int k=0; k<InpLookback; k++)
+      if(ArrayCopy(asset_sub, close, 0, i - InpLookback + 1, InpLookback) < InpLookback)
         {
-         datetime t = time[i - InpLookback + 1 + k];
-         int b_idx = iBarShift(g_bench_symbol, Period(), t, false);
-         if(b_idx < 0)
-           {
-            data_ok=false;
-            break;
-           }
-         double vals[1];
-         if(CopyClose(g_bench_symbol, Period(), b_idx, 1, vals)<=0)
-           {
-            data_ok=false;
-            break;
-           }
-         bench_sub[k] = vals[0];
-        }
-
-      if(!data_ok)
-        {
-         BufDisplay[i]=0;
+         BufDisplay[i] = 0.0;
          continue;
         }
 
-      // 3. Calc Returns
+      // Extract Bench Data from pre-synchronized array (No redundant file/cache access!)
+      double bench_sub[];
+      ArrayResize(bench_sub, InpLookback);
+      if(ArrayCopy(bench_sub, g_bench_close, 0, i - InpLookback + 1, InpLookback) < InpLookback)
+        {
+         BufDisplay[i] = 0.0;
+         continue;
+        }
+
+      // Calc Returns
       double asset_ret[], bench_ret[];
       g_stats.ComputeReturns(asset_sub, asset_ret);
       g_stats.ComputeReturns(bench_sub, bench_ret);
 
       double beta = g_stats.CalculateBeta(asset_ret, bench_ret);
 
-      // 4. Output Logic
+      // Output Logic
       if(InpMode == MODE_BETA)
         {
          BufDisplay[i] = beta;
-         // Color Logic for Beta Line: Gold normally, maybe Red/Green if extreme?
-         // Let's stick to Gold (Index 3 from property list)
-         BufColors[i] = 3.0;
+         BufColors[i] = 3.0; // Gold line
         }
       else // ALPHA
         {
@@ -148,12 +167,12 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
          BufDisplay[i] = alpha;
 
          if(alpha > 0)
-            BufColors[i] = 1.0;      // Lime
+            BufColors[i] = 1.0; // Lime
          else
             if(alpha < 0)
                BufColors[i] = 2.0; // Red
             else
-               BufColors[i] = 0.0;
+               BufColors[i] = 0.0; // Gray
         }
      }
 
@@ -161,11 +180,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| IsForexPair                                                      |
 //+------------------------------------------------------------------+
 bool IsForexPair(string sym)
   {
-// Safety: If symbol IS one of the benchmarks, we don't classify it as generic forex pair here
    if(sym == InpBenchmark || sym == InpForexBench)
       return false;
 
