@@ -3,16 +3,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
-#property description "Rolling Alpha & Beta (Multi-Timeframe)."
-#property description "Displays Higher Timeframe Performance vs Benchmark."
+#property version   "1.30" // Live-updating forming bar with O(1) performance
+#property description "Rolling Alpha & Beta (Multi-Timeframe) with real-time forming bar calculation."
 
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
 // Dynamic Plot Styling (Default is Histogram for Alpha)
-// Will be adjusted in OnInit based on Mode
 #property indicator_label1  "Value MTF"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
 #property indicator_color1  clrGray, clrLime, clrRed, clrGold
@@ -41,14 +39,40 @@ datetime h_asset_t[];
 // HTF Results
 double h_res[];
 
+//--- Global HTF State Tracking
+datetime g_last_htf_time  = 0;
+int      g_htf_count      = 0;
+bool     g_data_ready     = false;
+
 CMathStatisticsCalculator *g_stats;
 string g_bench_symbol;
+
+//+------------------------------------------------------------------+
+//| EnsureHTFDataReady (Robust MTF history loading helper)           |
+//+------------------------------------------------------------------+
+bool EnsureHTFDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const int required_bars)
+  {
+   ResetLastError();
+
+   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
+     {
+      SymbolSelect(symbol, true);
+     }
+
+   datetime times[];
+   int copied = CopyTime(symbol, timeframe, 0, required_bars, times);
+   return (copied >= required_bars);
+  }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   g_last_htf_time = 0;
+   g_htf_count = 0;
+   g_data_ready = false;
+
    if(InpTimeframe <= Period() && InpTimeframe != PERIOD_CURRENT)
      {
       Print("Warning: Target Timeframe should be > Current.");
@@ -87,16 +111,23 @@ int OnInit()
 
    if(_Symbol == g_bench_symbol)
      {
-      // Self-reference: Flat line
-      return INIT_SUCCEEDED;
+      return INIT_SUCCEEDED; // Self-reference: Flat line
      }
+
    if(!SymbolSelect(g_bench_symbol, true))
       return INIT_FAILED;
 
    return(INIT_SUCCEEDED);
   }
 
-void OnDeinit(const int r) { if(CheckPointer(g_stats)==POINTER_DYNAMIC) delete g_stats; }
+//+------------------------------------------------------------------+
+//| Deinit                                                           |
+//+------------------------------------------------------------------+
+void OnDeinit(const int r)
+  {
+   if(CheckPointer(g_stats) == POINTER_DYNAMIC)
+      delete g_stats;
+  }
 
 //+------------------------------------------------------------------+
 //| Calculate                                                        |
@@ -115,88 +146,156 @@ int OnCalculate(const int rates_total,
    if(_Symbol == g_bench_symbol)
       return rates_total; // Skip if self
 
-// 1. Fetch HTF Data (Asset)
-   int htf_bars = iBars(_Symbol, InpTimeframe);
-   if(htf_bars < InpLookback + 5)
-      return 0;
-
-   int count = MathMin(htf_bars, 3000);
-
-   ArraySetAsSeries(h_asset_t, false);
-   ArraySetAsSeries(h_asset_c, false);
-
-   if(CopyTime(_Symbol, InpTimeframe, 0, count, h_asset_t) != count)
-      return 0;
-   if(CopyClose(_Symbol, InpTimeframe, 0, count, h_asset_c) != count)
-      return 0;
-
-// 2. Calc on HTF
-   if(ArraySize(h_res) != count)
-      ArrayResize(h_res, count);
-
-// We skip incremental state for statistics to ensure sync accuracy on re-fetches
-// Loop through fetched HTF history
-   for(int i = InpLookback; i < count; i++)
+//--- Ensure HTF history is ready
+   int required_bars = InpLookback + 10;
+   if(!EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars) ||
+      !EnsureHTFDataReady(g_bench_symbol, InpTimeframe, required_bars))
      {
-      // A. Extract Asset Subset (Window on HTF)
-      double asset_sub[];
-      ArrayResize(asset_sub, InpLookback);
-      for(int k=0; k<InpLookback; k++)
-         asset_sub[k] = h_asset_c[i - InpLookback + 1 + k]; // Adjusted for loop
+      g_data_ready = false;
+      return 0; // Wait for next tick to let history load
+     }
 
-      // B. Extract Benchmark Subset (Sync by Time)
-      double bench_sub[];
-      ArrayResize(bench_sub, InpLookback);
-      bool data_ok = true;
+//--- 1. Check if a new HTF bar has formed
+   datetime htf_time_current = iTime(_Symbol, InpTimeframe, 0);
+   bool htf_updated = (htf_time_current != g_last_htf_time);
 
-      for(int k=0; k<InpLookback; k++)
+   if(htf_updated || prev_calculated == 0)
+     {
+      g_last_htf_time = htf_time_current;
+
+      int htf_bars = iBars(_Symbol, InpTimeframe);
+      if(htf_bars < InpLookback + 5)
         {
-         datetime t = h_asset_t[i - InpLookback + 1 + k];
-         // Search on Benchmark TF (same as Asset TF)
-         int b_idx = iBarShift(g_bench_symbol, InpTimeframe, t, false);
-
-         if(b_idx < 0)
-           {
-            data_ok=false;
-            break;
-           }
-
-         double vals[1];
-         if(CopyClose(g_bench_symbol, InpTimeframe, b_idx, 1, vals)<=0)
-           {
-            data_ok=false;
-            break;
-           }
-         bench_sub[k] = vals[0];
+         g_data_ready = false;
+         return 0;
         }
 
-      if(!data_ok)
+      g_htf_count = MathMin(htf_bars, 3000);
+
+      ArrayResize(h_asset_t, g_htf_count);
+      ArrayResize(h_asset_c, g_htf_count);
+
+      if(CopyTime(_Symbol, InpTimeframe, 0, g_htf_count, h_asset_t) != g_htf_count ||
+         CopyClose(_Symbol, InpTimeframe, 0, g_htf_count, h_asset_c) != g_htf_count)
         {
-         h_res[i] = 0;
-         continue;
+         g_data_ready = false;
+         return 0;
         }
 
-      // C. Compute
-      double asset_ret[], bench_ret[];
-      g_stats.ComputeReturns(asset_sub, asset_ret);
-      g_stats.ComputeReturns(bench_sub, bench_ret);
-      double beta = g_stats.CalculateBeta(asset_ret, bench_ret);
-
-      double val = 0;
-      if(InpMode == MODE_BETA)
+      //--- 2. High-Performance Linear Price Alignment for HTF Benchmark
+      ArrayResize(h_bench_c, g_htf_count);
+      for(int i = 0; i < g_htf_count; i++)
         {
-         val = beta;
+         int b_idx = iBarShift(g_bench_symbol, InpTimeframe, h_asset_t[i], false);
+         if(b_idx >= 0)
+           {
+            h_bench_c[i] = iClose(g_bench_symbol, InpTimeframe, b_idx);
+           }
+         else
+           {
+            h_bench_c[i] = (i > 0) ? h_bench_c[i-1] : h_asset_c[i];
+           }
+        }
+
+      //--- 3. Calculate Alpha & Beta Statistics on HTF (Closed bars only!)
+      //--- Notice the limit is 'g_htf_count - 1' (excluding the live forming bar)
+      if(ArraySize(h_res) != g_htf_count)
+         ArrayResize(h_res, g_htf_count);
+
+      for(int i = InpLookback; i < g_htf_count - 1; i++)
+        {
+         // Extract Asset Subset via fast memory copy
+         double asset_sub[];
+         ArrayResize(asset_sub, InpLookback);
+         if(ArrayCopy(asset_sub, h_asset_c, 0, i - InpLookback + 1, InpLookback) < InpLookback)
+           {
+            h_res[i] = 0.0;
+            continue;
+           }
+
+         // Extract Benchmark Subset via fast memory copy
+         double bench_sub[];
+         ArrayResize(bench_sub, InpLookback);
+         if(ArrayCopy(bench_sub, h_bench_c, 0, i - InpLookback + 1, InpLookback) < InpLookback)
+           {
+            h_res[i] = 0.0;
+            continue;
+           }
+
+         // Compute Returns
+         double asset_ret[], bench_ret[];
+         g_stats.ComputeReturns(asset_sub, asset_ret);
+         g_stats.ComputeReturns(bench_sub, bench_ret);
+         double beta = g_stats.CalculateBeta(asset_ret, bench_ret);
+
+         double val = 0.0;
+         if(InpMode == MODE_BETA)
+           {
+            val = beta;
+           }
+         else
+           {
+            double a_tot = (asset_sub[InpLookback-1] - asset_sub[0]) / asset_sub[0];
+            double b_tot = (bench_sub[InpLookback-1] - bench_sub[0]) / bench_sub[0];
+            val = g_stats.CalculateAlpha(a_tot, b_tot, beta);
+           }
+         h_res[i] = val;
+        }
+
+      g_data_ready = true;
+     }
+
+   if(!g_data_ready)
+      return 0;
+
+//--- 4. Live Update for the Current Forming HTF Bar (Index: g_htf_count - 1) on every tick!
+   int live_idx = g_htf_count - 1;
+   if(live_idx >= InpLookback)
+     {
+      // Dynamic update of current bid prices for the forming HTF bar
+      h_asset_c[live_idx] = iClose(_Symbol, InpTimeframe, 0);
+
+      int b_idx = iBarShift(g_bench_symbol, InpTimeframe, h_asset_t[live_idx], false);
+      if(b_idx >= 0)
+        {
+         h_bench_c[live_idx] = iClose(g_bench_symbol, InpTimeframe, b_idx);
         }
       else
         {
-         double a_tot = (asset_sub[InpLookback-1] - asset_sub[0]) / asset_sub[0];
-         double b_tot = (bench_sub[InpLookback-1] - bench_sub[0]) / bench_sub[0];
-         val = g_stats.CalculateAlpha(a_tot, b_tot, beta);
+         h_bench_c[live_idx] = h_asset_c[live_idx];
         }
-      h_res[i] = val;
+
+      // Perform single-bar calculation in O(1)
+      double asset_sub[];
+      ArrayResize(asset_sub, InpLookback);
+      if(ArrayCopy(asset_sub, h_asset_c, 0, live_idx - InpLookback + 1, InpLookback) == InpLookback)
+        {
+         double bench_sub[];
+         ArrayResize(bench_sub, InpLookback);
+         if(ArrayCopy(bench_sub, h_bench_c, 0, live_idx - InpLookback + 1, InpLookback) == InpLookback)
+           {
+            double asset_ret[], bench_ret[];
+            g_stats.ComputeReturns(asset_sub, asset_ret);
+            g_stats.ComputeReturns(bench_sub, bench_ret);
+            double beta = g_stats.CalculateBeta(asset_ret, bench_ret);
+
+            double val = 0.0;
+            if(InpMode == MODE_BETA)
+              {
+               val = beta;
+              }
+            else
+              {
+               double a_tot = (asset_sub[InpLookback-1] - asset_sub[0]) / asset_sub[0];
+               double b_tot = (bench_sub[InpLookback-1] - bench_sub[0]) / bench_sub[0];
+               val = g_stats.CalculateAlpha(a_tot, b_tot, beta);
+              }
+            h_res[live_idx] = val; // Store live-updated value
+           }
+        }
      }
 
-// 3. Map to Current M5 Chart
+//--- 5. Incremental Mapping of HTF results to Current Chart Timeframe (O(1) per tick)
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    for(int i = start; i < rates_total; i++)
@@ -206,8 +305,8 @@ int OnCalculate(const int rates_total,
 
       if(shift_htf >= 0)
         {
-         int idx_htf = count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < count)
+         int idx_htf = g_htf_count - 1 - shift_htf;
+         if(idx_htf >= 0 && idx_htf < g_htf_count)
            {
             double val = h_res[idx_htf];
             BufDisplay[i] = val;
@@ -223,11 +322,17 @@ int OnCalculate(const int rates_total,
                   if(val < 0)
                      BufColors[i] = 2.0; // Red
                   else
-                     BufColors[i] = 0.0;
+                     BufColors[i] = 0.0; // Gray
               }
            }
          else
+           {
             BufDisplay[i] = EMPTY_VALUE;
+           }
+        }
+      else
+        {
+         BufDisplay[i] = EMPTY_VALUE;
         }
      }
 
@@ -235,11 +340,10 @@ int OnCalculate(const int rates_total,
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| IsForexPair                                                      |
 //+------------------------------------------------------------------+
 bool IsForexPair(string sym)
   {
-// Safety: If symbol IS one of the benchmarks, we don't classify it as generic forex pair here
    if(sym == InpBenchmark || sym == InpForexBench)
       return false;
 
