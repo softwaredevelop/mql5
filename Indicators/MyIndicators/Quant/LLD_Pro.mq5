@@ -3,8 +3,8 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.50" // High-precision bar alignment via iClose and clean labels
-#property description "Lead-Lag Dominance Index (LLDI) with minimalist status display"
+#property version   "1.60" // Added real-time tick-by-tick calculations
+#property description "Lead-Lag Dominance Index (LLDI) with live-updating tick engines"
 #property indicator_separate_window
 #property indicator_buffers 3
 #property indicator_plots   2
@@ -69,9 +69,9 @@ bool EnsureDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const
 
 //+------------------------------------------------------------------+
 //| UpdateStatusLabel                                                |
-//| Minimalist status label rendering - Only showing active REGIME   |
+//| Renders an institutional colored text summary with live precision|
 //+------------------------------------------------------------------+
-void UpdateStatusLabel(int subwindow, double last_lldi)
+void UpdateStatusLabel(int subwindow, double last_lldi, double last_lag)
   {
    string name = g_obj_prefix + "Status";
 
@@ -88,20 +88,26 @@ void UpdateStatusLabel(int subwindow, double last_lldi)
    string dominance_text = "";
    color text_color = clrGray;
 
+//--- Convert double values to strings first (guarantees 100% stable MT5 output)
+   string str_lag = DoubleToString(MathAbs(last_lag), 0);
+   string str_strength = DoubleToString(MathAbs(last_lldi), 4);
+
    if(last_lldi > 0.02)
      {
-      dominance_text = StringFormat("REGIME: %s LEADS %s", InpSecondSymbol, _Symbol);
+      dominance_text = StringFormat("REGIME: %s LEADS %s | Lead Time: %s bars | Strength: %s",
+                                    InpSecondSymbol, _Symbol, str_lag, str_strength);
       text_color = clrDodgerBlue;
      }
    else
       if(last_lldi < -0.02)
         {
-         dominance_text = StringFormat("REGIME: %s LEADS %s", _Symbol, InpSecondSymbol);
+         dominance_text = StringFormat("REGIME: %s LEADS %s | Lead Time: %s bars | Strength: %s",
+                                       _Symbol, InpSecondSymbol, str_lag, str_strength);
          text_color = clrCrimson;
         }
       else
         {
-         dominance_text = "REGIME: SYMMETRICAL / CO-DEPENDENT";
+         dominance_text = StringFormat("REGIME: SYMMETRICAL / CO-DEPENDENT | Difference: %s", str_strength);
          text_color = clrGray;
         }
 
@@ -193,7 +199,6 @@ int OnCalculate(const int rates_total,
    g_data_synced = true;
 
 //--- 1. Bulletproof iClose & iBarShift Time Synchronization Loop
-//--- Works dynamically on all timeframes, 100% immune to history gaps.
    ArrayResize(g_close_B, rates_total);
 
    int loop_start = (prev_calculated == 0) ? 0 : prev_calculated - 1;
@@ -202,7 +207,6 @@ int OnCalculate(const int rates_total,
 
    for(int i = loop_start; i < rates_total; i++)
      {
-      //--- exact = false dynamically maps SUIUSD bar time to nearest past BTCUSD bar
       int shift = iBarShift(InpSecondSymbol, _Period, time[i], false);
       if(shift >= 0)
         {
@@ -214,8 +218,11 @@ int OnCalculate(const int rates_total,
         }
      }
 
-//--- 2. Run mathematical engine calculations
-   if(!g_calculator.CalculateDominance(rates_total, prev_calculated, close, g_close_B, BufferLLDI, BufferLag))
+//--- 2. Fix: Force incremental update on the current live bar on every single tick
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+//--- Run mathematical engine calculations
+   if(!g_calculator.CalculateDominance(rates_total, start_index, close, g_close_B, BufferLLDI, BufferLag))
      {
       return 0;
      }
@@ -241,11 +248,11 @@ int OnCalculate(const int rates_total,
            }
      }
 
-//--- 4. Update simplified status label (No decimals, 100% bug-free)
+//--- 4. Update status label with precise real-time values
    int subwindow = ChartWindowFind();
    if(subwindow >= 0 && rates_total > 0)
      {
-      UpdateStatusLabel(subwindow, BufferLLDI[rates_total - 1]);
+      UpdateStatusLabel(subwindow, BufferLLDI[rates_total - 1], BufferLag[rates_total - 1]);
      }
 
    return(rates_total);
@@ -263,7 +270,7 @@ void OnTimer()
       if(EnsureDataReady(InpSecondSymbol, _Period, required_bars))
         {
          g_data_synced = true;
-         ChartRedraw(); // Force MT5 to invoke OnCalculate on the weekend
+         ChartRedraw(); // Force MT5 to invoke OnCalculate
         }
      }
   }
