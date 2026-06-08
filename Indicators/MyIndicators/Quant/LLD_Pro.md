@@ -2,14 +2,14 @@
 
 ## 1. Summary (Introduction)
 
-The `LLD_Pro` (Lead-Lag Dominance Index) is a high-performance quantitative trading tool designed to detect and measure the lead-lag relationships between any two financial instruments in real-time. In financial markets, information does not flow instantaneously to all assets. Highly liquid market-representative instruments (such as indices like DXY or majors like BTCUSD) often react to macroeconomic and sentiment shifts seconds or minutes before secondary correlated assets (like EURUSD or altcoins like SUIUSD, ETHUSD) follow suit.
+The `LLD_Pro` (Lead-Lag Dominance Index) is an institutional-grade, high-frequency quantitative tool designed to detect and measure the lead-lag relationships between any two financial instruments in real-time. In financial markets, information does not flow instantaneously to all assets. Highly liquid market-representative instruments (such as indices like DXY or major assets like BTCUSD) often react to macroeconomic and sentiment shifts seconds or minutes before secondary correlated assets (like EURUSD, or altcoins like SUIUSD and ETHUSD) follow suit.
 
 By measuring the mathematical lead-lag relationship, `LLD_Pro` solves two of the most critical questions in cross-asset trading:
 
 1. **Who is driving the current market regime?** (Which asset is leading and which is trailing?)
 2. **What is the current execution window?** (By how many bars does the leader anticipate the follower?)
 
-The indicator features a highly optimized mathematical engine, a minimalist dynamic separate-window status label, and a bulletproof, gap-resistant bar-time synchronization module.
+The indicator features a highly optimized $O(1)$ real-time mathematical engine, a high-precision 4-decimal status panel, and a bulletproof, gap-resistant bar-time synchronization module.
 
 ## 2. Mathematical Foundations and Calculation Logic
 
@@ -55,18 +55,14 @@ The **Optimal Lag** represents the exact shift $L$ (expressed in bars) at which 
 * **Decoupled Architecture:**
   The mathematical logic is kept completely separate in `LLD_Calculator.mqh` (encapsulated in `CLeadLagDominanceCalculator`), while the visual representation, buffers, and object drawing are handled by the lightweight `LLD_Pro.mq5` wrapper.
 
-* **Bulletproof O(1) Bar-Time Synchronization:**
-  Financial instruments do not always have perfectly synchronized historical bar counts due to low liquidity periods, server restarts, or weekend gaps.
-  `LLD_Pro` employs a high-performance $O(1)$ synchronization loop that maps and aligns the prices of Symbol B directly to the timestamp of Symbol A's bars using the native `iBarShift(..., false)` and `iClose` combination. It guarantees perfect chronological alignment on any timeframe without complex array resizing.
+* **Real-Time $O(1)$ Tick-by-Tick Engine:**
+  In standard MT5 implementations, indicators are calculated once per bar, making real-time readings static inside the current candle. `LLD_Pro` solves this by modifying the incremental `start_index` passed to the calculator. Instead of using `prev_calculated` directly, it passes `prev_calculated - 1`. This forces the calculator to recalculate the returns and correlation metrics for the **current forming bar** (index `rates_total - 1`) on **every single tick**, maintaining high performance ($O(1)$) while ensuring the visual display and label are dynamically updating in real-time.
+
+* **Bulletproof Bar-Time Synchronization:**
+  `LLD_Pro` employs a high-performance alignment loop that maps and aligns the prices of Symbol B directly to the timestamp of Symbol A's bars using the native `iBarShift(..., false)` and `iClose` combination. It guarantees perfect chronological alignment on any timeframe and resolves data-gap blankness.
 
 * **Timer-Driven Weekend Refresh:**
-  Asynchronous loading of historical data on weekends often causes standard indicators to get stuck on blank screens. `LLD_Pro` registers a 1-second system timer (`OnTimer`). If data synchronization fails initially, the timer continuously checks for data availability and triggers a `ChartRedraw()` once loaded, ensuring the indicator renders even during weekends when ticks are absent.
-
-* **Minimalist Status Label:**
-  To maintain a clean and professional workspace, all numeric outputs are designed to be read directly from the indicator separate window header or the MT5 Data Window. The status label is strictly dedicated to displaying the active regime in a dynamically colored format:
-  * **REGIME: [B] LEADS [A]** (DodgerBlue)
-  * **REGIME: [A] LEADS [B]** (Crimson)
-  * **REGIME: SYMMETRICAL / CO-DEPENDENT** (Gray)
+  Asynchronous loading of historical data on weekends often causes standard indicators to get stuck on blank screens. `LLD_Pro` registers a 1-second system timer (`OnTimer`). If data synchronization fails initially, the timer continuously checks for data availability and triggers a `ChartRedraw()` once loaded.
 
 ## 4. Parameters
 
@@ -85,26 +81,19 @@ The physical lag time is absolute, but its representation in bars depends on the
 * On the **M15** chart, the lag is represented as **1 bar** (`Optimal Lag = 1`).
 * On the **H1** chart, the delay is too small to be represented as a phase shift. The indicator will show a **Symmetrical / Gray** regime (`Optimal Lag = 0`) because the sub-bar offset is compressed inside a single 1-hour candle.
 
-*Rule:* To trade short physical delays, use lower timeframes (M1 to M15).
+### B. The Contemporaneous Lockstep Phenomenon (Symmetry vs. Lead-Lag)
 
-### B. Multi-Timeframe (MTF) Top-Down Strategy
+A significant quantitative insight occurs when pairing highly cointegrated assets within the same asset class (e.g. **BTCUSD vs. ETHUSD** or **BTCUSD vs. SUIUSD**):
+
+* Since major cryptocurrencies are highly integrated, their real-time correlations occur almost entirely at lag $k = 0$ (Contemporaneous Correlation).
+* At shifted lags ($k \ge 1$), the predictive power of BTCUSD over ETHUSD is roughly equivalent to the predictive power of ETHUSD over BTCUSD ($\text{Peak}_{B \rightarrow A} \approx \text{Peak}_{A \rightarrow B}$).
+* This mathematically yields $\text{LLDI} \approx 0.00000$ (Symmetrical/Gray). This flat reading is not a bug; it is a **mathematical proof of instantaneous market integration**.
+* Conversely, when pairing uncorrelated or macro-driven assets (e.g. **DXY vs. BTCUSD**), clear asymmetric lead-lag relationships appear, producing non-zero, beautifully colored LLDI values with 5-decimal precision.
+
+### C. Multi-Timeframe (MTF) Top-Down Strategy
 
 To achieve high-probability execution, traders should apply a structured top-down filter across three timeframes:
 
-1. **The Compass (H1 Timeframe):**
-   * *Objective:* Determine the dominant intraday regime.
-   * *Action:* Ensure that the H1 LLDI is strongly Blue (BTCUSD leads) or Red (SUIUSD leads). If H1 is Gray (Symmetrical), avoid lead-lag trading on lower timeframes as the macro-structure is disconnected.
-
-2. **The Sniper Scope (M15 Timeframe):**
-   * *Objective:* Identify lag arbitrage opportunities.
-   * *Action:* Once the macro regime is confirmed (e.g., BTCUSD leads on H1), look at the M15 Optimal Lag (e.g., `Optimal Lag = 2` means a 30-minute delay). If BTCUSD breaks a key level on M15 but SUIUSD is lagging behind, you have a validated ~30-minute execution window.
-
-3. **The Trigger (M5 Timeframe):**
-   * *Objective:* Find the precise entry moment.
-   * *Action:* Drop down to the M5 chart. Wait for the M5 LLDI to quickly spike into DodgerBlue. This confirms that the 30-minute lag identified on M15 is starting to resolve on the micro-level, indicating the perfect entry point.
-
-### C. The Weekend Symmetrical/Zero-Height Phenomenon
-
-During weekends, some brokers suspend or restrict quoting on major crypto pairs like BTCUSD while allowing altcoins like SUIUSD to tick actively.
-Because BTCUSD represents a flat horizontal price line, its returns are `0.0`, resulting in a variance of `0.0`. Consequently, all Pearson correlation calculations return `0.0`, and the LLDI drops to exactly `0.0000`.
-Since histogram bars with a height of `0.0` have no pixels, the rightmost part of the indicator separate window will appear completely blank (empty) during these weekend periods. On weekdays, once both markets are active, the gap will completely disappear, and the histogram will draw fully.
+1. **The Compass (H1 Timeframe):** Verify if the H1 LLDI is strongly Blue (Second symbol leads) or Red (Chart symbol leads) to identify the major intraday driver.
+2. **The Sniper Scope (M15 Timeframe):** Once the macro direction is confirmed, look at the M15 Optimal Lag to determine the delay window (e.g. `Optimal Lag = 3` = 45 minutes).
+3. **The Trigger (M5 Timeframe):** Drop down to the M5 chart. Wait for the M5 LLDI to quickly spike into the dominant color, signaling that the lag is beginning to resolve on the micro-level.
