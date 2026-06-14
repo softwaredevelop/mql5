@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                         WeisWave_Calculator.mqh  |
-//|      Engine for Non-Repainting Weis Wave Volume (Wyckoff Supply) |
+//|      Engine for Non-Repainting Weis Wave Volume with SOT.        |
 //|      Strictly O(1) Incremental Optimized.                        |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Integrated retroactive SOT wave coloring
 
 #ifndef WEISWAVE_CALCULATOR_MQH
 #define WEISWAVE_CALCULATOR_MQH
@@ -24,8 +24,10 @@ private:
    double            m_wave_vol[];
    double            m_peak_high[];
    double            m_peak_low[];
+   double            m_wave_len[]; // Tracks vertical height of each bar's wave
 
    double            GetATR(int i, const double &high[], const double &low[], const double &close[]);
+   bool              GetLastCompletedLengths(int current_idx, int target_dir, double &out_lens[]);
 
 public:
                      CWeisWaveCalculator();
@@ -34,7 +36,7 @@ public:
    bool              Init(int atr_period, double multiplier);
    void              Calculate(int rates_total, int prev_calculated,
                                const double &high[], const double &low[], const double &close[], const long &volume[],
-                               double &out_wave_vol[], double &out_colors[]);
+                               double &out_wave_vol[], double &out_colors[], bool show_sot=true);
   };
 
 //+------------------------------------------------------------------+
@@ -57,9 +59,9 @@ bool CWeisWaveCalculator::Init(int atr_period, double multiplier)
 //+------------------------------------------------------------------+
 void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
                                     const double &high[], const double &low[], const double &close[], const long &volume[],
-                                    double &out_wave_vol[], double &out_colors[])
+                                    double &out_wave_vol[], double &out_colors[], bool show_sot)
   {
-   if(rates_total < m_atr_period + 5)
+   if(rates_total < m_atr_period + 10)
       return;
 
 //--- Sync state arrays with rates_total
@@ -69,6 +71,7 @@ void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
       ArrayResize(m_wave_vol, rates_total);
       ArrayResize(m_peak_high, rates_total);
       ArrayResize(m_peak_low, rates_total);
+      ArrayResize(m_wave_len, rates_total);
      }
 
    int start = (prev_calculated == 0) ? 0 : prev_calculated - 1;
@@ -80,6 +83,7 @@ void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
       m_wave_vol[0]  = (double)volume[0];
       m_peak_high[0] = high[0];
       m_peak_low[0]  = low[0];
+      m_wave_len[0]  = high[0] - low[0];
 
       out_wave_vol[0] = m_wave_vol[0];
       out_colors[0]   = 0.0;
@@ -89,7 +93,6 @@ void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
 //--- Stateful main loop
    for(int i = start; i < rates_total; i++)
      {
-      // Read preceding state to avoid historical calculations
       int prev_dir    = m_direction[i-1];
       double prev_vol = m_wave_vol[i-1];
       double prev_hi  = m_peak_high[i-1];
@@ -107,6 +110,11 @@ void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
         {
          m_wave_vol[i]  = prev_vol + (double)volume[i];
          m_peak_high[i] = MathMax(prev_hi, high[i]);
+         m_wave_len[i]  = m_peak_high[i] - prev_lo; // Running wave height in points
+
+         // Default visual outputs
+         out_wave_vol[i] = m_wave_vol[i];
+         out_colors[i]   = 0.0; // Index 0: DodgerBlue (Normal Up)
 
          // Check if price fell below the peak minus ATR threshold (REVERSAL to Down Swing)
          if(close[i] < m_peak_high[i] - threshold)
@@ -114,12 +122,41 @@ void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
             m_direction[i] = -1;
             m_wave_vol[i]  = (double)volume[i]; // Reset volume for the new wave
             m_peak_low[i]  = low[i];
+            m_wave_len[i]  = m_peak_high[i] - m_peak_low[i];
+
+            out_wave_vol[i] = -m_wave_vol[i];
+            out_colors[i]   = 1.0; // Index 1: Crimson (Normal Down)
+
+            //--- SOT Check: If show_sot is enabled, verify the completed Up wave (at index i-1)
+            if(show_sot)
+              {
+               double h_lens[3];
+               if(GetLastCompletedLengths(i - 1, 1, h_lens))
+                 {
+                  if(h_lens[0] < h_lens[1] && h_lens[1] < h_lens[2])
+                    {
+                     // Retroactively color the entire completed Up wave to Index 2 (Orange)
+                     for(int k = i - 1; k >= 0; k--)
+                       {
+                        if(m_direction[k] == 1)
+                           out_colors[k] = 2.0; // SOT Up Wave Color
+                        else
+                           break;
+                       }
+                    }
+                 }
+              }
            }
         }
       else // Active DOWN Swing
         {
          m_wave_vol[i] = prev_vol + (double)volume[i];
          m_peak_low[i] = MathMin(prev_lo, low[i]);
+         m_wave_len[i] = prev_hi - m_peak_low[i]; // Running wave height in points
+
+         // Default visual outputs
+         out_wave_vol[i] = -m_wave_vol[i];
+         out_colors[i]   = 1.0; // Index 1: Crimson (Normal Down)
 
          // Check if price rose above the trough plus ATR threshold (REVERSAL to Up Swing)
          if(close[i] > m_peak_low[i] + threshold)
@@ -127,21 +164,64 @@ void CWeisWaveCalculator::Calculate(int rates_total, int prev_calculated,
             m_direction[i] = 1;
             m_wave_vol[i]  = (double)volume[i]; // Reset volume for the new wave
             m_peak_high[i] = high[i];
+            m_wave_len[i]  = m_peak_high[i] - m_peak_low[i];
+
+            out_wave_vol[i] = m_wave_vol[i];
+            out_colors[i]   = 0.0; // Index 0: DodgerBlue (Normal Up)
+
+            //--- SOT Check: If show_sot is enabled, verify the completed Down wave (at index i-1)
+            if(show_sot)
+              {
+               double l_lens[3];
+               if(GetLastCompletedLengths(i - 1, -1, l_lens))
+                 {
+                  if(l_lens[0] < l_lens[1] && l_lens[1] < l_lens[2])
+                    {
+                     // Retroactively color the entire completed Down wave to Index 3 (Fuchsia)
+                     for(int k = i - 1; k >= 0; k--)
+                       {
+                        if(m_direction[k] == -1)
+                           out_colors[k] = 3.0; // SOT Down Wave Color
+                        else
+                           break;
+                       }
+                    }
+                 }
+              }
            }
         }
+     }
+  }
 
-      //--- Map states directly to visual indicator buffers
-      if(m_direction[i] == 1)
+//+------------------------------------------------------------------+
+//| GetLastCompletedLengths (Historical state backward-search)        |
+//+------------------------------------------------------------------+
+bool CWeisWaveCalculator::GetLastCompletedLengths(int current_idx, int target_dir, double &out_lens[])
+  {
+   int found = 0;
+   bool in_target_wave = false;
+   ArrayInitialize(out_lens, 0.0);
+
+   for(int j = current_idx; j >= 0; j--)
+     {
+      int dir = m_direction[j];
+      if(dir == target_dir)
         {
-         out_wave_vol[i] = m_wave_vol[i]; // Up swing volume is plotted positive
-         out_colors[i]   = 0.0;           // Index 0: DodgerBlue / Lime
+         if(!in_target_wave)
+           {
+            in_target_wave = true;
+            out_lens[found] = m_wave_len[j]; // Capture locked final wave height
+            found++;
+            if(found >= 3)
+               return true;
+           }
         }
       else
         {
-         out_wave_vol[i] = -m_wave_vol[i]; // Down swing volume is plotted negative
-         out_colors[i]   = 1.0;            // Index 1: Crimson / Coral
+         in_target_wave = false;
         }
      }
+   return (found >= 3);
   }
 
 //+------------------------------------------------------------------+
