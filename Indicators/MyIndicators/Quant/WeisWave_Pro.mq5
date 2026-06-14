@@ -3,25 +3,31 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Non-repainting, state-preservation, O(1) optimized
+#property version   "1.10" // Upgraded with 4-color integrated SOT highlighting
 #property description "Professional Weis Wave Volume (Wyckoff Supply vs Demand)."
-#property description "Tracks cumulative volume along trend waves. Non-repainting."
+#property description "Tracks cumulative volume and highlights SOT waves in Orange/Fuchsia."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- Plot: Color Histogram
+//--- Plot: Color Histogram (Upgraded with SOT colors)
 #property indicator_label1  "Wave Volume"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-#property indicator_color1  clrDodgerBlue, clrCrimson // Index 0: Demand (Up), Index 1: Supply (Down)
+// Palette:
+// 0: DodgerBlue (Normal Demand / Up)
+// 1: Crimson    (Normal Supply / Down)
+// 2: Orange     (Exhausted Demand / Bearish SOT)
+// 3: Magenta    (Exhausted Supply / Bullish SOT)
+#property indicator_color1  clrDodgerBlue, clrCrimson, clrOrange, clrFuchsia
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  3
 
 #include <MyIncludes\WeisWave_Calculator.mqh>
 
 //--- Input Parameters
-input int    InpATRPeriod = 14;  // ATR Sensitivity Period
-input double InpMultiplier = 2.5; // Wave Reversal Multiplier (ATR)
+input int    InpATRPeriod = 14;   // ATR Sensitivity Period
+input double InpMultiplier = 2.5;  // Wave Reversal Multiplier (ATR)
+input bool   InpShowSOT   = true; // Highlight SOT (Momentum Exhaustion) waves?
 
 //--- Buffers
 double ExtWaveVolBuffer[];
@@ -41,7 +47,8 @@ int OnInit()
    ArraySetAsSeries(ExtWaveVolBuffer, false);
    ArraySetAsSeries(ExtColorsBuffer, false);
 
-   string short_name = StringFormat("Weis Wave Volume Pro(%d, %.1f)", InpATRPeriod, InpMultiplier);
+   string short_name = StringFormat("Weis Wave Volume Pro(%d, %.1f, SOT:%s)",
+                                    InpATRPeriod, InpMultiplier, (InpShowSOT ? "ON" : "OFF"));
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
    IndicatorSetInteger(INDICATOR_DIGITS, 0);
 
@@ -78,20 +85,20 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < InpATRPeriod + 5)
+   if(rates_total < InpATRPeriod + 10)
       return 0;
 
 //--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
    long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
 
-//--- Safe dynamic array routing
+//--- Safe dynamic array routing with integrated SOT flag
    if(volume_limit > 0)
      {
-      g_calc.Calculate(rates_total, prev_calculated, high, low, close, volume, ExtWaveVolBuffer, ExtColorsBuffer);
+      g_calc.Calculate(rates_total, prev_calculated, high, low, close, volume, ExtWaveVolBuffer, ExtColorsBuffer, InpShowSOT);
      }
    else
      {
-      g_calc.Calculate(rates_total, prev_calculated, high, low, close, tick_volume, ExtWaveVolBuffer, ExtColorsBuffer);
+      g_calc.Calculate(rates_total, prev_calculated, high, low, close, tick_volume, ExtWaveVolBuffer, ExtColorsBuffer, InpShowSOT);
      }
 
    return(rates_total);
