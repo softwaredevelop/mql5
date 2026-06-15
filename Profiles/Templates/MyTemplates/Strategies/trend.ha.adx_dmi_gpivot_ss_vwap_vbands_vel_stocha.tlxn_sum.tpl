@@ -963,9 +963,9 @@ InpOscType=0
 InpDMIPeriod=13
 InpFastKPeriod=13
 InpSlowKPeriod=3
-InpStochMethod=0
+InpStochMethod=4
 InpSmoothPeriod=3
-InpSignalMethod=0
+InpSignalMethod=4
 </inputs>
 </indicator>
 </window>
@@ -1122,9 +1122,9 @@ InpMinStochPeriod=5
 InpMaxStochPeriod=34
 Stochastic & Price Settings=
 InpSlowingPeriod=3
-InpSlowingMAType=0
+InpSlowingMAType=4
 InpDPeriod=3
-InpDMAType=0
+InpDMAType=4
 InpSourcePrice=1
 </inputs>
 </indicator>
