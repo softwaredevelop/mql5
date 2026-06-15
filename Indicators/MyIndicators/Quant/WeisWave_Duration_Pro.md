@@ -4,13 +4,15 @@
 
 The **Weis Wave Duration Pro** is an institutional-grade, high-performance separate window oscillator based on Richard Wyckoff's third law—**The Law of Effort versus Result**—and David Weis's wave mechanics.
 
-While standard indicators dissect price charts into artificial, equal-time intervals (such as 15-minute or 1-hour chunks), price action naturally unfolds in **waves of varying duration**. As David Weis emphasized, true market analysis requires the study of three critical dimensions:
+While traditional indicators dissect price charts into artificial, equal-time intervals (such as 15-minute or 1-hour chunks), price action naturally unfolds in **waves of varying duration**. As David Weis emphasized, true market analysis requires the study of three critical dimensions:
 
 1. **Wave Length** (Price progress)
 2. **Wave Volume** (Transactional force)
 3. **Wave Duration** (Time spent in bars)
 
-`WeisWave_Duration_Pro` tracks the **Duration (bar count)** of each completed wave using a highly optimized, stateful non-repainting calculation engine. It plots cumulative wave duration as a clean, dynamically colored separate-window histogram, enabling traders to identify institutional absorption, momentum velocity, and trend exhaustion.
+`WeisWave_Duration_Pro` tracks the **Duration (bar count)** of each completed wave using a highly optimized, stateful non-repainting calculation engine.
+
+In this upgraded version, the indicator integrates a revolutionary **Temporal Shortening of the Thrust (SOT-Duration) Highlight Layer**. It dynamically measures the duration of consecutive waves in real-time. If three consecutive waves show a progressive loss of duration, the state machine retroactively re-colors the entire completed wave on the histogram in a distinct color, delivering a highly intuitive "Time & Momentum Heatmap" in a single separate subwindow.
 
 ---
 
@@ -28,8 +30,8 @@ When a reversal is triggered, the duration resets to $1$ for the new opposite wa
 
 $$\text{Duration}_t = 1 \quad \text{for } D_t \ne D_{t-1}$$
 
-* **Up Wave Duration (DodgerBlue Histogram > 0):** Plotted as a positive value ($+\text{Duration}_t$).
-* **Down Wave Duration (Crimson Histogram < 0):** Plotted as a negative value ($-\text{Duration}_t$).
+* **Up Wave Duration (Histogram > 0):** Plotted as a positive value ($+\text{Duration}_t$).
+* **Down Wave Duration (Histogram < 0):** Plotted as a negative value ($-\text{Duration}_t$).
 
 Because the increment is strictly linear ($1, 2, 3, \dots, N$), the top boundary of each wave histogram forms a **perfectly straight, linear diagonal slope (45-degree angle)**. This creates clean, regular geometric right triangles on the chart, which serves as the baseline of market time.
 
@@ -44,6 +46,15 @@ $$\text{Threshold}_t = M \times \text{ATR}_t$$
 * **Down Swing to Up Swing Reversal:**
   $$C_t > \min(L_{\text{wave}}) + \text{Threshold}_t$$
 
+### C. Sequential Temporal SOT Detection
+
+An SOT signal is triggered when a sequence of three consecutive completed waves in the same direction shows a continuous, progressive decrease in wave duration (bar count):
+
+$$\text{Duration}_{\text{Current}} < \text{Duration}_{\text{Previous}} < \text{Duration}_{\text{Before-Previous}}$$
+
+* **Exhausted Up Duration (Orange Histogram > 0):** Bearish SOT detected. Buyers are losing their time advantage.
+* **Exhausted Down Duration (Fuchsia Histogram < 0):** Bullish SOT detected. Sellers are losing their time advantage.
+
 ---
 
 ## 3. MQL5 UI & Architecture
@@ -51,14 +62,14 @@ $$\text{Threshold}_t = M \times \text{ATR}_t$$
 * **Decoupled Math Engine (`WeisWave_Duration_Calculator.mqh`):**
   All wave duration accumulation and state-tracking are encapsulated inside the highly optimized `CWeisWaveDurationCalculator` include class.
 
+* **Retroactive Wave Coloring Algorithm:**
+  When a wave reversal occurs, if `InpShowSOT` is enabled, the calculator runs a backward-search pass (`GetLastCompletedDurations`) through locked historical state arrays. If a temporal SOT is verified, the calculator instantly loops backwards and changes the color index of the entire completed wave from standard colors to Orange (Bearish SOT) or Fuchsia (Bullish SOT). This visual update runs strictly in $O(1)$ time, maintaining ultra-low CPU latency.
+
 * **Strict $O(1)$ Real-Time Tick Optimization:**
   The calculator uses the platform's `prev_calculated` parameter to process only the newest incoming bar on every tick. Instead of running historical loops over thousands of bars, the calculator **recomputes only the current live bar** (index `rates_total - 1`), keeping CPU overhead at absolute zero.
 
 * **100% Non-Repainting and EA-Compatible:**
   Standard Zigzag-based indicators repaint the history as new price extremes are made, making them useless for backtesting. `WeisWave_Duration_Pro` locks all wave duration states into historical arrays once a bar closes, ensuring that past waves are permanently frozen and 100% reliable for automated Expert Advisors (EAs).
-
-* **High-Performance MT5 Price Copying:**
-  To guarantee compatibility across all MT5 terminals and Strategy Tester builds, the indicator uses native 1-bar price copying routines (`CopyHigh`, `CopyLow`, `CopyClose`), completely avoiding outdated MQL4-style functions.
 
 ---
 
@@ -66,6 +77,7 @@ $$\text{Threshold}_t = M \times \text{ATR}_t$$
 
 * **ATR Period (`InpATRPeriod`):** The lookback period used to calculate the dynamic Average True Range (Default: `14` bars).
 * **Multiplier (`InpMultiplier`):** The number of ATRs required to trigger a wave reversal (Default: `2.5`). Lower values (e.g. `2.0` on M3) capture micro-swings; higher values (e.g. `3.0` on H1) filter out intraday consolidations.
+* **Show SOT (`InpShowSOT`):** Toggle to highlight SOT (Momentum Exhaustion) waves in Orange/Fuchsia directly on the duration histogram.
 
 ---
 
@@ -85,7 +97,7 @@ Comparing the geometric shapes of `WeisWave_Pro` (Volume) and `WeisWave_Duration
 * **Interpretation:** Time is passing and effort is being exerted, but the price cannot make upward or downward progress. This represents **Institutional Absorption** (the "Composite Man" is using passive limit orders to absorb all market orders, putting a lid on the price).
 * **Action:** This indicates a massive coiling of market energy. Prepare for a violent breakout in the opposite direction once the absorption phase is complete.
 
-### C. Testing Springs and Upthrusts
+### C. Temporal SOT Reversal (Orange/Fuchsia Waves)
 
-* **Spring Test:** During a bearish breakout below support, if the downward wave duration is short and the volume is low, it is a valid "Spring" (No Supply) [1]. Go **Long** once the price closes back inside the range.
-* **Upthrust Test:** During a bullish breakout above resistance, if the upward wave duration is short and the volume is low, it is a valid "Upthrust" (No Demand) [1]. Go **Short** once the price closes back inside the range.
+* **Bullish Setup:** Monitor a falling market. If the active Crimson wave (Supply) turns **Fuchsia** (Bullish SOT), it proves that sellers are losing their time advantage (exhausting in time). The eladói nyomás kifáradt, and a fast upward reversal is imminent.
+* **Bearish Setup:** Monitor a rising market. If the active DodgerBlue wave (Demand) turns **Orange** (Bearish SOT), it proves that buyers are losing their time advantage. Prepare for a downward reversal.
