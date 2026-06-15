@@ -3,25 +3,31 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.10" // Enhanced with exact subwindow value tracking
+#property version   "1.10" // Upgraded with 4-color integrated SOT-duration highlighting
 #property description "Professional Weis Wave Duration (Wyckoff Wave Time / Bar Count)."
-#property description "Tracks cumulative bar duration along trend waves. Non-repainting."
+#property description "Tracks cumulative bar duration and highlights SOT waves in Orange/Fuchsia."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- Plot: Color Histogram
+//--- Plot: Color Histogram (Upgraded with SOT colors)
 #property indicator_label1  "Wave Duration"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-#property indicator_color1  clrDodgerBlue, clrCrimson // Index 0: Up Swing, Index 1: Down Swing
+// Palette:
+// 0: DodgerBlue (Normal Up Duration)
+// 1: Crimson    (Normal Down Duration)
+// 2: Orange     (Exhausted Up Duration / Bearish SOT)
+// 3: Magenta    (Exhausted Down Duration / Bullish SOT)
+#property indicator_color1  clrDodgerBlue, clrCrimson, clrOrange, clrFuchsia
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  3
 
 #include <MyIncludes\WeisWave_Duration_Calculator.mqh>
 
 //--- Input Parameters
-input int    InpATRPeriod = 14;   // ATR Sensitivity Period
+input int    InpATRPeriod  = 14;   // ATR Sensitivity Period
 input double InpMultiplier = 2.5;  // Wave Reversal Multiplier (ATR)
+input bool   InpShowSOT    = true; // Highlight SOT (Momentum Exhaustion) waves?
 
 //--- Buffers
 double ExtWaveDurBuffer[];
@@ -41,7 +47,8 @@ int OnInit()
    ArraySetAsSeries(ExtWaveDurBuffer, false);
    ArraySetAsSeries(ExtColorsBuffer, false);
 
-   string short_name = StringFormat("Weis Wave Duration Pro(%d, %.1f)", InpATRPeriod, InpMultiplier);
+   string short_name = StringFormat("Weis Wave Duration Pro(%d, %.1f, SOT:%s)",
+                                    InpATRPeriod, InpMultiplier, (InpShowSOT ? "ON" : "OFF"));
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
    IndicatorSetInteger(INDICATOR_DIGITS, 0);
 
@@ -87,8 +94,8 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(low, false);
    ArraySetAsSeries(close, false);
 
-//--- Run the State Machine Engine
-   g_calc.Calculate(rates_total, prev_calculated, high, low, close, ExtWaveDurBuffer, ExtColorsBuffer);
+//--- Run the State Machine Engine with SOT highlighting toggle
+   g_calc.Calculate(rates_total, prev_calculated, high, low, close, ExtWaveDurBuffer, ExtColorsBuffer, InpShowSOT);
 
    return(rates_total);
   }
