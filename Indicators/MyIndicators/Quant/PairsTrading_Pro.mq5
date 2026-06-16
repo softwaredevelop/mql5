@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Upgraded with dynamic VWAP-style anchored resets
+#property version   "1.21" // Fixed index-0 fallback symbol dependency
 #property description "Universal Dynamic & Anchored Cointegration (Z-Score) Monitor."
-#property description "Supports Session, Weekly and Monthly anchored spread calculations."
+#property description "Default: Brent (UKOIL) vs WTI (USOIL) relative value trader."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
@@ -153,6 +153,10 @@ int OnCalculate(const int rates_total,
 
    g_data_synced = true;
 
+//--- FIXED: Retrieve chart-independent default close values for index-0 fallbacks
+   double default_close_A = iClose(InpSymbolA, _Period, 0);
+   double default_close_B = iClose(InpSymbolB, _Period, 0);
+
 //--- 1. Advanced Bar-Time Synchronization & Alignment Loop (O(1) incremental)
    ArrayResize(g_sync_close_A, rates_total);
    ArrayResize(g_sync_close_B, rates_total);
@@ -168,20 +172,20 @@ int OnCalculate(const int rates_total,
       if(shift_A >= 0)
          g_sync_close_A[i] = iClose(InpSymbolA, _Period, shift_A);
       else
-         g_sync_close_A[i] = (i > 0) ? g_sync_close_A[i-1] : close[i];
+         g_sync_close_A[i] = (i > 0) ? g_sync_close_A[i-1] : default_close_A; // FIXED: chart-independent fallback
 
       // Sync Symbol B Price
       int shift_B = iBarShift(InpSymbolB, _Period, time[i], false);
       if(shift_B >= 0)
          g_sync_close_B[i] = iClose(InpSymbolB, _Period, shift_B);
       else
-         g_sync_close_B[i] = (i > 0) ? g_sync_close_B[i-1] : close[i];
+         g_sync_close_B[i] = (i > 0) ? g_sync_close_B[i-1] : default_close_B; // FIXED: chart-independent fallback
      }
 
-//--- 2. Calculate the dynamic OLS Cointegration Z-Score
-   int calc_start = (prev_calculated == 0) ? 1 : prev_calculated - 1;
-   if(calc_start < 1)
-      calc_start = 1;
+//--- 2. Calculate the rolling OLS Cointegration Z-Score
+   int calc_start = (prev_calculated == 0) ? InpLookback : prev_calculated - 1;
+   if(calc_start < InpLookback)
+      calc_start = InpLookback;
 
    for(int i = calc_start; i < rates_total; i++)
      {
