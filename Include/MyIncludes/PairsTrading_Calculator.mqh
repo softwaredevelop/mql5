@@ -5,7 +5,7 @@
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.10" // Added support for dynamic anchored window sizes
+#property version   "1.20" // Refactored with public getters for OLS parameters
 
 #ifndef PAIRS_TRADING_CALCULATOR_MQH
 #define PAIRS_TRADING_CALCULATOR_MQH
@@ -23,6 +23,11 @@ private:
    double            m_arr_B[];
    double            m_spread_history[];
 
+   //--- Persistent OLS parameters for get retrieval
+   double            m_beta;
+   double            m_alpha;
+   double            m_std_dev_spread;
+
    //--- Statistics helpers
    double            GetMean(const double &arr[], int size);
    double            GetVariance(const double &arr[], double mean, int size);
@@ -34,15 +39,21 @@ public:
 
    bool              Init(int max_window);
 
-   //--- Upgraded: Accepts a dynamic window_size for VWAP-style anchored resets
+   //--- Dynamic rolling OLS Z-Score calculation
    double            CalculateZScore(int rates_total, int current_index, int window_size,
                                      const double &sync_price_A[], const double &sync_price_B[]);
+
+   //--- Public getters to share the calculated coefficients with the Band indicator
+   double            GetBeta(void)   const { return m_beta; }
+   double            GetAlpha(void)  const { return m_alpha; }
+   double            GetStdDev(void) const { return m_std_dev_spread; }
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CPairsTradingCalculator::CPairsTradingCalculator() : m_max_window(120) {}
+CPairsTradingCalculator::CPairsTradingCalculator() :
+   m_max_window(120), m_beta(0.0), m_alpha(0.0), m_std_dev_spread(0.0) {}
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
@@ -59,9 +70,13 @@ bool CPairsTradingCalculator::Init(int max_window)
 double CPairsTradingCalculator::CalculateZScore(int rates_total, int current_index, int window_size,
       const double &sync_price_A[], const double &sync_price_B[])
   {
-// Safety 1: Enforce minimum of 15 bars for statistical significance on anchored starts
    if(window_size < 15 || current_index < window_size)
+     {
+      m_beta = 0.0;
+      m_alpha = 0.0;
+      m_std_dev_spread = 0.0;
       return 0.0;
+     }
 
 //--- Dynamic array allocation based on the current active anchor size
    if(ArraySize(m_arr_A) != window_size)
@@ -88,30 +103,35 @@ double CPairsTradingCalculator::CalculateZScore(int rates_total, int current_ind
    double cov_AB = GetCovariance(m_arr_A, mean_A, m_arr_B, mean_B, window_size);
 
    if(var_B <= 1.0e-9)
-      return 0.0; // Div-by-zero protection
+     {
+      m_beta = 0.0;
+      m_alpha = 0.0;
+      m_std_dev_spread = 0.0;
+      return 0.0;
+     }
 
 //--- Calculate OLS Rolling Hedge Ratio (Beta) and Intercept (Alpha)
-   double beta  = cov_AB / var_B;
-   double alpha = mean_A - (beta * mean_B);
+   m_beta  = cov_AB / var_B;
+   m_alpha = mean_A - (m_beta * mean_B);
 
-//--- Calculate the historical spreads over the active window (Mean is algebraically 0.0)
+//--- Calculate the historical spreads over the active window
    double sum_sq_spread = 0.0;
    for(int k = 0; k < window_size; k++)
      {
-      m_spread_history[k] = m_arr_A[k] - (beta * m_arr_B[k]) - alpha;
+      m_spread_history[k] = m_arr_A[k] - (m_beta * m_arr_B[k]) - m_alpha;
       sum_sq_spread += m_spread_history[k] * m_spread_history[k];
      }
 
 // Sample standard deviation of the active spread window
-   double std_dev_spread = MathSqrt(sum_sq_spread / (window_size - 1));
+   m_std_dev_spread = MathSqrt(sum_sq_spread / (window_size - 1));
 
-   if(std_dev_spread <= 1.0e-9)
-      return 0.0; // Protection against dead spreads
+   if(m_std_dev_spread <= 1.0e-9)
+      return 0.0;
 
 //--- Calculate the final current Z-Score
-   double current_spread = sync_price_A[current_index] - (beta * sync_price_B[current_index]) - alpha;
+   double current_spread = sync_price_A[current_index] - (m_beta * sync_price_B[current_index]) - m_alpha;
 
-   return current_spread / std_dev_spread;
+   return current_spread / m_std_dev_spread;
   }
 
 //+------------------------------------------------------------------+
