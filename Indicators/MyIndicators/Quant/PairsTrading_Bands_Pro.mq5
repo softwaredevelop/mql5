@@ -3,12 +3,12 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Non-repainting state-machine, O(1) optimized
+#property version   "1.30" // Refactored to use unified calculator engine and 5-channel layout
 #property description "Wyckoff-style Cointegration Bands on Main Chart."
-#property description "Projects dynamic equilibrium line (Z=0) and trade bands (Z=+-2) on candles."
+#property description "Projects dynamic equilibrium line (Z=0), warning (Z=+-1.5) and extreme (Z=+-2.0) bands."
 #property indicator_chart_window
-#property indicator_buffers 3
-#property indicator_plots   3
+#property indicator_buffers 5
+#property indicator_plots   5
 
 //--- Plot 1: Cointegrated Equilibrium Line (Fair Value / Z=0)
 #property indicator_label1  "Equilibrium Center"
@@ -17,19 +17,35 @@
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
-//--- Plot 2: Upper Cointegration Band (Z=+2.0 / Sell Spread Zone)
-#property indicator_label2  "Upper Band"
+//--- Plot 2: Upper Outer Band (Z = Extreme / Sell Zone)
+#property indicator_label2  "Upper Outer Band"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrCrimson
+#property indicator_color2  clrOrangeRed
 #property indicator_style2  STYLE_DASH
 #property indicator_width2  1
 
-//--- Plot 3: Lower Cointegration Band (Z=-2.0 / Buy Spread Zone)
-#property indicator_label3  "Lower Band"
+//--- Plot 3: Lower Outer Band (Z = Extreme / Buy Zone)
+#property indicator_label3  "Lower Outer Band"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrDodgerBlue
+#property indicator_color3  clrDeepSkyBlue
 #property indicator_style3  STYLE_DASH
 #property indicator_width3  1
+
+//--- Plot 4: Upper Inner Band (Z = Warning Zone)
+#property indicator_label4  "Upper Inner Band"
+#property indicator_type4   DRAW_LINE
+#property indicator_color4  clrCoral
+#property indicator_style4  STYLE_DOT
+#property indicator_width4  1
+
+//--- Plot 5: Lower Inner Band (Z = Warning Zone)
+#property indicator_label5  "Lower Inner Band"
+#property indicator_type5   DRAW_LINE
+#property indicator_color5  clrLightSkyBlue
+#property indicator_style5  STYLE_DOT
+#property indicator_width5  1
+
+#include <MyIncludes\PairsTrading_Calculator.mqh>
 
 //--- Anchored Timeframe Resets Enum
 enum ENUM_ANCHOR_PERIOD
@@ -42,23 +58,33 @@ enum ENUM_ANCHOR_PERIOD
   };
 
 //--- Input Parameters
-input string            InpSymbolA      = "UKOIL";  // Symbol A (Main Chart Equivalent, e.g. UKOIL or BRENT)
-input string            InpSymbolB      = "USOIL";  // Symbol B (Benchmark, e.g. USOIL or WTI)
-input ENUM_ANCHOR_PERIOD InpAnchor       = ANCHOR_NONE; // Dynamic Anchored Reset Period
-input int               InpLookback     = 120;      // Rolling Window size (Used if Anchor = NONE)
-input string            InpCustomStart  = "09:00";  // Custom Session Start (HH:MM, Broker Time)
-input string            InpCustomEnd    = "18:00";  // Custom Session End (HH:MM, Broker Time)
+input string            InpSymbolA            = "UKOIL";  // Symbol A (Main Chart Equivalent, e.g. UKOIL or BRENT)
+input string            InpSymbolB            = "USOIL";  // Symbol B (Benchmark, e.g. USOIL or WTI)
+input ENUM_ANCHOR_PERIOD InpAnchor             = ANCHOR_NONE; // Dynamic Anchored Reset Period
+input int               InpLookback           = 120;      // Rolling Window size (Used if Anchor = NONE)
+input string            InpCustomStart        = "09:00";  // Custom Session Start (HH:MM, Broker Time)
+input string            InpCustomEnd          = "18:00";  // Custom Session End (HH:MM, Broker Time)
+
+//--- Dynamic Channel Options
+input bool              InpDrawCenterLine     = true;     // Draw Center Equilibrium Line?
+input bool              InpDrawInnerBands     = true;     // Draw Inner (Warning) Bands?
+input double            InpInnerMultiplier    = 1.5;      // Inner Band Z-Score Multiplier
+input bool              InpDrawOuterBands     = true;     // Draw Outer (Extreme) Bands?
+input double            InpOuterMultiplier    = 2.0;      // Outer Band Z-Score Multiplier
 
 //--- Buffers
 double BufMiddle[];
-double BufUpper[];
-double BufLower[];
+double BufUpperOuter[];
+double BufLowerOuter[];
+double BufUpperInner[];
+double BufLowerInner[];
 
 //--- Aligned price arrays
 double g_sync_close_A[];
 double g_sync_close_B[];
 
-//--- Global Variables and State Tracking (O(1) safe)
+//--- Global Engine and State Tracking
+CPairsTradingCalculator *g_calc;
 bool                     g_data_synced       = false;
 int                      g_anchor_start_idx  = 0; // Dynamic anchor index tracker
 
@@ -85,7 +111,6 @@ bool EnsureDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const
 
 //+------------------------------------------------------------------+
 //| IsTimeInSession                                                  |
-//| Determines if broker time is within custom active session        |
 //+------------------------------------------------------------------+
 bool IsTimeInSession(datetime time_val, int start_hour, int start_min, int end_hour, int end_min)
   {
@@ -113,13 +138,17 @@ int OnInit()
    g_data_synced = false;
    g_anchor_start_idx = 0;
 
-   SetIndexBuffer(0, BufMiddle, INDICATOR_DATA);
-   SetIndexBuffer(1, BufUpper,  INDICATOR_DATA);
-   SetIndexBuffer(2, BufLower,  INDICATOR_DATA);
+   SetIndexBuffer(0, BufMiddle,     INDICATOR_DATA);
+   SetIndexBuffer(1, BufUpperOuter, INDICATOR_DATA);
+   SetIndexBuffer(2, BufLowerOuter, INDICATOR_DATA);
+   SetIndexBuffer(3, BufUpperInner, INDICATOR_DATA);
+   SetIndexBuffer(4, BufLowerInner, INDICATOR_DATA);
 
-   ArraySetAsSeries(BufMiddle, false);
-   ArraySetAsSeries(BufUpper,  false);
-   ArraySetAsSeries(BufLower,  false);
+   ArraySetAsSeries(BufMiddle,     false);
+   ArraySetAsSeries(BufUpperOuter, false);
+   ArraySetAsSeries(BufLowerOuter, false);
+   ArraySetAsSeries(BufUpperInner, false);
+   ArraySetAsSeries(BufLowerInner, false);
 
 //--- Parse custom session times
    string parts[];
@@ -143,7 +172,24 @@ int OnInit()
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
+//--- Instantiate unified calculator
+   g_calc = new CPairsTradingCalculator();
+   if(CheckPointer(g_calc) == POINTER_INVALID || !g_calc.Init(InpLookback))
+     {
+      Print("Error: Failed to initialize PairsBands Calculator Engine.");
+      return INIT_FAILED;
+     }
+
    return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| OnDeinit                                                         |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   if(CheckPointer(g_calc) == POINTER_DYNAMIC)
+      delete g_calc;
   }
 
 //+------------------------------------------------------------------+
@@ -174,7 +220,7 @@ int OnCalculate(const int rates_total,
 
    g_data_synced = true;
 
-//--- Get standalone default fallback values to ensure absolute chart independence
+//--- Retrieve chart-independent default close values for index-0 fallbacks
    double default_close_A = iClose(InpSymbolA, _Period, 0);
    double default_close_B = iClose(InpSymbolB, _Period, 0);
 
@@ -203,7 +249,7 @@ int OnCalculate(const int rates_total,
          g_sync_close_B[i] = (i > 0) ? g_sync_close_B[i-1] : default_close_B;
      }
 
-//--- 2. Calculate the rolling OLS Cointegration Bands
+//--- 2. Calculate the rolling OLS Cointegration Bands (O(1) incremental)
    int calc_start = (prev_calculated == 0) ? InpLookback : prev_calculated - 1;
    if(calc_start < InpLookback)
       calc_start = InpLookback;
@@ -215,9 +261,11 @@ int OnCalculate(const int rates_total,
         {
          if(!IsTimeInSession(time[i], g_start_hour, g_start_min, g_end_hour, g_end_min))
            {
-            BufMiddle[i] = EMPTY_VALUE;
-            BufUpper[i]  = EMPTY_VALUE;
-            BufLower[i]  = EMPTY_VALUE;
+            BufMiddle[i]     = EMPTY_VALUE;
+            BufUpperOuter[i] = EMPTY_VALUE;
+            BufLowerOuter[i] = EMPTY_VALUE;
+            BufUpperInner[i] = EMPTY_VALUE;
+            BufLowerInner[i] = EMPTY_VALUE;
             continue;
            }
         }
@@ -298,66 +346,36 @@ int OnCalculate(const int rates_total,
          active_window_size = i - g_anchor_start_idx + 1;
         }
 
-      if(active_window_size < 15)
+      //--- D. Execute unified calculator math and fetch dynamic OLS parameters
+      //--- By running CalculateZScore, the engine automatically populates beta, alpha, and std_dev internally
+      double z = g_calc.CalculateZScore(rates_total, i, active_window_size, g_sync_close_A, g_sync_close_B);
+
+      double beta    = g_calc.GetBeta();
+      double alpha   = g_calc.GetAlpha();
+      double std_dev = g_calc.GetStdDev();
+
+      if(active_window_size >= 15 && std_dev > 0.0)
         {
-         BufMiddle[i] = close[i];
-         BufUpper[i]  = close[i];
-         BufLower[i]  = close[i];
-         continue; // Wait for statistical significance
-        }
-
-      //--- D. Perform Rolling OLS (High-performance math)
-      double sum_A = 0.0, sum_B = 0.0;
-      for(int k = 0; k < active_window_size; k++)
-        {
-         int idx = i - active_window_size + 1 + k;
-         sum_A += g_sync_close_A[idx];
-         sum_B += g_sync_close_B[idx];
-        }
-      double mean_A = sum_A / active_window_size;
-      double mean_B = sum_B / active_window_size;
-
-      double sum_sq_diff_B = 0.0;
-      double sum_prod_AB   = 0.0;
-      for(int k = 0; k < active_window_size; k++)
-        {
-         int idx = i - active_window_size + 1 + k;
-         double diff_A = g_sync_close_A[idx] - mean_A;
-         double diff_B = g_sync_close_B[idx] - mean_B;
-         sum_sq_diff_B += diff_B * diff_B;
-         sum_prod_AB   += diff_A * diff_B;
-        }
-      double var_B  = sum_sq_diff_B / (active_window_size - 1);
-      double cov_AB = sum_prod_AB / (active_window_size - 1);
-
-      if(var_B > 1.0e-9)
-        {
-         double beta  = cov_AB / var_B;
-         double alpha = mean_A - (beta * mean_B);
-
-         // Calculate the rolling standard deviation of the spread (Mean is algebraically 0.0)
-         double sum_sq_spread = 0.0;
-         for(int k = 0; k < active_window_size; k++)
-           {
-            int idx = i - active_window_size + 1 + k;
-            double spr = g_sync_close_A[idx] - (beta * g_sync_close_B[idx]) - alpha;
-            sum_sq_spread += spr * spr;
-           }
-         double std_dev_spread = MathSqrt(sum_sq_spread / (active_window_size - 1));
-
-         //--- E. Project Cointegration Bands directly onto the main price chart
          // Center Line (Z=0.0 Equilibrium): A_hat = beta * B_t + alpha
          double fair_price = beta * g_sync_close_B[i] + alpha;
 
-         BufMiddle[i] = fair_price;
-         BufUpper[i]  = fair_price + 2.0 * std_dev_spread; // Z = +2.0
-         BufLower[i]  = fair_price - 2.0 * std_dev_spread; // Z = -2.0
+         BufMiddle[i]     = InpDrawCenterLine ? fair_price : EMPTY_VALUE;
+
+         // Outer extreme bands (Default Z = +-2.0)
+         BufUpperOuter[i] = InpDrawOuterBands ? (fair_price + InpOuterMultiplier * std_dev) : EMPTY_VALUE;
+         BufLowerOuter[i] = InpDrawOuterBands ? (fair_price - InpOuterMultiplier * std_dev) : EMPTY_VALUE;
+
+         // Inner warning bands (Default Z = +-1.5)
+         BufUpperInner[i] = InpDrawInnerBands ? (fair_price + InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+         BufLowerInner[i] = InpDrawInnerBands ? (fair_price - InpInnerMultiplier * std_dev) : EMPTY_VALUE;
         }
       else
         {
-         BufMiddle[i] = close[i];
-         BufUpper[i]  = close[i];
-         BufLower[i]  = close[i];
+         BufMiddle[i]     = close[i];
+         BufUpperOuter[i] = close[i];
+         BufLowerOuter[i] = close[i];
+         BufUpperInner[i] = close[i];
+         BufLowerInner[i] = close[i];
         }
      }
 
