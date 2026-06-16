@@ -3,14 +3,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.10" // Upgraded with fixed window scale and 5-zone thermal histogram
-#property description "Universal Dynamic Cointegration (Z-Score) Monitor."
-#property description "Default: Brent (UKOIL) vs WTI (USOIL) relative value trader."
+#property version   "1.20" // Upgraded with dynamic VWAP-style anchored resets
+#property description "Universal Dynamic & Anchored Cointegration (Z-Score) Monitor."
+#property description "Supports Session, Weekly and Monthly anchored spread calculations."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- FIXED: Standardized window limits to prevent single-spike scale squishing!
+//--- Standardized window limits to prevent single-spike scale squishing!
 #property indicator_minimum -3.5
 #property indicator_maximum 3.5
 
@@ -40,10 +40,20 @@
 
 #include <MyIncludes\PairsTrading_Calculator.mqh>
 
+//--- Anchored Timeframe Resets Enum
+enum ENUM_ANCHOR_PERIOD
+  {
+   ANCHOR_NONE,      // Standard rolling window (InpLookback)
+   ANCHOR_SESSION,   // Reset every day (Daily VWAP style)
+   ANCHOR_WEEK,      // Reset every week (Weekly VWAP style)
+   ANCHOR_MONTH      // Reset every month (Monthly VWAP style)
+  };
+
 //--- Input Parameters
 input string            InpSymbolA      = "UKOIL";  // Symbol A (Brent Proxy, e.g. UKOIL or BRENT)
 input string            InpSymbolB      = "USOIL";  // Symbol B (WTI Proxy, e.g. USOIL or WTI)
-input int               InpLookback     = 120;      // Rolling OLS Regression Window (Bars)
+input ENUM_ANCHOR_PERIOD InpAnchor       = ANCHOR_NONE; // Dynamic Anchored Reset Period
+input int               InpLookback     = 120;      // Rolling Window size (Used if Anchor = NONE)
 
 //--- Buffers
 double ExtZScoreBuffer[];
@@ -53,9 +63,10 @@ double ExtColorsBuffer[];
 double g_sync_close_A[];
 double g_sync_close_B[];
 
-//--- Global Engine
+//--- Global Engine and State Tracking
 CPairsTradingCalculator *g_calc;
-bool                     g_data_synced = false;
+bool                     g_data_synced       = false;
+int                      g_anchor_start_idx  = 0; // Dynamic anchor index tracker
 
 //+------------------------------------------------------------------+
 //| EnsureDataReady (Multi-symbol history sync helper)               |
@@ -78,6 +89,7 @@ bool EnsureDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const
 int OnInit()
   {
    g_data_synced = false;
+   g_anchor_start_idx = 0;
 
    SetIndexBuffer(0, ExtZScoreBuffer, INDICATOR_DATA);
    SetIndexBuffer(1, ExtColorsBuffer, INDICATOR_COLOR_INDEX);
@@ -85,8 +97,12 @@ int OnInit()
    ArraySetAsSeries(ExtZScoreBuffer, false);
    ArraySetAsSeries(ExtColorsBuffer, false);
 
-// Configure shortname dynamically
-   string short_name = StringFormat("PairsTrade Pro(%s vs %s, %d)", InpSymbolA, InpSymbolB, InpLookback);
+// Configure shortname dynamically based on mode
+   string anchor_name = EnumToString(InpAnchor);
+   string short_name = StringFormat("PairsTrade Pro(%s vs %s, %s)",
+                                    InpSymbolA, InpSymbolB,
+                                    (InpAnchor == ANCHOR_NONE ? (string)InpLookback : StringSubstr(anchor_name, 7)));
+
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
@@ -124,6 +140,8 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
    int required_bars = InpLookback + 10;
+   if(InpAnchor != ANCHOR_NONE)
+      required_bars = 500; // Need larger history depth for monthly/weekly anchors
 
 //--- Ensure both symbol histories are fully loaded in the terminal
    if(!EnsureDataReady(InpSymbolA, _Period, required_bars) ||
@@ -160,30 +178,98 @@ int OnCalculate(const int rates_total,
          g_sync_close_B[i] = (i > 0) ? g_sync_close_B[i-1] : close[i];
      }
 
-//--- 2. Calculate the rolling OLS Cointegration Z-Score
-   int calc_start = (prev_calculated == 0) ? InpLookback : prev_calculated - 1;
-   if(calc_start < InpLookback)
-      calc_start = InpLookback;
+//--- 2. Calculate the dynamic OLS Cointegration Z-Score
+   int calc_start = (prev_calculated == 0) ? 1 : prev_calculated - 1;
+   if(calc_start < 1)
+      calc_start = 1;
 
    for(int i = calc_start; i < rates_total; i++)
      {
-      double z = g_calc.CalculateZScore(rates_total, i, g_sync_close_A, g_sync_close_B);
+      //--- A. Check if a new Anchor period has started (Stateful tracking)
+      bool new_period = false;
+
+      switch(InpAnchor)
+        {
+         case ANCHOR_SESSION:
+           {
+            MqlDateTime dt_curr, dt_prev;
+            TimeToStruct(time[i], dt_curr);
+            TimeToStruct(time[i-1], dt_prev);
+            if(dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year)
+               new_period = true;
+            break;
+           }
+         case ANCHOR_WEEK:
+           {
+            MqlDateTime dt_curr, dt_prev;
+            TimeToStruct(time[i], dt_curr);
+            TimeToStruct(time[i-1], dt_prev);
+            if(dt_curr.day_of_week < dt_prev.day_of_week)
+               new_period = true;
+            break;
+           }
+         case ANCHOR_MONTH:
+           {
+            MqlDateTime dt_curr, dt_prev;
+            TimeToStruct(time[i], dt_curr);
+            TimeToStruct(time[i-1], dt_prev);
+            if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
+               new_period = true;
+            break;
+           }
+         default:
+            break;
+        }
+
+      if(new_period)
+        {
+         g_anchor_start_idx = i;
+        }
+
+      //--- B. Compute the dynamic window size
+      int active_window_size = 0;
+      if(InpAnchor == ANCHOR_NONE)
+        {
+         active_window_size = InpLookback;
+        }
+      else
+        {
+         active_window_size = i - g_anchor_start_idx + 1;
+        }
+
+      //--- C. Calculate Z-Score
+      double z = g_calc.CalculateZScore(rates_total, i, active_window_size, g_sync_close_A, g_sync_close_B);
       ExtZScoreBuffer[i] = z;
 
       //--- 3. 5-Zone Thermal Color Mapping
-      if(z >= 2.0)
-         ExtColorsBuffer[i] = 2.0; // Index 2: OrangeRed (Sell Spread - Short A, Long B)
+      if(z == 0.0)
+        {
+         ExtColorsBuffer[i] = 0.0; // Seed/Unstable bars stay Gray
+        }
       else
-         if(z >= 1.5)
-            ExtColorsBuffer[i] = 1.0; // Index 1: Coral (Sell Warning)
+         if(z >= 2.0)
+           {
+            ExtColorsBuffer[i] = 2.0; // Index 2: OrangeRed (Sell Spread)
+           }
          else
-            if(z <= -2.0)
-               ExtColorsBuffer[i] = 4.0; // Index 4: DeepSkyBlue (Buy Spread - Long A, Short B)
+            if(z >= 1.5)
+              {
+               ExtColorsBuffer[i] = 1.0; // Index 1: Coral (Sell Warning)
+              }
             else
-               if(z <= -1.5)
-                  ExtColorsBuffer[i] = 3.0; // Index 3: LightSkyBlue (Buy Warning)
+               if(z <= -2.0)
+                 {
+                  ExtColorsBuffer[i] = 4.0; // Index 4: DeepSkyBlue (Buy Spread)
+                 }
                else
-                  ExtColorsBuffer[i] = 0.0; // Index 0: Gray (Neutral Noise)
+                  if(z <= -1.5)
+                    {
+                     ExtColorsBuffer[i] = 3.0; // Index 3: LightSkyBlue (Buy Warning)
+                    }
+                  else
+                    {
+                     ExtColorsBuffer[i] = 0.0; // Index 0: Gray (Neutral Noise)
+                    }
      }
 
    return(rates_total);
