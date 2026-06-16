@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.21" // Fixed index-0 fallback symbol dependency
+#property version   "1.30" // Added custom session time-range anchor reset and night filtering
 #property description "Universal Dynamic & Anchored Cointegration (Z-Score) Monitor."
-#property description "Default: Brent (UKOIL) vs WTI (USOIL) relative value trader."
+#property description "Supports custom broker-time session ranges to eliminate gap distortion."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
@@ -43,10 +43,11 @@
 //--- Anchored Timeframe Resets Enum
 enum ENUM_ANCHOR_PERIOD
   {
-   ANCHOR_NONE,      // Standard rolling window (InpLookback)
-   ANCHOR_SESSION,   // Reset every day (Daily VWAP style)
-   ANCHOR_WEEK,      // Reset every week (Weekly VWAP style)
-   ANCHOR_MONTH      // Reset every month (Monthly VWAP style)
+   ANCHOR_NONE,           // Standard rolling window (InpLookback)
+   ANCHOR_SESSION,        // Reset every day (Daily VWAP style)
+   ANCHOR_WEEK,           // Reset every week (Weekly VWAP style)
+   ANCHOR_MONTH,          // Reset every month (Monthly VWAP style)
+   ANCHOR_CUSTOM_SESSION  // Reset based on custom broker-time start/end range
   };
 
 //--- Input Parameters
@@ -54,6 +55,8 @@ input string            InpSymbolA      = "UKOIL";  // Symbol A (Brent Proxy, e.
 input string            InpSymbolB      = "USOIL";  // Symbol B (WTI Proxy, e.g. USOIL or WTI)
 input ENUM_ANCHOR_PERIOD InpAnchor       = ANCHOR_NONE; // Dynamic Anchored Reset Period
 input int               InpLookback     = 120;      // Rolling Window size (Used if Anchor = NONE)
+input string            InpCustomStart  = "09:00";  // Custom Session Start (HH:MM, Broker Time)
+input string            InpCustomEnd    = "18:00";  // Custom Session End (HH:MM, Broker Time)
 
 //--- Buffers
 double ExtZScoreBuffer[];
@@ -67,6 +70,12 @@ double g_sync_close_B[];
 CPairsTradingCalculator *g_calc;
 bool                     g_data_synced       = false;
 int                      g_anchor_start_idx  = 0; // Dynamic anchor index tracker
+
+//--- Parsed Custom Session hours
+int                      g_start_hour        = 9;
+int                      g_start_min         = 0;
+int                      g_end_hour          = 18;
+int                      g_end_min           = 0;
 
 //+------------------------------------------------------------------+
 //| EnsureDataReady (Multi-symbol history sync helper)               |
@@ -84,6 +93,28 @@ bool EnsureDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const
   }
 
 //+------------------------------------------------------------------+
+//| IsTimeInSession                                                  |
+//| Determines if broker time is within custom active session        |
+//+------------------------------------------------------------------+
+bool IsTimeInSession(datetime time_val, int start_hour, int start_min, int end_hour, int end_min)
+  {
+   MqlDateTime dt;
+   TimeToStruct(time_val, dt);
+   int current_min = dt.hour * 60 + dt.min;
+   int start_total = start_hour * 60 + start_min;
+   int end_total   = end_hour * 60 + end_min;
+
+   if(end_total < start_total) // Overlapping midnight session
+     {
+      return (current_min >= start_total || current_min < end_total);
+     }
+   else
+     {
+      return (current_min >= start_total && current_min < end_total);
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| OnInit                                                           |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -96,6 +127,19 @@ int OnInit()
 
    ArraySetAsSeries(ExtZScoreBuffer, false);
    ArraySetAsSeries(ExtColorsBuffer, false);
+
+//--- Parse custom session times
+   string parts[];
+   if(StringSplit(InpCustomStart, ':', parts) == 2)
+     {
+      g_start_hour = (int)StringToInteger(parts[0]);
+      g_start_min  = (int)StringToInteger(parts[1]);
+     }
+   if(StringSplit(InpCustomEnd, ':', parts) == 2)
+     {
+      g_end_hour = (int)StringToInteger(parts[0]);
+      g_end_min  = (int)StringToInteger(parts[1]);
+     }
 
 // Configure shortname dynamically based on mode
    string anchor_name = EnumToString(InpAnchor);
@@ -141,7 +185,7 @@ int OnCalculate(const int rates_total,
   {
    int required_bars = InpLookback + 10;
    if(InpAnchor != ANCHOR_NONE)
-      required_bars = 500; // Need larger history depth for monthly/weekly anchors
+      required_bars = 1000; // Need larger history depth for monthly/weekly/custom anchors
 
 //--- Ensure both symbol histories are fully loaded in the terminal
    if(!EnsureDataReady(InpSymbolA, _Period, required_bars) ||
@@ -153,7 +197,7 @@ int OnCalculate(const int rates_total,
 
    g_data_synced = true;
 
-//--- FIXED: Retrieve chart-independent default close values for index-0 fallbacks
+//--- Get standalone default fallback values to ensure absolute chart independence
    double default_close_A = iClose(InpSymbolA, _Period, 0);
    double default_close_B = iClose(InpSymbolB, _Period, 0);
 
@@ -189,7 +233,18 @@ int OnCalculate(const int rates_total,
 
    for(int i = calc_start; i < rates_total; i++)
      {
-      //--- A. Check if a new Anchor period has started (Stateful tracking)
+      //--- A. Filter out inactive hours if custom session anchor is selected
+      if(InpAnchor == ANCHOR_CUSTOM_SESSION)
+        {
+         if(!IsTimeInSession(time[i], g_start_hour, g_start_min, g_end_hour, g_end_min))
+           {
+            ExtZScoreBuffer[i] = EMPTY_VALUE; // Plot absolutely nothing overnight to keep statistics pure!
+            ExtColorsBuffer[i] = 0.0;
+            continue;
+           }
+        }
+
+      //--- B. Check if a new Anchor period has started (Stateful tracking)
       bool new_period = false;
 
       switch(InpAnchor)
@@ -221,6 +276,30 @@ int OnCalculate(const int rates_total,
                new_period = true;
             break;
            }
+         case ANCHOR_CUSTOM_SESSION:
+           {
+            MqlDateTime dt_curr, dt_prev;
+            TimeToStruct(time[i], dt_curr);
+            TimeToStruct(time[i-1], dt_prev);
+
+            int min_curr = dt_curr.hour * 60 + dt_curr.min;
+            int min_prev = dt_prev.hour * 60 + dt_prev.min;
+            int start_min = g_start_hour * 60 + g_start_min;
+
+            bool day_changed = (dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year);
+
+            if(day_changed)
+              {
+               if(min_curr >= start_min)
+                  new_period = true;
+              }
+            else
+              {
+               if(min_prev < start_min && min_curr >= start_min)
+                  new_period = true;
+              }
+            break;
+           }
          default:
             break;
         }
@@ -230,7 +309,7 @@ int OnCalculate(const int rates_total,
          g_anchor_start_idx = i;
         }
 
-      //--- B. Compute the dynamic window size
+      //--- C. Compute the dynamic window size
       int active_window_size = 0;
       if(InpAnchor == ANCHOR_NONE)
         {
@@ -241,7 +320,7 @@ int OnCalculate(const int rates_total,
          active_window_size = i - g_anchor_start_idx + 1;
         }
 
-      //--- C. Calculate Z-Score
+      //--- D. Calculate Z-Score
       double z = g_calc.CalculateZScore(rates_total, i, active_window_size, g_sync_close_A, g_sync_close_B);
       ExtZScoreBuffer[i] = z;
 
