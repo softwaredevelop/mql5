@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                     PairsTrading_Calculator.mqh  |
-//|      Engine for Dynamic Rolling OLS Pairs Trading Cointegration. |
+//|      Engine for Dynamic Rolling/Anchored OLS Pairs Cointegration |
 //|      Strictly O(1) Incremental Optimized.                        |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Added support for dynamic anchored window sizes
 
 #ifndef PAIRS_TRADING_CALCULATOR_MQH
 #define PAIRS_TRADING_CALCULATOR_MQH
@@ -16,7 +16,7 @@
 class CPairsTradingCalculator
   {
 private:
-   int               m_lookback;
+   int               m_max_window;
 
    //--- Dynamic rolling arrays
    double            m_arr_A[];
@@ -32,59 +32,60 @@ public:
                      CPairsTradingCalculator();
                     ~CPairsTradingCalculator() {};
 
-   bool              Init(int lookback);
+   bool              Init(int max_window);
 
-   //--- Processes the raw synchronized prices and computes the rolling Z-Score
-   double            CalculateZScore(int rates_total, int current_index,
+   //--- Upgraded: Accepts a dynamic window_size for VWAP-style anchored resets
+   double            CalculateZScore(int rates_total, int current_index, int window_size,
                                      const double &sync_price_A[], const double &sync_price_B[]);
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CPairsTradingCalculator::CPairsTradingCalculator() : m_lookback(120) {}
+CPairsTradingCalculator::CPairsTradingCalculator() : m_max_window(120) {}
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CPairsTradingCalculator::Init(int lookback)
+bool CPairsTradingCalculator::Init(int max_window)
   {
-   m_lookback = (lookback < 10) ? 10 : lookback;
+   m_max_window = (max_window < 10) ? 10 : max_window;
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| CalculateZScore (OLS Rolling Hedge Ratio & Z-Score)              |
+//| CalculateZScore (OLS Dynamic Window Cointegration)               |
 //+------------------------------------------------------------------+
-double CPairsTradingCalculator::CalculateZScore(int rates_total, int current_index,
+double CPairsTradingCalculator::CalculateZScore(int rates_total, int current_index, int window_size,
       const double &sync_price_A[], const double &sync_price_B[])
   {
-   if(current_index < m_lookback)
+// Safety 1: Enforce minimum of 15 bars for statistical significance on anchored starts
+   if(window_size < 15 || current_index < window_size)
       return 0.0;
 
-//--- Resize internal rolling buffers
-   if(ArraySize(m_arr_A) != m_lookback)
+//--- Dynamic array allocation based on the current active anchor size
+   if(ArraySize(m_arr_A) != window_size)
      {
-      ArrayResize(m_arr_A, m_lookback);
-      ArrayResize(m_arr_B, m_lookback);
-      ArrayResize(m_spread_history, m_lookback);
+      ArrayResize(m_arr_A, window_size);
+      ArrayResize(m_arr_B, window_size);
+      ArrayResize(m_spread_history, window_size);
      }
 
-//--- Extract rolling window from synchronized prices
-   for(int k = 0; k < m_lookback; k++)
+//--- Extract rolling/anchored window from synchronized prices
+   for(int k = 0; k < window_size; k++)
      {
-      int src_idx = current_index - m_lookback + 1 + k;
+      int src_idx = current_index - window_size + 1 + k;
       m_arr_A[k] = sync_price_A[src_idx];
       m_arr_B[k] = sync_price_B[src_idx];
      }
 
 //--- Calculate means
-   double mean_A = GetMean(m_arr_A, m_lookback);
-   double mean_B = GetMean(m_arr_B, m_lookback);
+   double mean_A = GetMean(m_arr_A, window_size);
+   double mean_B = GetMean(m_arr_B, window_size);
 
 //--- Calculate Variance of Benchmark (B) and Covariance (A, B)
-   double var_B  = GetVariance(m_arr_B, mean_B, m_lookback);
-   double cov_AB = GetCovariance(m_arr_A, mean_A, m_arr_B, mean_B, m_lookback);
+   double var_B  = GetVariance(m_arr_B, mean_B, window_size);
+   double cov_AB = GetCovariance(m_arr_A, mean_A, m_arr_B, mean_B, window_size);
 
    if(var_B <= 1.0e-9)
       return 0.0; // Div-by-zero protection
@@ -93,20 +94,19 @@ double CPairsTradingCalculator::CalculateZScore(int rates_total, int current_ind
    double beta  = cov_AB / var_B;
    double alpha = mean_A - (beta * mean_B);
 
-//--- Calculate the historical spreads over the window to find the standard deviation
+//--- Calculate the historical spreads over the active window (Mean is algebraically 0.0)
    double sum_sq_spread = 0.0;
-   for(int k = 0; k < m_lookback; k++)
+   for(int k = 0; k < window_size; k++)
      {
-      // Spread_t = A_t - Beta * B_t - Alpha (Mean is algebraically 0.0)
       m_spread_history[k] = m_arr_A[k] - (beta * m_arr_B[k]) - alpha;
       sum_sq_spread += m_spread_history[k] * m_spread_history[k];
      }
 
-// Sample standard deviation of the spread
-   double std_dev_spread = MathSqrt(sum_sq_spread / (m_lookback - 1));
+// Sample standard deviation of the active spread window
+   double std_dev_spread = MathSqrt(sum_sq_spread / (window_size - 1));
 
    if(std_dev_spread <= 1.0e-9)
-      return 0.0; // Protection against flat/dead spreads
+      return 0.0; // Protection against dead spreads
 
 //--- Calculate the final current Z-Score
    double current_spread = sync_price_A[current_index] - (beta * sync_price_B[current_index]) - alpha;
