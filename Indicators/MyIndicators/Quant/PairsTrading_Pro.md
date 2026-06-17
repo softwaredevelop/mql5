@@ -4,7 +4,7 @@
 
 The **Pairs Trading Cointegration Pro Suite** is an institutional-grade, high-performance separate window statistical arbitrage trading suite comprising two advanced indicators: `PairsTrading_Pro` (Z-Score separate window oscillator) and `PairsTrading_Bands_Pro` (Main-chart overlay bands). Based on Modern Portfolio Theory and econometric cointegration, the suite decomposes the pricing relationship of two correlated assets into a stationary, volatility-normalized spread.
 
-While traditional retail pairs trading methods rely on simple price correlation (which is highly unstable and prone to structural drift), the `PairsTrading_Pro` suite utilizes a dynamic rolling **Ordinary Least Squares (OLS) mathematical engine**. It dynamically calculates the rolling Hedge Ratio ($\beta$) and Intercept ($\alpha$) between any two assets (default: Brent vs. WTI Crude Oil) to extract the true stationary spread.
+While traditional retail pairs trading methods rely on simple price correlation (which is highly unstable and prone to structural drift), the `PairsTrading_Pro` suite utilizes a dynamic rolling **Ordinary Least Squares (OLS) mathematical engine**. It dynamically calculates the rolling Hedge Ratio ($\beta$) and Intercept ($\alpha$) between any two assets to extract the true stationary spread.
 
 Featuring **VWAP-style Anchored Resets** (Session, Weekly, Monthly, and Custom Session), the indicators can completely isolate intraday/intraweek price relationships from overnight gaps and illiquidity, delivering a highly visual and robust quantitative scanner system.
 
@@ -16,7 +16,7 @@ The statistical calculations operate on synchronized close prices for Asset $A$ 
 
 ### A. Rolling Ordinary Least Squares (OLS)
 
-The calculator computes the rolling mean of Asset $A$ ($\bar{A}$) and Benchmark $B$ ($\bar{B}$). It solves the OLS regression of $A$ on $B$ to find the dynamic Hedge Ratio ($\beta$) and Intercept ($\alpha$):
+The calculator computes the rolling mean of Asset $A$ ($\bar{A}$) and Benchmark $B$ ($\bar{B}$). It then solves the OLS regression of $A$ on $B$ to find the dynamic Hedge Ratio ($\beta$) and Intercept ($\alpha$):
 
 $$\beta_i = \frac{\text{Covariance}(A, B)}{\text{Variance}(B)}$$
 
@@ -66,14 +66,14 @@ $$\text{Inner Lower Band (Warning / } Z=-M_{\text{inner}}\text{):} \quad \text{B
 * **Strict $O(1)$ Real-Time Tick Optimization:**
   The calculator uses the platform's `prev_calculated` parameter to process only the newest incoming bar on every tick. This keeps CPU usage at absolute zero, allowing both the separate-window histogram and the main-chart bands to update live in real-time.
 
-* **Advanced Bar-Time Synchronization:**
-  Assets do not always share identical trading calendars or liquidity densities. `PairsTrading_Pro` aligns Symbol A and Symbol B prices perfectly by timestamp using `iBarShift(..., false)` and `iClose`, ensuring that different market open/close times do not distort the calculation. To ensure chart-independence, the synchronization uses a dedicated `iClose` fallback rather than the local chart's `close[0]`.
-
 * **VWAP-Style Anchored Resets:**
   In addition to standard rolling windows (`InpLookback`), the indicators support dynamic resets:
   * **Daily Reset (`ANCHOR_SESSION`):** Resets daily. Excellent for intraday trading.
   * **Weekly Reset (`ANCHOR_WEEK`):** Resets weekly. Ideal for swing trading.
   * **Custom Session (`ANCHOR_CUSTOM_SESSION`):** Resets at a user-defined broker-time range (e.g. `09:00` to `18:00`). It completely filters out overnight gaps and illiquid trading hours, plotting `EMPTY_VALUE` during inactive periods to keep statistics pure.
+
+* **Advanced Bar-Time Synchronization:**
+  Assets do not always share identical trading calendars or liquidity densities. `PairsTrading_Pro` aligns Symbol A and Symbol B prices perfectly by timestamp using `iBarShift(..., false)` and `iClose`, ensuring that different market open/close times do not distort the calculation. To ensure chart-independence, the synchronization uses a dedicated `iClose` fallback rather than the local chart's `close[0]`.
 
 * **Hardlocked Separate Window Scale Bounds `[-3.5, 3.5]`:**
   To prevent single extreme black-swan spikes (e.g., Z-score hitting $-10.0$ during weekend gaps) from squishing the entire historical chart into an unreadable flat line, the separate window's scale is fixed between `-3.5` and `3.5`. Outliers are simply clipped at the boundaries, maintaining a perfect, consistent visual aspect ratio across all timeframes.
@@ -119,3 +119,19 @@ A major drawback of classic pairs trading is that opening two legs is capital-in
 2. **Identify the Leader:** Open the `LLD_Pro` indicator for the two symbols.
    * **If Symbol B (WTI) is the Leader (leads Symbol A / Brent):** WTI has already moved, and Brent (Symbol A) is mathematically guaranteed to follow to close the gap. Since Symbol A is currently too cheap, you simply **BUY Symbol A (Brent) as a single directional trade!**
    * This allows you to trade with half the margin requirement and zero execution hassle, leveraging the leader's predictive momentum to capture the gap-reversal.
+
+---
+
+## 6. Optimized Global Multi-Asset Presets
+
+To ensure statistical validity, only trade assets that share a **fundamental, structural, or macroeconomic link**. Below are the most robust, cointegrated global pairs optimized for live execution, mapped in `PairsTrading_Preset_Manager.mqh`:
+
+| Asset Class | Symbol A | Symbol B | Recommended TF | Lookback / Anchor | Inner / Outer Mult | Trading Style & Concept |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Energies** | `UKOIL` (Brent) | `USOIL` (WTI) | `M5` / `M15` | `120` / `ANCHOR_NONE` | `1.5` / `2.0` | **Crude Oil Spread.** Sweet/Light vs. Heavy/Sour grade arbitrage. Heavily mean-reverting. |
+| **Precious Metals** | `XAUUSD` (Gold) | `XAGUSD` (Silver) | `M15` / `H1` | `120` / `ANCHOR_WEEK` | `1.5` / `2.0` | **Gold-to-Silver Ratio.** Decades-old commodity value parity. Highly stable weekly anchors. |
+| **Forex Majors** | `EURUSD` | `GBPUSD` | `M5` / `M15` | `120` / `ANCHOR_CUSTOM_SESSION` <br>*(e.g., 09:00 - 18:00)* | `1.5` / `2.0` | **European Relative Value.** High cointegration due to close UK-Eurozone macro ties. Custom session filters out overnight illiquidity. |
+| **Forex Commodity** | `AUDUSD` | `NZDUSD` | `M15` / `H1` | `120` / `ANCHOR_SESSION` | `1.5` / `2.0` | **Aussie vs. Kiwi.** Commodity export-driven Oceanic currencies. Daily reset captures session shifts beautifully. |
+| **Equity Indices** | `US100` (Nasdaq) | `US500` (S&P500) | `M15` / `H1` | `144` / `ANCHOR_WEEK` | `1.5` / `2.0` | **Growth vs. Broad Market.** Tech sector rotations vs. global indexing. Excellent weekly trend reversion. |
+| **Equity Indices** | `DE40` (DAX) | `EU50` (Stoxx50) | `M15` / `H1` | `120` / `ANCHOR_WEEK` | `1.5` / `2.0` | **European Equity Arbitrage.** Germany's industrial core vs. broader Eurozone blue-chip baskets. |
+| **MAG7 Tech** | `NVDA` (Nvidia) | `AMD` (AMD) | `H1` / `H4` | `60` / `ANCHOR_NONE` | `1.8` / `2.5` | **Semiconductor Sector Spread.** Extreme retail/AI hype valuation discrepancies. Higher multipliers filter stock gap volatility. |
