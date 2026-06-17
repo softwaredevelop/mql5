@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Non-repainting MTF with live forming bar updates
+#property version   "1.12" // Fixed new_period and h_time compiler typos
 #property description "Wyckoff-style Cointegration Bands (Multi-Timeframe)."
 #property description "Displays Higher Timeframe Cointegration Channel directly on lower TF chart."
 #property indicator_chart_window
@@ -58,7 +58,7 @@ enum ENUM_ANCHOR_PERIOD
   };
 
 //--- Input Parameters
-input string            InpSymbolA            = "UKOIL";  // Symbol A (e.g. UKOIL or BRENT)
+input string            InpSymbolA            = "UKOIL";  // Symbol A (Main Chart Equivalent, e.g. UKOIL or BRENT)
 input string            InpSymbolB            = "USOIL";  // Symbol B (Benchmark, e.g. USOIL or WTI)
 input ENUM_TIMEFRAMES   InpTimeframe          = PERIOD_M5; // Target Higher Timeframe (Recommended: Higher than Chart)
 input ENUM_ANCHOR_PERIOD InpAnchor             = ANCHOR_NONE; // Dynamic Anchored Reset Period
@@ -89,11 +89,11 @@ double   h_close_B[];
 double   h_res_mid[];
 double   h_res_std[];
 
-//--- Global HTF State Tracking
+//--- Global Engine and State Tracking
 CPairsTradingCalculator *g_calc;
-datetime                 g_last_htf_time     = 0;
-int                      g_htf_count         = 0;
 bool                     g_data_ready        = false;
+int                      g_htf_count         = 0;
+datetime                 g_last_htf_time     = 0;
 int                      g_htf_anchor_start  = 0; // Dynamic anchor tracker on HTF timeline
 
 //--- Parsed Custom Session hours
@@ -195,6 +195,7 @@ int OnInit()
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
+//--- Instantiate unified calculator
    g_calc = new CPairsTradingCalculator();
    if(CheckPointer(g_calc) == POINTER_INVALID || !g_calc.Init(InpLookback))
      {
@@ -333,14 +334,14 @@ int OnCalculate(const int rates_total,
                   TimeToStruct(h_time[j], dt_curr);
                   TimeToStruct(h_time[j-1], dt_prev);
                   if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-                     htf_new_period = true;
+                     htf_new_period = true; // FIXED: corrected typo from new_period
                   break;
                  }
                case ANCHOR_CUSTOM_SESSION:
                  {
                   MqlDateTime dt_curr, dt_prev;
-                  TimeToStruct(h_time[j], dt_curr);
-                  TimeToStruct(h_time[j-1], dt_prev);
+                  TimeToStruct(h_time[j], dt_curr); // FIXED: aligned strictly to HTF times
+                  TimeToStruct(h_time[j-1], dt_prev); // FIXED: aligned strictly to HTF times
                   int min_curr = dt_curr.hour * 60 + dt_curr.min;
                   int min_prev = dt_prev.hour * 60 + dt_prev.min;
                   int start_min = g_start_hour * 60 + g_start_min;
@@ -424,9 +425,21 @@ int OnCalculate(const int rates_total,
         }
      }
 
-//--- 4. Incremental Mapping of HTF results to Current Chart Timeframe (O(1) per tick)
+//--- 4. FIXED: Dynamically adjust 'start' to the beginning of the current forming HTF bar
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
+   int first_bar_of_forming_htf = rates_total - 1;
+   while(first_bar_of_forming_htf > 0 &&
+         iBarShift(_Symbol, InpTimeframe, time[first_bar_of_forming_htf], false) == 0)
+     {
+      first_bar_of_forming_htf--;
+     }
+   first_bar_of_forming_htf++; // This is the start of the forming step
+
+   if(start > first_bar_of_forming_htf)
+      start = first_bar_of_forming_htf;
+
+//--- 5. Incremental Mapping of HTF results to Current Chart Timeframe (O(1) per tick)
    for(int i = start; i < rates_total; i++)
      {
       datetime t = time[i];
