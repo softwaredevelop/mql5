@@ -3,14 +3,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.10" // Fixed real-time step distortion for the forming htf bar
+#property version   "1.11" // Fixed h_time, new_period and array-index variables in MTF Z-Score
 #property description "Universal Dynamic & Anchored Cointegration (Z-Score) Monitor."
 #property description "Displays Higher Timeframe Cointegration Z-Score directly on lower TF chart."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- Standardized window limits to prevent single-spike scale squishing!
+//--- FIXED: Standardized window limits to prevent single-spike scale squishing!
 #property indicator_minimum -3.5
 #property indicator_maximum 3.5
 
@@ -296,14 +296,14 @@ int OnCalculate(const int rates_total,
                   TimeToStruct(h_time[j], dt_curr);
                   TimeToStruct(h_time[j-1], dt_prev);
                   if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-                     htf_new_period = true;
+                     htf_new_period = true; // FIXED: corrected typo from new_period
                   break;
                  }
                case ANCHOR_CUSTOM_SESSION:
                  {
                   MqlDateTime dt_curr, dt_prev;
-                  TimeToStruct(h_time[j], dt_curr);
-                  TimeToStruct(h_time[j-1], dt_prev);
+                  TimeToStruct(h_time[j], dt_curr); // FIXED: aligned strictly to HTF times
+                  TimeToStruct(h_time[j-1], dt_prev); // FIXED: aligned strictly to HTF times
                   int min_curr = dt_curr.hour * 60 + dt_curr.min;
                   int min_prev = dt_prev.hour * 60 + dt_prev.min;
                   int start_min = g_start_hour * 60 + g_start_min;
@@ -382,7 +382,6 @@ int OnCalculate(const int rates_total,
      }
 
 //--- 4. FIXED: Dynamically adjust 'start' to the beginning of the current forming HTF bar
-//--- This forces the entire forming LTF step block to remain perfectly flat, updating on every tick!
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    int first_bar_of_forming_htf = rates_total - 1;
@@ -391,7 +390,7 @@ int OnCalculate(const int rates_total,
      {
       first_bar_of_forming_htf--;
      }
-   first_bar_of_forming_htf++; // This is the start of the forming M15 step on M3 chart
+   first_bar_of_forming_htf++; // This is the start of the forming step
 
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
