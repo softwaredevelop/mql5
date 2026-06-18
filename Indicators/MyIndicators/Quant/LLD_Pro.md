@@ -1,15 +1,15 @@
-# Lead-Lag Dominance Index Pro (LLDI Pro)
+# Lead-Lag Dominance Index Pro Suite (LLDI Pro & MTF Pro)
 
 ## 1. Summary (Introduction)
 
-The **Lead-Lag Dominance Index Pro (LLDI Pro)** is an institutional-grade, high-frequency quantitative tool designed to detect and measure the temporal lead-lag relationships between any two financial instruments in real-time. In financial markets, information does not flow instantaneously to all assets. Highly liquid market-representative instruments (such as indices like DXY or major assets like BTCUSD) often react to macroeconomic and sentiment shifts seconds or minutes before secondary correlated assets (like EURUSD, or altcoins like SUIUSD and ETHUSD) follow suit.
+The **Lead-Lag Dominance Index Pro Suite (`LLD_Pro` & `LLD_MTF_Pro`)** is an institutional-grade, high-frequency quantitative toolset designed to detect and measure temporal lead-lag relationships between any two financial instruments in real-time. In financial markets, information does not flow instantaneously to all assets. Highly liquid, market-representative instruments (such as indices like DXY, or benchmark assets like BTCUSD) often react to macroeconomic and sentiment shifts seconds or minutes before secondary correlated assets (like EURUSD, or altcoins like SUIUSD and ETHUSD) follow suit.
 
-By measuring the mathematical lead-lag relationship, `LLD_Pro` solves two of the most critical questions in cross-asset trading:
+By measuring the mathematical cross-correlation phase shift, the LLD Suite solves two of the most critical questions in cross-asset trading:
 
 1. **Who is driving the current market regime?** (Which asset is leading and which is trailing?)
 2. **What is the current execution window?** (By how many bars does the leader anticipate the follower?)
 
-Featuring **VWAP-style Anchored Resets** (Session, Weekly, Monthly, and Custom Session), the indicator can completely isolate intraday/intraweek price relationships from overnight gaps and illiquidity. The entire suite features a highly optimized $O(1)$ real-time mathematical engine, a high-precision 5-decimal status panel, and a bulletproof, gap-resistant bar-time synchronization module.
+The suite includes both a single-timeframe tactical oscillator (`LLD_Pro`) and a multi-timeframe macro monitor (`LLD_MTF_Pro`). Featuring **VWAP-style Anchored Resets** (Session, Weekly, Monthly, and Custom Session), the indicators can completely isolate intraday/intraweek price relationships from overnight gaps and illiquidity. The entire architecture features a highly optimized $O(1)$ real-time mathematical engine, a high-precision 5-decimal status panel, and a bulletproof, dual-symbol synchronization module.
 
 ---
 
@@ -19,7 +19,7 @@ To perform a mathematically valid cross-correlation on financial time series, th
 
 ### A. Logarithmic Return Transformation
 
-The indicator transforms closing price series $P_t$ for both Symbol $A$ (Chart) and Symbol $B$ (Secondary Comparison) into stationarized log-returns ($R_t$):
+The engine transforms closing price series $P_t$ for both Symbol $A$ (Primary Chart) and Symbol $B$ (Secondary Comparison) into stationarized log-returns ($R_t$):
 
 $$R_{A,t} = \ln\left(\frac{P_{A,t}}{P_{A,t-1}}\right)$$
 
@@ -27,7 +27,7 @@ $$R_{B,t} = \ln\left(\frac{P_{B,t}}{P_{B,t-1}}\right)$$
 
 ### B. Shifted Pearson Cross-Correlation (CCF)
 
-For each bar $t$, the indicator computes the Pearson correlation coefficient ($r$) over a rolling or anchored window $W$ (`window_size`) using multiple lag offsets $k$ ($1 \le k \le \text{MaxLag}$):
+For each target bar $t$, the indicator computes the Pearson correlation coefficient ($r$) over a rolling or anchored window $W$ (`window_size`) using multiple lag offsets $k$ ($1 \le k \le \text{MaxLag}$):
 
 * **Direction 1: Symbol B leads Symbol A** ($r_{B \rightarrow A}$)
   Correlates the past of B with the present of A. The window of B is shifted backward by $k$ bars:
@@ -46,62 +46,92 @@ $$\text{LLDI}_t = \text{Peak}_{B \rightarrow A} - \text{Peak}_{A \rightarrow B}$
 
 * **$\text{LLDI} > 0.02$ (Blue Histogram):** Symbol B (Secondary) is dominant and leads Symbol A (Chart).
 * **$\text{LLDI} < -0.02$ (Red Histogram):** Symbol A (Chart) is dominant and leads Symbol B (Secondary).
-* **$\text{LLDI} \in [-0.02, 0.02]$ (Gray Histogram):** Symmetrical relationship (no clear leader).
+* **$\text{LLDI} \in [-0.02, 0.02]$ (Gray Histogram):** Symmetrical relationship (no clear leader or absolute co-movement).
 
 ---
 
-## 3. MQL5 UI & Architecture
+## 3. MQL5 UI & Advanced Architecture
 
-* **Decoupled Math Engine (`LLD_Calculator.mqh`):**
-  All wave tracking and correlation sweep calculations are encapsulated inside the highly optimized `CLeadLagDominanceCalculator` include class.
+### A. Unified Math Engine (`LLD_Calculator.mqh`)
 
-* **Single-Bar $O(1)$ Optimization (Anti-Freeze Guard):**
-  Running full historical cross-correlations inside nested loops in `OnCalculate` results in an $O(N^2)$ computational complexity, forcing up to 4.5 billion operations on startup, which freezes the MT5 terminal.
-  `LLD_Pro` solves this by modifying the calculator to process **only a single index (`current_index`)** per call. It computes the log-returns and Pearson sweeps exclusively for the requested bar, maintaining a strict $O(1)$ complexity on live ticks, ensuring instant and fluid execution.
+All logarithmic transformations, rolling windows, and optimal lag sweeps are strictly decoupled from visual rendering and encapsulated inside the stateful `CLeadLagDominanceCalculator` class.
 
-* **Unique Subwindow Labeling (Anti-Collision Guard):**
-  When multiple instances of the LLD indicator are applied to the same chart (e.g., comparing different symbols), standard global labels collide and overwrite each other. `LLD_Pro` resolves this by calling `ChartWindowFind()` and appending the specific subwindow index to the object prefix (e.g. `WYC_LLD_1234_Status_Sub_2`). This allows multiple status panels to coexist and render perfectly in their respective windows.
+### B. Dual-Symbol HTF Synchronization Module (`EnsureHTFDataReady`)
 
-* **Data Window Mapping with `DRAW_NONE`:**
-  To allow the trader to hover over any historical bar and see the precise `Optimal Lag` value inside the MT5 Data Window, the lag buffer is mapped to `INDICATOR_DATA` instead of `INDICATOR_CALCULATIONS`. However, its draw style is set to `DRAW_NONE` in `OnInit` so that it remains completely invisible on the chart, preventing any visual distortion of the separate window's vertical scale.
+When calculating multi-timeframe cross-correlations across two distinct symbols, asynchronous history gaps or loading delays can cause fatal array out-of-range errors. `LLD_MTF_Pro` implements a rigorous dual-gate check:
 
-* **Symbol Selection Guard:**
-  Typing incorrect symbol names or mismatched broker suffixes (e.g., `BTCUSD.m` instead of `BTCUSD`) can cause indicators to fail silently. `LLD_Pro` implements an aggressive `SymbolExist` check in `OnInit()`. If the comparison symbol is invalid, it throws a pop-up **MT5 Alert** and gracefully stops execution (`INIT_FAILED`), preventing silent crashes.
+```mql5
+if(!EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars) ||
+   !EnsureHTFDataReady(InpSecondSymbol, InpTimeframe, required_bars))
+```
+
+This forces the indicator to pause calculations and wait for the MT5 terminal to fully construct and synchronize history for both assets before executing the mathematical engine.
+
+### C. High-Performance $O(1)$ Block Memory Transfer
+
+Traditional MQL5 MTF indicators utilize slow `iBarShift` and `iClose` API calls inside nested historical loops, causing severe terminal lag. `LLD_MTF_Pro` eliminates this by utilizing high-speed memory block copying (`CopyClose`) directly into chronologically aligned dynamic arrays (`h_close_A`, `h_close_B`) whenever a new HTF bar forms. This reduces complexity from $O(N)$ API lookups to an instantaneous block transfer.
+
+### D. Zero-Lag Flat Step MTF Mapping
+
+To project higher timeframe results onto a lower timeframe chart without repainting or calculation lag, `LLD_MTF_Pro` dynamically locates the exact operational starting bar corresponding to the live forming HTF bar:
+
+```mql5
+int first_bar_of_forming_htf = rates_total - 1;
+while(first_bar_of_forming_htf > 0 &&
+      iBarShift(_Symbol, InpTimeframe, time[first_bar_of_forming_htf], false) == 0)
+```
+
+Historical HTF steps remain strictly frozen (non-repainting), while the active lower timeframe step block updates instantaneously on every live tick.
+
+### E. Anti-Collision Subwindow Labeling & Invisible Data Mapping
+
+* **Unique Prefixes:** Status panels automatically bind to their specific subwindow ID (`ChartWindowFind()`), allowing multiple LLD instances (e.g., comparing different assets or timeframes) to render cleanly on a single chart without overwriting each other.
+
+* **Data Window Mapping:** The `Optimal Lag` buffer is set to `INDICATOR_DATA` so its exact value can be inspected in the MT5 Data Window upon hovering, but it is explicitly styled as `DRAW_NONE` to keep the visual histogram scale pure and uncompressed.
 
 ---
 
-## 4. Parameters
+## 4. Input Parameters
 
-* **Comparison Symbol (`InpSecondSymbol`):** The secondary symbol to correlate with (Default: `"BTCUSD"`).
-* **Anchor Reset (`InpAnchor`):** The reset anchor period (None, Session, Week, Month, Custom Session).
-* **Rolling Window (`InpWindowSize`):** The number of historical bars used to calculate each correlation point (Used if Anchor = None). Default is `50`.
-* **Maximum Lag (`InpMaxLag`):** The maximum number of bar shifts tested. Default is `10`.
-* **Custom Start (`InpCustomStart`):** Session start time in format "HH:MM" (Used if Anchor = Custom).
-* **Custom End (`InpCustomEnd`):** Session end time in format "HH:MM" (Used if Anchor = Custom).
+* **Comparison Symbol (`InpSecondSymbol`):** The secondary comparison instrument (Default: `"BTCUSD"`).
+* **Target Timeframe (`InpTimeframe`):** *(MTF Version Only)* The higher timeframe to monitor (Default: `PERIOD_M5`).
+* **Anchor Reset Period (`InpAnchor`):** The dynamic reset mode (`ANCHOR_NONE`, `SESSION`, `WEEK`, `MONTH`, `CUSTOM_SESSION`).
+* **Rolling Window Size (`InpWindowSize`):** The lookback sample size for rolling correlation (Used if Anchor = None). Default: `50`.
+* **Maximum Tested Lag (`InpMaxLag`):** The maximum phase shift window tested. Default: `10`.
+* **Custom Start Time (`InpCustomStart`):** Session start time in "HH:MM" broker time (Used if Anchor = Custom).
+* **Custom End Time (`InpCustomEnd`):** Session end time in "HH:MM" broker time (Used if Anchor = Custom).
 
 ---
 
-## 5. Advanced Statistical Arbitrage Strategies
+## 5. Quantitative Trading Strategies
 
-### A. Dynamic Intraday Lead-Lag Transitions
+### A. Dynamic Intraday Lead-Lag Rotations
 
-Lead-lag relationships in financial markets are highly dynamic and rotate throughout the trading day based on session liquidity.
+Lead-lag relationships in financial markets are highly dynamic and rotate throughout the trading day based on regional liquidity.
 
-* **The Concept:** During the European session, `EURUSD` may lead `GBPUSD`. However, during the US session, `GBPUSD` may take the lead.
-* **The Solution:** By applying **`ANCHOR_SESSION`** or **`ANCHOR_CUSTOM_SESSION`**, the indicator resets its data pool at the start of each active session. This filters out overnight noise and provides an absolute, real-time speedometer of who is leading the market *today*.
+* **The Concept:** During the European session, `EURUSD` may lead `GBPUSD`. However, when New York opens, US equity futures or US Treasury yields may take the definitive lead.
+* **The Execution:** By setting `InpAnchor = ANCHOR_SESSION`, the indicator flushes its historical buffer at midnight (or at the custom broker open), providing an unpolluted, intraday momentum gauge of who is driving the market *today*.
 
-### B. The Contemporaneous Lockstep Phenomenon (Symmetry vs. Lead-Lag)
+### B. Contemporaneous Lockstep Cointegration (The Symmetrical Proof)
 
-A significant quantitative insight occurs when pairing highly cointegrated assets within the same asset class (e.g. **BTCUSD vs. ETHUSD**):
+When pairing highly cointegrated assets belonging to the same asset class (e.g., **BTCUSD vs. ETHUSD**):
 
-* Since major cryptocurrencies are highly integrated, their real-time correlations occur almost entirely at lag $k = 0$ (Contemporaneous Correlation).
-* At shifted lags ($k \ge 1$), the predictive power of BTCUSD over ETHUSD is roughly equivalent to the predictive power of ETHUSD over BTCUSD ($\text{Peak}_{B \rightarrow A} \approx \text{Peak}_{A \rightarrow B}$). This mathematically yields $\text{LLDI} \approx 0.00000$ (Symmetrical/Gray). This flat reading is not a bug; it is a **mathematical proof of instantaneous market integration**.
-* Conversely, when pairing uncorrelated or macro-driven assets (e.g. **DXY vs. BTCUSD**), clear asymmetric lead-lag relationships appear, producing non-zero, beautifully colored LLDI values with 5-decimal precision.
+* Real-time co-movement occurs almost entirely at lag $k = 0$.
+* At shifted lags ($k \ge 1$), the predictive power of BTC over ETH equals ETH over BTC ($\text{Peak}_{B \rightarrow A} \approx \text{Peak}_{A \rightarrow B}$).
+* This mathematically yields $\text{LLDI} \approx 0.00000$ (Gray Histogram). This flat reading is an institutional proof of absolute contemporaneous efficiency. When structural divergence breaks this symmetry, the histogram spikes into Blue or Red, signaling an immediate arbitrage opportunity.
 
-### C. The Cointegration + LLD Pro Synergy (Single-Leg Trading)
+### C. The Cointegration + LLDI Synergy (Single-Leg Arbitrage)
 
-By pairing `PairsTrading_Pro` (Cointegration Spread) and `LLD_Pro` (Lead-Lag) together, traders can execute highly efficient **single-leg directional trades**:
+By combining `PairsTrading_Pro` (Cointegration Z-Score) with `LLD_Pro`, traders can execute highly profitable single-leg mean reversion trades:
 
-1. `PairsTrading_Pro` signals that the spread is extremely cheap (Z-Score $\le -2.0$), meaning Asset A is underpriced relative to Asset B.
-2. `LLD_Pro` signals that **Asset B is dominant and leads Asset A**.
-3. *Action:* Since the leader (Asset B) has already moved up, and the follower (Asset A) is mathematically guaranteed to follow to close the spread gap, you simply **BUY Asset A as a single-leg directional trade**. This reduces execution margin requirements by 50% and completely avoids double-leg commissions!
+1. `PairsTrading_Pro` indicates an extreme spread dislocation (Z-Score $\le -2.0$), meaning Asset A is severely undervalued relative to Asset B.
+2. `LLD_Pro` confirms that **Asset B is dominant and leading Asset A** ($\text{LLDI} > 0.02$).
+3. **The Trade:** Because the dominant leader (Asset B) has already established the upward trajectory, the trailing asset (Asset A) is mathematically bound to follow to close the cointegration gap. You execute a **BUY order exclusively on Asset A**. This eliminates double-leg transaction costs and reduces margin utilization by 50%.
+
+### D. Top-Down Macro Dominance Alignment *(MTF Exclusive)*
+
+Traders can utilize `LLD_MTF_Pro` to establish institutional macro direction while executing on a micro tactical chart:
+
+1. Apply `LLD_MTF_Pro` on an `M1` or `M5` chart, set to monitor the **`PERIOD_H1`** timeframe comparing `_Symbol` against a macro benchmark (e.g., `US500` or `DXY`).
+2. If the H1 MTF histogram is strongly **Blue**, the macro benchmark is driving the broader market upward.
+3. **The Micro Entry:** Ignore all short/bearish signals on the lower timeframe chart. Wait for local LTF pullbacks or moving average retests, and execute **BUY orders only in the direction of the macro leader**, locking in an exceptional risk-to-reward ratio.
