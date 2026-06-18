@@ -1,10 +1,9 @@
 //+------------------------------------------------------------------+
-//|                                                   LLD_Calculator.mqh |
+//|                                     LLD_Calculator.mqh           |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.21" // Optimized, prefix-free calculator
-#property description "High-Performance Lead-Lag Cross-Correlation Calculator"
+#property version   "1.31" // Fixed dynamic index-based computation to eliminate CPU deadlock
 
 #ifndef LLD_CALCULATOR_MQH
 #define LLD_CALCULATOR_MQH
@@ -12,16 +11,14 @@
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
-//| CLASS: CLeadLagDominanceCalculator                               |
+//|             CLASS: CLeadLagDominanceCalculator                   |
 //+==================================================================+
 class CLeadLagDominanceCalculator
   {
 private:
-   int               m_window;
+   int               m_max_window;
    int               m_max_lag;
 
-   double            m_price_A[];
-   double            m_price_B[];
    double            m_returns_A[];
    double            m_returns_B[];
 
@@ -29,43 +26,50 @@ private:
    double            ComputePearson(const double &x[], const double &y[], int start_x, int start_y, int length);
 
 public:
-                     CLeadLagDominanceCalculator(void) : m_window(50), m_max_lag(10) {};
+                     CLeadLagDominanceCalculator(void) : m_max_window(120), m_max_lag(10) {};
                     ~CLeadLagDominanceCalculator(void) {};
 
-   bool              Init(int window, int max_lag);
+   bool              Init(int max_window, int max_lag);
 
-   //--- Dynamic calculation of dominance index and optimal lag
+   //--- FIXED: Single index computation in O(1) to prevent double-nested loop frosen state
    bool              CalculateDominance(const int rates_total,
-                                        const int start_index,
+                                        const int current_index, // Single target index!
+                                        const int window_size,
                                         const double &close_A[],
                                         const double &close_B[],
-                                        double &lldi_buffer[],
-                                        double &lag_buffer[]);
+                                        double &out_lldi,        // Out variables passed as reference
+                                        double &out_lag);
   };
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CLeadLagDominanceCalculator::Init(int window, int max_lag)
+bool CLeadLagDominanceCalculator::Init(int max_window, int max_lag)
   {
-   m_window = (window < 5) ? 5 : window;
+   m_max_window = (max_window < 10) ? 10 : max_window;
    m_max_lag = (max_lag < 1) ? 1 : max_lag;
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| CalculateDominance                                               |
+//| CalculateDominance (Dynamic Window Cross-Correlation)            |
 //+------------------------------------------------------------------+
 bool CLeadLagDominanceCalculator::CalculateDominance(const int rates_total,
-      const int start_index,
+      const int current_index,
+      const int window_size,
       const double &close_A[],
       const double &close_B[],
-      double &lldi_buffer[],
-      double &lag_buffer[])
+      double &out_lldi,
+      double &out_lag)
   {
-   int required_bars = m_window + m_max_lag + 2;
-   if(rates_total < required_bars)
-      return false;
+// Safety 1: Enforce minimum bars to allow full lag-interval shift on anchored starts
+   int required_bars = window_size + m_max_lag + 2;
+   if(rates_total < required_bars || window_size < m_max_lag + 15 || current_index < required_bars - 1)
+     {
+      out_lldi = 0.0;
+      out_lag = 0.0;
+      return false; // Not enough data points accumulated in the current anchor period yet
+     }
 
 //--- Handle dynamic arrays for returns
    if(ArraySize(m_returns_A) != rates_total)
@@ -74,69 +78,58 @@ bool CLeadLagDominanceCalculator::CalculateDominance(const int rates_total,
       ArrayResize(m_returns_B, rates_total);
      }
 
-   int calc_start = (start_index == 0) ? 1 : start_index;
+//--- 1. Calculate Log-Returns incrementally for the current index (O(1))
+   m_returns_A[current_index] = (close_A[current_index-1] > 0) ? MathLog(close_A[current_index] / close_A[current_index-1]) : 0.0;
+   m_returns_B[current_index] = (close_B[current_index-1] > 0) ? MathLog(close_B[current_index] / close_B[current_index-1]) : 0.0;
 
-//--- 1. Calculate Log-Returns to ensure stationarity
-   for(int i = calc_start; i < rates_total; i++)
+//--- 2. Single-bar Cross-Correlation Sweep (FIXED: removed nested loops!)
+   int i = current_index;
+   double peak_B_leads_A = 0.0;
+   int    opt_lag_B_leads = 0;
+
+   double peak_A_leads_B = 0.0;
+   int    opt_lag_A_leads = 0;
+
+//--- Test all lags up to m_max_lag
+   for(int k = 1; k <= m_max_lag; k++)
      {
-      m_returns_A[i] = (close_A[i-1] > 0) ? MathLog(close_A[i] / close_A[i-1]) : 0.0;
-      m_returns_B[i] = (close_B[i-1] > 0) ? MathLog(close_B[i] / close_B[i-1]) : 0.0;
-     }
-
-//--- Define safe processing loop boundaries
-   int start_pos = m_window + m_max_lag + 1;
-   int loop_start = MathMax(start_pos, start_index);
-
-//--- 2. Rolling Cross-Correlation Sweep
-   for(int i = loop_start; i < rates_total; i++)
-     {
-      double peak_B_leads_A = 0.0;
-      int    opt_lag_B_leads = 0;
-
-      double peak_A_leads_B = 0.0;
-      int    opt_lag_A_leads = 0;
-
-      //--- Test all lags up to m_max_lag
-      for(int k = 1; k <= m_max_lag; k++)
+      // Direction 1: B leads A (B's past predicts A's present)
+      double r_B_leads = ComputePearson(m_returns_B, m_returns_A, i - window_size + 1 - k, i - window_size + 1, window_size);
+      if(MathAbs(r_B_leads) > MathAbs(peak_B_leads_A))
         {
-         // Direction 1: B leads A (B's past predicts A's present)
-         double r_B_leads = ComputePearson(m_returns_B, m_returns_A, i - m_window + 1 - k, i - m_window + 1, m_window);
-         if(MathAbs(r_B_leads) > MathAbs(peak_B_leads_A))
-           {
-            peak_B_leads_A = r_B_leads;
-            opt_lag_B_leads = k;
-           }
-
-         // Direction 2: A leads B (A's past predicts B's present)
-         double r_A_leads = ComputePearson(m_returns_A, m_returns_B, i - m_window + 1 - k, i - m_window + 1, m_window);
-         if(MathAbs(r_A_leads) > MathAbs(peak_A_leads_B))
-           {
-            peak_A_leads_B = r_A_leads;
-            opt_lag_A_leads = k;
-           }
+         peak_B_leads_A = r_B_leads;
+         opt_lag_B_leads = k;
         }
 
-      //--- 3. Compute Dominance Metrics
-      double abs_B_leads = MathAbs(peak_B_leads_A);
-      double abs_A_leads = MathAbs(peak_A_leads_B);
-
-      lldi_buffer[i] = abs_B_leads - abs_A_leads;
-
-      //--- Sign the optimal lag: Positive if B leads, Negative if A leads
-      if(abs_B_leads > abs_A_leads)
+      // Direction 2: A leads B (A's past predicts B's present)
+      double r_A_leads = ComputePearson(m_returns_A, m_returns_B, i - window_size + 1 - k, i - window_size + 1, window_size);
+      if(MathAbs(r_A_leads) > MathAbs(peak_A_leads_B))
         {
-         lag_buffer[i] = (double)opt_lag_B_leads;
+         peak_A_leads_B = r_A_leads;
+         opt_lag_A_leads = k;
+        }
+     }
+
+//--- 3. Compute Dominance Metrics
+   double abs_B_leads = MathAbs(peak_B_leads_A);
+   double abs_A_leads = MathAbs(peak_A_leads_B);
+
+   out_lldi = abs_B_leads - abs_A_leads;
+
+//--- Sign the optimal lag: Positive if B leads, Negative if A leads
+   if(abs_B_leads > abs_A_leads)
+     {
+      out_lag = (double)opt_lag_B_leads;
+     }
+   else
+      if(abs_A_leads > abs_B_leads)
+        {
+         out_lag = -(double)opt_lag_A_leads;
         }
       else
-         if(abs_A_leads > abs_B_leads)
-           {
-            lag_buffer[i] = -(double)opt_lag_A_leads;
-           }
-         else
-           {
-            lag_buffer[i] = 0.0;
-           }
-     }
+        {
+         out_lag = 0.0;
+        }
 
    return true;
   }
