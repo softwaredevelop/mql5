@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.30" // Added custom session time-range anchor reset and night filtering
+#property version   "1.40" // Refactored with single comparison symbol and O(1) chart-native access
 #property description "Universal Dynamic & Anchored Cointegration (Z-Score) Monitor."
 #property description "Supports custom broker-time session ranges to eliminate gap distortion."
 #property indicator_separate_window
@@ -51,12 +51,11 @@ enum ENUM_ANCHOR_PERIOD
   };
 
 //--- Input Parameters
-input string            InpSymbolA      = "UKOIL";  // Symbol A (Brent Proxy, e.g. UKOIL or BRENT)
-input string            InpSymbolB      = "USOIL";  // Symbol B (WTI Proxy, e.g. USOIL or WTI)
-input ENUM_ANCHOR_PERIOD InpAnchor       = ANCHOR_NONE; // Dynamic Anchored Reset Period
-input int               InpLookback     = 120;      // Rolling Window size (Used if Anchor = NONE)
-input string            InpCustomStart  = "09:00";  // Custom Session Start (HH:MM, Broker Time)
-input string            InpCustomEnd    = "18:00";  // Custom Session End (HH:MM, Broker Time)
+input string            InpSecondSymbol = "USOIL";       // Comparison Symbol (Symbol B)
+input ENUM_ANCHOR_PERIOD InpAnchor       = ANCHOR_NONE;   // Dynamic Anchored Reset Period
+input int               InpLookback     = 120;           // Rolling Window size (Used if Anchor = NONE)
+input string            InpCustomStart  = "09:00";       // Custom Session Start (HH:MM, Broker Time)
+input string            InpCustomEnd    = "18:00";       // Custom Session End (HH:MM, Broker Time)
 
 //--- Buffers
 double ExtZScoreBuffer[];
@@ -122,6 +121,16 @@ int OnInit()
    g_data_synced = false;
    g_anchor_start_idx = 0;
 
+//--- Verify if the secondary comparison symbol exists in broker offerings
+   bool is_custom = false;
+   if(!SymbolExist(InpSecondSymbol, is_custom))
+     {
+      string err_msg = StringFormat("PairsTrading Pro Error: Symbol '%s' does not exist in your broker's database!", InpSecondSymbol);
+      Alert(err_msg);
+      Print(err_msg);
+      return(INIT_FAILED);
+     }
+
    SetIndexBuffer(0, ExtZScoreBuffer, INDICATOR_DATA);
    SetIndexBuffer(1, ExtColorsBuffer, INDICATOR_COLOR_INDEX);
 
@@ -144,7 +153,7 @@ int OnInit()
 // Configure shortname dynamically based on mode
    string anchor_name = EnumToString(InpAnchor);
    string short_name = StringFormat("PairsTrade Pro(%s vs %s, %s)",
-                                    InpSymbolA, InpSymbolB,
+                                    _Symbol, InpSecondSymbol,
                                     (InpAnchor == ANCHOR_NONE ? (string)InpLookback : StringSubstr(anchor_name, 7)));
 
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
@@ -157,6 +166,9 @@ int OnInit()
       return INIT_FAILED;
      }
 
+//--- Initialize 1-second timer for weekend/async chart refreshes
+   EventSetTimer(1);
+
    return(INIT_SUCCEEDED);
   }
 
@@ -165,7 +177,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(CheckPointer(g_calc) == POINTER_DYNAMIC)
+   EventKillTimer();
+   if(CheckPointer(g_calc) != POINTER_INVALID)
       delete g_calc;
   }
 
@@ -188,8 +201,8 @@ int OnCalculate(const int rates_total,
       required_bars = 1000; // Need larger history depth for monthly/weekly/custom anchors
 
 //--- Ensure both symbol histories are fully loaded in the terminal
-   if(!EnsureDataReady(InpSymbolA, _Period, required_bars) ||
-      !EnsureDataReady(InpSymbolB, _Period, required_bars))
+   if(!EnsureDataReady(_Symbol, _Period, required_bars) ||
+      !EnsureDataReady(InpSecondSymbol, _Period, required_bars))
      {
       g_data_synced = false;
       return 0; // Wait for next tick to let history load
@@ -197,9 +210,8 @@ int OnCalculate(const int rates_total,
 
    g_data_synced = true;
 
-//--- Get standalone default fallback values to ensure absolute chart independence
-   double default_close_A = iClose(InpSymbolA, _Period, 0);
-   double default_close_B = iClose(InpSymbolB, _Period, 0);
+//--- Get standalone default fallback values for Symbol B to ensure absolute chart independence
+   double default_close_B = iClose(InpSecondSymbol, _Period, 0);
 
 //--- 1. Advanced Bar-Time Synchronization & Alignment Loop (O(1) incremental)
    ArrayResize(g_sync_close_A, rates_total);
@@ -211,17 +223,13 @@ int OnCalculate(const int rates_total,
 
    for(int i = loop_start; i < rates_total; i++)
      {
-      // Sync Symbol A Price
-      int shift_A = iBarShift(InpSymbolA, _Period, time[i], false);
-      if(shift_A >= 0)
-         g_sync_close_A[i] = iClose(InpSymbolA, _Period, shift_A);
-      else
-         g_sync_close_A[i] = (i > 0) ? g_sync_close_A[i-1] : default_close_A; // FIXED: chart-independent fallback
+      // Symbol A is the native chart symbol -> direct O(1) memory access
+      g_sync_close_A[i] = close[i];
 
       // Sync Symbol B Price
-      int shift_B = iBarShift(InpSymbolB, _Period, time[i], false);
+      int shift_B = iBarShift(InpSecondSymbol, _Period, time[i], false);
       if(shift_B >= 0)
-         g_sync_close_B[i] = iClose(InpSymbolB, _Period, shift_B);
+         g_sync_close_B[i] = iClose(InpSecondSymbol, _Period, shift_B);
       else
          g_sync_close_B[i] = (i > 0) ? g_sync_close_B[i-1] : default_close_B; // FIXED: chart-independent fallback
      }
@@ -356,6 +364,23 @@ int OnCalculate(const int rates_total,
      }
 
    return(rates_total);
+  }
+
+//+------------------------------------------------------------------+
+//| OnTimer                                                          |
+//| Handles loading checks and force-redraws                         |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   if(!g_data_synced)
+     {
+      int required_bars = InpLookback + 5;
+      if(EnsureDataReady(InpSecondSymbol, _Period, required_bars))
+        {
+         g_data_synced = true;
+         ChartRedraw(); // Force MT5 to invoke OnCalculate
+        }
+     }
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
