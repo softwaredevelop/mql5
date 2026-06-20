@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.30" // Live-updating forming bar with O(1) performance
+#property version   "1.41" // Fixed SetIndexBuffer duplicate and ArrayResize typo
 #property description "Rolling Alpha & Beta (Multi-Timeframe) with real-time forming bar calculation."
 
 #property indicator_separate_window
@@ -43,6 +43,7 @@ double h_res[];
 datetime g_last_htf_time  = 0;
 int      g_htf_count      = 0;
 bool     g_data_ready     = false;
+bool     g_data_synced    = false;
 
 CMathStatisticsCalculator *g_stats;
 string g_bench_symbol;
@@ -72,14 +73,19 @@ int OnInit()
    g_last_htf_time = 0;
    g_htf_count = 0;
    g_data_ready = false;
+   g_data_synced = false;
 
    if(InpTimeframe <= Period() && InpTimeframe != PERIOD_CURRENT)
      {
       Print("Warning: Target Timeframe should be > Current.");
      }
 
+//--- Bind buffers (FIXED: Removed duplicate BufMiddle binding)
    SetIndexBuffer(0, BufDisplay, INDICATOR_DATA);
    SetIndexBuffer(1, BufColors, INDICATOR_COLOR_INDEX);
+
+   ArraySetAsSeries(BufDisplay, false);
+   ArraySetAsSeries(BufColors, false);
 
 // Configure Mode
    string name;
@@ -117,6 +123,9 @@ int OnInit()
    if(!SymbolSelect(g_bench_symbol, true))
       return INIT_FAILED;
 
+//--- Initialize 1-second timer for weekend/async chart refreshes
+   EventSetTimer(1);
+
    return(INIT_SUCCEEDED);
   }
 
@@ -125,7 +134,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int r)
   {
-   if(CheckPointer(g_stats) == POINTER_DYNAMIC)
+   EventKillTimer();
+   if(CheckPointer(g_stats) != POINTER_INVALID)
       delete g_stats;
   }
 
@@ -146,14 +156,17 @@ int OnCalculate(const int rates_total,
    if(_Symbol == g_bench_symbol)
       return rates_total; // Skip if self
 
-//--- Ensure HTF history is ready
+//--- Ensure HTF histories are fully loaded in the terminal
    int required_bars = InpLookback + 10;
    if(!EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars) ||
       !EnsureHTFDataReady(g_bench_symbol, InpTimeframe, required_bars))
      {
       g_data_ready = false;
+      g_data_synced = false;
       return 0; // Wait for next tick to let history load
      }
+
+   g_data_synced = true;
 
 //--- 1. Check if a new HTF bar has formed
    datetime htf_time_current = iTime(_Symbol, InpTimeframe, 0);
@@ -272,6 +285,7 @@ int OnCalculate(const int rates_total,
         {
          double bench_sub[];
          ArrayResize(bench_sub, InpLookback);
+         // FIXED: Replaced incorrect ArrayResize with ArrayCopy to ensure correct array copy parameters count
          if(ArrayCopy(bench_sub, h_bench_c, 0, live_idx - InpLookback + 1, InpLookback) == InpLookback)
            {
             double asset_ret[], bench_ret[];
@@ -295,9 +309,22 @@ int OnCalculate(const int rates_total,
         }
      }
 
-//--- 5. Incremental Mapping of HTF results to Current Chart Timeframe (O(1) per tick)
+//--- 5. FIXED: Dynamically adjust 'start' to the beginning of the current forming HTF bar
+//--- This forces the entire forming LTF step block to remain perfectly flat, updating on every tick!
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
+   int first_bar_of_forming_htf = rates_total - 1;
+   while(first_bar_of_forming_htf > 0 &&
+         iBarShift(_Symbol, InpTimeframe, time[first_bar_of_forming_htf], false) == 0)
+     {
+      first_bar_of_forming_htf--;
+     }
+   first_bar_of_forming_htf++; // This is the start of the forming step on lower TF chart
+
+   if(start > first_bar_of_forming_htf)
+      start = first_bar_of_forming_htf;
+
+//--- 6. Incremental Mapping of HTF results to Current Chart Timeframe (O(1) per tick)
    for(int i = start; i < rates_total; i++)
      {
       datetime t = time[i];
@@ -317,12 +344,12 @@ int OnCalculate(const int rates_total,
             else
               {
                if(val > 0)
-                  BufColors[i] = 1.0; // Lime
+                  BufColors[i] = 1.0; // Lime (Positive Excess Return)
                else
                   if(val < 0)
-                     BufColors[i] = 2.0; // Red
+                     BufColors[i] = 2.0; // Red (Negative Excess Return)
                   else
-                     BufColors[i] = 0.0; // Gray
+                     BufColors[i] = 0.0; // Gray (Neutral)
               }
            }
          else
@@ -337,6 +364,24 @@ int OnCalculate(const int rates_total,
      }
 
    return(rates_total);
+  }
+
+//+------------------------------------------------------------------+
+//| OnTimer                                                          |
+//| Handles loading checks and force-redraws                         |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   if(!g_data_synced)
+     {
+      int required_bars = InpLookback + 5;
+      if(EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars) &&
+         EnsureHTFDataReady(g_bench_symbol, InpTimeframe, required_bars))
+        {
+         g_data_synced = true;
+         ChartRedraw(); // Force MT5 to invoke OnCalculate
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
