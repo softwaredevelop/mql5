@@ -3,12 +3,12 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.40" // Refactored with single comparison symbol and O(1) chart-native access
+#property version   "1.50" // Upgraded to 3 dynamic Z-Score bands (7-channel layout)
 #property description "Wyckoff-style Cointegration Bands on Main Chart."
-#property description "Projects dynamic equilibrium line (Z=0), warning (Z=+-1.5) and extreme (Z=+-2.0) bands."
+#property description "Projects dynamic equilibrium line (Z=0), warning (Z=+-1.5), extreme (Z=+-2.0) and reversal (Z=+-2.5) bands."
 #property indicator_chart_window
-#property indicator_buffers 5
-#property indicator_plots   5
+#property indicator_buffers 7
+#property indicator_plots   7
 
 //--- Plot 1: Cointegrated Equilibrium Line (Fair Value / Z=0)
 #property indicator_label1  "Equilibrium Center"
@@ -45,6 +45,20 @@
 #property indicator_style5  STYLE_DOT
 #property indicator_width5  1
 
+//--- Plot 6: Upper Extreme Band (Z = Stop/Reversal Zone)
+#property indicator_label6  "Upper Extreme Band"
+#property indicator_type6   DRAW_LINE
+#property indicator_color6  clrCrimson
+#property indicator_style6  STYLE_SOLID
+#property indicator_width6  1
+
+//--- Plot 7: Lower Extreme Band (Z = Stop/Reversal Zone)
+#property indicator_label7  "Lower Extreme Band"
+#property indicator_type7   DRAW_LINE
+#property indicator_color7  clrDodgerBlue
+#property indicator_style7  STYLE_SOLID
+#property indicator_width7  1
+
 #include <MyIncludes\PairsTrading_Calculator.mqh>
 
 //--- Anchored Timeframe Resets Enum
@@ -64,12 +78,14 @@ input int               InpLookback           = 120;         // Rolling Window s
 input string            InpCustomStart        = "09:00";     // Custom Session Start (HH:MM, Broker Time)
 input string            InpCustomEnd          = "18:00";     // Custom Session End (HH:MM, Broker Time)
 
-//--- Dynamic Channel Options
+//--- Dynamic Channel Options (3 distinct Z-Score levels)
 input bool              InpDrawCenterLine     = true;        // Draw Center Equilibrium Line?
 input bool              InpDrawInnerBands     = true;        // Draw Inner (Warning) Bands?
 input double            InpInnerMultiplier    = 1.5;         // Inner Band Z-Score Multiplier
 input bool              InpDrawOuterBands     = true;        // Draw Outer (Extreme) Bands?
 input double            InpOuterMultiplier    = 2.0;         // Outer Band Z-Score Multiplier
+input bool              InpDrawExtremeBands   = true;        // Draw Extreme (Reversal) Bands?
+input double            InpExtremeMultiplier  = 2.5;         // Extreme Band Z-Score Multiplier
 
 //--- Buffers
 double BufMiddle[];
@@ -77,6 +93,8 @@ double BufUpperOuter[];
 double BufLowerOuter[];
 double BufUpperInner[];
 double BufLowerInner[];
+double BufUpperExtreme[];
+double BufLowerExtreme[];
 
 //--- Aligned price arrays
 double g_sync_close_A[];
@@ -147,17 +165,21 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   SetIndexBuffer(0, BufMiddle,     INDICATOR_DATA);
-   SetIndexBuffer(1, BufUpperOuter, INDICATOR_DATA);
-   SetIndexBuffer(2, BufLowerOuter, INDICATOR_DATA);
-   SetIndexBuffer(3, BufUpperInner, INDICATOR_DATA);
-   SetIndexBuffer(4, BufLowerInner, INDICATOR_DATA);
+   SetIndexBuffer(0, BufMiddle,       INDICATOR_DATA);
+   SetIndexBuffer(1, BufUpperOuter,   INDICATOR_DATA);
+   SetIndexBuffer(2, BufLowerOuter,   INDICATOR_DATA);
+   SetIndexBuffer(3, BufUpperInner,   INDICATOR_DATA);
+   SetIndexBuffer(4, BufLowerInner,   INDICATOR_DATA);
+   SetIndexBuffer(5, BufUpperExtreme, INDICATOR_DATA);
+   SetIndexBuffer(6, BufLowerExtreme, INDICATOR_DATA);
 
-   ArraySetAsSeries(BufMiddle,     false);
-   ArraySetAsSeries(BufUpperOuter, false);
-   ArraySetAsSeries(BufLowerOuter, false);
-   ArraySetAsSeries(BufUpperInner, false);
-   ArraySetAsSeries(BufLowerInner, false);
+   ArraySetAsSeries(BufMiddle,       false);
+   ArraySetAsSeries(BufUpperOuter,   false);
+   ArraySetAsSeries(BufLowerOuter,   false);
+   ArraySetAsSeries(BufUpperInner,   false);
+   ArraySetAsSeries(BufLowerInner,   false);
+   ArraySetAsSeries(BufUpperExtreme, false);
+   ArraySetAsSeries(BufLowerExtreme, false);
 
 //--- Parse custom session times
    string parts[];
@@ -269,11 +291,13 @@ int OnCalculate(const int rates_total,
         {
          if(!IsTimeInSession(time[i], g_start_hour, g_start_min, g_end_hour, g_end_min))
            {
-            BufMiddle[i]     = EMPTY_VALUE;
-            BufUpperOuter[i] = EMPTY_VALUE;
-            BufLowerOuter[i] = EMPTY_VALUE;
-            BufUpperInner[i] = EMPTY_VALUE;
-            BufLowerInner[i] = EMPTY_VALUE;
+            BufMiddle[i]       = EMPTY_VALUE;
+            BufUpperOuter[i]   = EMPTY_VALUE;
+            BufLowerOuter[i]   = EMPTY_VALUE;
+            BufUpperInner[i]   = EMPTY_VALUE;
+            BufLowerInner[i]   = EMPTY_VALUE;
+            BufUpperExtreme[i] = EMPTY_VALUE;
+            BufLowerExtreme[i] = EMPTY_VALUE;
             continue;
            }
         }
@@ -367,23 +391,29 @@ int OnCalculate(const int rates_total,
          // Center Line (Z=0.0 Equilibrium): A_hat = beta * B_t + alpha
          double fair_price = beta * g_sync_close_B[i] + alpha;
 
-         BufMiddle[i]     = InpDrawCenterLine ? fair_price : EMPTY_VALUE;
+         BufMiddle[i]       = InpDrawCenterLine ? fair_price : EMPTY_VALUE;
 
          // Outer extreme bands (Default Z = +-2.0)
-         BufUpperOuter[i] = InpDrawOuterBands ? (fair_price + InpOuterMultiplier * std_dev) : EMPTY_VALUE;
-         BufLowerOuter[i] = InpDrawOuterBands ? (fair_price - InpOuterMultiplier * std_dev) : EMPTY_VALUE;
+         BufUpperOuter[i]   = InpDrawOuterBands ? (fair_price + InpOuterMultiplier * std_dev) : EMPTY_VALUE;
+         BufLowerOuter[i]   = InpDrawOuterBands ? (fair_price - InpOuterMultiplier * std_dev) : EMPTY_VALUE;
 
          // Inner warning bands (Default Z = +-1.5)
-         BufUpperInner[i] = InpDrawInnerBands ? (fair_price + InpInnerMultiplier * std_dev) : EMPTY_VALUE;
-         BufLowerInner[i] = InpDrawInnerBands ? (fair_price - InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+         BufUpperInner[i]   = InpDrawInnerBands ? (fair_price + InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+         BufLowerInner[i]   = InpDrawInnerBands ? (fair_price - InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+
+         // Extreme Outer bands (Default Z = +-2.5)
+         BufUpperExtreme[i] = InpDrawExtremeBands ? (fair_price + InpExtremeMultiplier * std_dev) : EMPTY_VALUE;
+         BufLowerExtreme[i] = InpDrawExtremeBands ? (fair_price - InpExtremeMultiplier * std_dev) : EMPTY_VALUE;
         }
       else
         {
-         BufMiddle[i]     = close[i];
-         BufUpperOuter[i] = close[i];
-         BufLowerOuter[i] = close[i];
-         BufUpperInner[i] = close[i];
-         BufLowerInner[i] = close[i];
+         BufMiddle[i]       = close[i];
+         BufUpperOuter[i]   = close[i];
+         BufLowerOuter[i]   = close[i];
+         BufUpperInner[i]   = close[i];
+         BufLowerInner[i]   = close[i];
+         BufUpperExtreme[i] = close[i];
+         BufLowerExtreme[i] = close[i];
         }
      }
 
