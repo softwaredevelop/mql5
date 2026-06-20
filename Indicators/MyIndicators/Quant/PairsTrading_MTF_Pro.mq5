@@ -3,14 +3,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.11" // Fixed h_time, new_period and array-index variables in MTF Z-Score
+#property version   "1.20" // Refactored with single comparison symbol and hybrid block-copy alignment
 #property description "Universal Dynamic & Anchored Cointegration (Z-Score) Monitor."
 #property description "Displays Higher Timeframe Cointegration Z-Score directly on lower TF chart."
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- FIXED: Standardized window limits to prevent single-spike scale squishing!
+//--- Standardized window limits to prevent single-spike scale squishing!
 #property indicator_minimum -3.5
 #property indicator_maximum 3.5
 
@@ -51,13 +51,12 @@ enum ENUM_ANCHOR_PERIOD
   };
 
 //--- Input Parameters
-input string            InpSymbolA            = "UKOIL";  // Symbol A (e.g. UKOIL or BRENT)
-input string            InpSymbolB            = "USOIL";  // Symbol B (Benchmark, e.g. USOIL or WTI)
+input string            InpSecondSymbol       = "USOIL";   // Comparison Symbol (Symbol B)
 input ENUM_TIMEFRAMES   InpTimeframe          = PERIOD_M5; // Target Higher Timeframe (Recommended: Higher than Chart)
 input ENUM_ANCHOR_PERIOD InpAnchor             = ANCHOR_NONE; // Dynamic Anchored Reset Period
-input int               InpLookback           = 120;      // Rolling Window size (Used if Anchor = NONE)
-input string            InpCustomStart        = "09:00";  // Custom Session Start (HH:MM, Broker Time)
-input string            InpCustomEnd          = "18:00";  // Custom Session End (HH:MM, Broker Time)
+input int               InpLookback           = 120;       // Rolling Window size (Used if Anchor = NONE)
+input string            InpCustomStart        = "09:00";   // Custom Session Start (HH:MM, Broker Time)
+input string            InpCustomEnd          = "18:00";   // Custom Session End (HH:MM, Broker Time)
 
 //--- Buffers
 double ExtZScoreBuffer[];
@@ -130,6 +129,16 @@ int OnInit()
    g_htf_count = 0;
    g_htf_anchor_start = 0;
 
+//--- Verify if the secondary comparison symbol exists in broker offerings
+   bool is_custom = false;
+   if(!SymbolExist(InpSecondSymbol, is_custom))
+     {
+      string err_msg = StringFormat("PairsTrading MTF Error: Symbol '%s' does not exist in your broker's database!", InpSecondSymbol);
+      Alert(err_msg);
+      Print(err_msg);
+      return(INIT_FAILED);
+     }
+
    SetIndexBuffer(0, ExtZScoreBuffer, INDICATOR_DATA);
    SetIndexBuffer(1, ExtColorsBuffer, INDICATOR_COLOR_INDEX);
 
@@ -153,7 +162,7 @@ int OnInit()
    string anchor_name = EnumToString(InpAnchor);
    string tf_name = StringSubstr(EnumToString(InpTimeframe), 7);
    string short_name = StringFormat("PairsTrade MTF(%s vs %s, %s, %s)",
-                                    InpSymbolA, InpSymbolB, tf_name,
+                                    _Symbol, InpSecondSymbol, tf_name,
                                     (InpAnchor == ANCHOR_NONE ? (string)InpLookback : StringSubstr(anchor_name, 7)));
 
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
@@ -175,7 +184,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(CheckPointer(g_calc) == POINTER_DYNAMIC)
+   if(CheckPointer(g_calc) != POINTER_INVALID)
       delete g_calc;
   }
 
@@ -198,8 +207,8 @@ int OnCalculate(const int rates_total,
       required_bars = 1000; // Need larger history depth for monthly/weekly/custom anchors
 
 //--- Ensure both symbol histories are fully loaded on the HTF in the terminal
-   if(!EnsureHTFDataReady(InpSymbolA, InpTimeframe, required_bars) ||
-      !EnsureHTFDataReady(InpSymbolB, InpTimeframe, required_bars))
+   if(!EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars) ||
+      !EnsureHTFDataReady(InpSecondSymbol, InpTimeframe, required_bars))
      {
       g_data_ready = false;
       return 0; // Wait for next tick to let history load
@@ -233,21 +242,22 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      //--- 2. High-Performance Linear Price Alignment on the HTF Timeline
-      double default_close_A = iClose(InpSymbolA, InpTimeframe, 0);
-      double default_close_B = iClose(InpSymbolB, InpTimeframe, 0);
+      //--- 2. High-Performance Hybrid Price Alignment on the HTF Timeline
+      //--- Step A: Copy chart native symbol close prices via ultra-fast block copy
+      if(CopyClose(_Symbol, InpTimeframe, 0, g_htf_count, h_close_A) != g_htf_count)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
+      //--- Step B: Sync comparison symbol prices via time-aligned fallback loop
+      double default_close_B = iClose(InpSecondSymbol, InpTimeframe, 0);
 
       for(int j = 0; j < g_htf_count; j++)
         {
-         int shift_A = iBarShift(InpSymbolA, InpTimeframe, h_time[j], false);
-         if(shift_A >= 0)
-            h_close_A[j] = iClose(InpSymbolA, InpTimeframe, shift_A);
-         else
-            h_close_A[j] = (j > 0) ? h_close_A[j-1] : default_close_A;
-
-         int shift_B = iBarShift(InpSymbolB, InpTimeframe, h_time[j], false);
+         int shift_B = iBarShift(InpSecondSymbol, InpTimeframe, h_time[j], false);
          if(shift_B >= 0)
-            h_close_B[j] = iClose(InpSymbolB, InpTimeframe, shift_B);
+            h_close_B[j] = iClose(InpSecondSymbol, InpTimeframe, shift_B);
          else
             h_close_B[j] = (j > 0) ? h_close_B[j-1] : default_close_B;
         }
@@ -296,14 +306,14 @@ int OnCalculate(const int rates_total,
                   TimeToStruct(h_time[j], dt_curr);
                   TimeToStruct(h_time[j-1], dt_prev);
                   if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-                     htf_new_period = true; // FIXED: corrected typo from new_period
+                     htf_new_period = true;
                   break;
                  }
                case ANCHOR_CUSTOM_SESSION:
                  {
                   MqlDateTime dt_curr, dt_prev;
-                  TimeToStruct(h_time[j], dt_curr); // FIXED: aligned strictly to HTF times
-                  TimeToStruct(h_time[j-1], dt_prev); // FIXED: aligned strictly to HTF times
+                  TimeToStruct(h_time[j], dt_curr);
+                  TimeToStruct(h_time[j-1], dt_prev);
                   int min_curr = dt_curr.hour * 60 + dt_curr.min;
                   int min_prev = dt_prev.hour * 60 + dt_prev.min;
                   int start_min = g_start_hour * 60 + g_start_min;
@@ -353,12 +363,12 @@ int OnCalculate(const int rates_total,
       double single_c_A[1], single_c_B[1];
 
       // Synchronized live price copying from the forming HTF bar 0
-      int shift_A = iBarShift(InpSymbolA, InpTimeframe, htf_time_current, false);
-      int shift_B = iBarShift(InpSymbolB, InpTimeframe, htf_time_current, false);
+      int shift_A = iBarShift(_Symbol, InpTimeframe, htf_time_current, false);
+      int shift_B = iBarShift(InpSecondSymbol, InpTimeframe, htf_time_current, false);
 
       if(shift_A >= 0 && shift_B >= 0 &&
-         CopyClose(InpSymbolA, InpTimeframe, shift_A, 1, single_c_A) == 1 &&
-         CopyClose(InpSymbolB, InpTimeframe, shift_B, 1, single_c_B) == 1)
+         CopyClose(_Symbol, InpTimeframe, shift_A, 1, single_c_A) == 1 &&
+         CopyClose(InpSecondSymbol, InpTimeframe, shift_B, 1, single_c_B) == 1)
         {
          h_close_A[live_idx] = single_c_A[0];
          h_close_B[live_idx] = single_c_B[0];
