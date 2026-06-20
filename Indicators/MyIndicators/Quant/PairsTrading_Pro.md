@@ -5,21 +5,25 @@
 The **Pairs Trading Cointegration Pro Suite** is an institutional-grade, high-performance statistical arbitrage trading suite comprising four advanced indicators:
 
 * `PairsTrading_Pro` (Z-Score separate window oscillator)
-* `PairsTrading_Bands_Pro` (Main-chart overlay bands)
+* `PairsTrading_Bands_Pro` (7-line main-chart overlay bands)
 * `PairsTrading_MTF_Pro` (Multi-Timeframe separate window oscillator)
-* `PairsTrading_Bands_MTF_Pro` (Multi-Timeframe main-chart overlay bands)
+* `PairsTrading_Bands_MTF_Pro` (Multi-Timeframe 7-line main-chart overlay bands)
 
 Based on Modern Portfolio Theory and econometric cointegration, the suite decomposes the pricing relationship of two correlated assets into a stationary, volatility-normalized spread.
 
 While traditional retail pairs trading methods rely on simple price correlation (which is highly unstable and prone to structural drift), this suite utilizes a dynamic rolling **Ordinary Least Squares (OLS) mathematical engine**. It dynamically calculates the rolling Hedge Ratio ($\beta$) and Intercept ($\alpha$) between any two assets to extract the true stationary spread.
 
-Featuring **VWAP-style Anchored Resets** (Session, Weekly, Monthly, and Custom Session), the indicators can completely isolate intraday/intraweek price relationships from overnight gaps and illiquidity, delivering a highly visual and robust quantitative scanner system.
+### The Single-Symbol Paradigm & O(1) Memory Access
+
+To maximize trading speed and simplify execution panels, the suite automatically determines **Symbol A** from the chart's native symbol (`_Symbol`). The trader only needs to input **Symbol B** (`InpSecondSymbol`) on the parameters window.
+
+By binding Symbol A strictly to the current chart, the calculation engine accesses prices directly via the native `close[]` array inside the `OnCalculate()` function. This completely eliminates $O(N)$ lookup overheads (like `iBarShift` and `iClose`) for Symbol A, reducing tick processing time to a true $O(1)$ constant time complexity.
 
 ---
 
 ## 2. Mathematical Foundations and Calculation Logic
 
-The statistical calculations operate on synchronized close prices for Asset $A$ ($P_{A,t}$) and Asset $B$ ($P_{B,t}$) over an active rolling or anchored window of size $N$ (`window_size`):
+The statistical calculations operate on synchronized close prices for Asset $A$ ($P_{A,t}$, representing the native `_Symbol`) and Asset $B$ ($P_{B,t}$, representing `InpSecondSymbol`) over an active rolling or anchored window of size $N$ (`window_size`):
 
 ### A. Rolling Ordinary Least Squares (OLS)
 
@@ -49,21 +53,57 @@ $$Z_i = \frac{P_{A,i} - \beta_i P_{B,i} - \alpha_i}{\sigma_{\text{spread}}}$$
 
 ## 3. Cointegration Bands (Main Chart Projection)
 
-By rearranging the spread equation back to the price space of Asset $A$, the suite projects the dynamic statistical boundaries directly onto the main price chart:
+By rearranging the spread equation back to the price space of Asset $A$ (the chart's active symbol), the suite projects the dynamic statistical boundaries as a 7-channel corridor directly onto the main price chart:
 
-$$\text{Center Line (Equilibrium / } Z=0.0\text{):} \quad \hat{P}_{A,i} = \beta_i P_{B,i} + \alpha_i$$
+### A. Equilibrium Core (Z = 0)
 
-$$\text{Outer Upper Band (Extreme / } Z=+M_{\text{outer}}\text{):} \quad \text{Band}_{\text{up, outer}} = \hat{P}_{A,i} + M_{\text{outer}} \times \sigma_{\text{spread}}$$
+The Center Line represents the cointegrated fair value price of Asset A relative to Asset B:
+$$\text{Center Line (Equilibrium):} \quad \hat{P}_{A,i} = \beta_i P_{B,i} + \alpha_i$$
 
-$$\text{Outer Lower Band (Extreme / } Z=-M_{\text{outer}}\text{):} \quad \text{Band}_{\text{low, outer}} = \hat{P}_{A,i} - M_{\text{outer}} \times \sigma_{\text{spread}}$$
+### B. Warning Bands (Z = +-1.5 / Inner Channel)
 
-$$\text{Inner Upper Band (Warning / } Z=+M_{\text{inner}}\text{):} \quad \text{Band}_{\text{up, inner}} = \hat{P}_{A,i} + M_{\text{inner}} \times \sigma_{\text{spread}}$$
+Triggers early scale-in warning zones for potential mean-reversion trades:
+$$\text{Upper Inner Band:} \quad \text{Band}_{\text{up, inner}} = \hat{P}_{A,i} + M_{\text{inner}} \times \sigma_{\text{spread}}$$
+$$\text{Lower Inner Band:} \quad \text{Band}_{\text{low, inner}} = \hat{P}_{A,i} - M_{\text{inner}} \times \sigma_{\text{spread}}$$
 
-$$\text{Inner Lower Band (Warning / } Z=-M_{\text{inner}}\text{):} \quad \text{Band}_{\text{low, inner}} = \hat{P}_{A,i} - M_{\text{inner}} \times \sigma_{\text{spread}}$$
+### C. Core Entry Bands (Z = +-2.0 / Outer Channel)
+
+Statistically represents a 95.4% probability of price containment under a normal distribution. This is the optimal entry boundary for statistical arbitrage:
+$$\text{Upper Outer Band:} \quad \text{Band}_{\text{up, outer}} = \hat{P}_{A,i} + M_{\text{outer}} \times \sigma_{\text{spread}}$$
+$$\text{Lower Outer Band:} \quad \text{Band}_{\text{low, outer}} = \hat{P}_{A,i} - M_{\text{outer}} \times \sigma_{\text{spread}}$$
+
+### D. Extreme Stop-Out Bands (Z = +-2.5 / Capitulation Channel)
+
+A high-volatility cushion representing a 98.8% probability limit. Reaching this zone suggests a severe cointegration breakdown or macro capitulation. Useful for absolute stop-losses or hyper-aggressive reversal entries:
+$$\text{Upper Extreme Band:} \quad \text{Band}_{\text{up, extreme}} = \hat{P}_{A,i} + M_{\text{extreme}} \times \sigma_{\text{spread}}$$
+$$\text{Lower Extreme Band:} \quad \text{Band}_{\text{low, extreme}} = \hat{P}_{A,i} - M_{\text{extreme}} \times \sigma_{\text{spread}}$$
 
 ---
 
-## 4. The Pure vs. Hybrid MTF Dilemma
+## 4. The Statistically Pure Cutoff (Session-Start Noise Filtering)
+
+When employing session anchors (`ANCHOR_SESSION` or `ANCHOR_CUSTOM_SESSION`), the active window size resets to 1 at the beginning of each active period and increments bar-by-bar.
+
+During the first 14 bars of a session, running OLS is statistically invalid due to severe degrees-of-freedom limitations. Calculating standard deviations on 3, 5, or 8 samples yields highly erratic, spiked, and squeezed channels that create false signals and compress the chart's vertical scale.
+
+### A. The EMPTY_VALUE Cutoff Solution
+
+To maintain institutional quantitative standards, the bands **strictly enforce a 15-bar minimum cutoff**.
+
+* **The Rule:** If $N_{\text{active}} < 15$ or standard deviation is $\le 0$, all 7 band buffers are populated with `EMPTY_VALUE`.
+* **The Visual Benefit:** Instead of collapsing the channels onto the raw price line (which creates a messy, overlapping web of lines at the start of every session), the channels simply remain invisible during the initialization phase, rendering only when the mathematical model has stabilized.
+
+### B. Standard vs. MTF Cutoff Widths
+
+You will observe that Multi-Timeframe (MTF) charts display a wider blank zone at the beginning of each session compared to standard single-timeframe charts. This is a mathematically correct scaling consequence:
+
+* On a local **M15** chart, 15 bars require exactly **3.75 hours** of market activity to stabilize.
+* On an **H1 (MTF)** chart, 15 bars require exactly **15 hours** of market activity to stabilize.
+* Because the higher timeframe requires longer historical duration to construct its OLS sample pool, the MTF version correctly maintains a wider blank zone, shielding the trader from pre-stabilization noise on the macro level.
+
+---
+
+## 5. The Pure vs. Hybrid MTF Dilemma
 
 When trading in a Multi-Timeframe (MTF) environment (e.g. tracking $M5$ cointegration on an $M1$ chart), a distinct structural divergence occurs between the main-chart bands and the separate-window oscillator:
 
@@ -82,14 +122,13 @@ You may observe the lower timeframe price (M1) pierce the M5 outer band on the m
 
 ---
 
-## 5. Parameters
+## 6. Parameters
 
 ### A. Common Parameters
 
-* **Symbol A (`InpSymbolA`):** The primary asset to trade (Default: `"UKOIL"` - Brent Crude Oil).
-* **Symbol B (`InpSymbolB`):** The secondary benchmark asset (Default: `"USOIL"` - WTI Crude Oil).
+* **Comparison Symbol (`InpSecondSymbol`):** The benchmark asset to correlate with (Symbol B). Symbol A is automatically set to the chart's native `_Symbol`.
 * **Anchor Reset (`InpAnchor`):** The reset anchor period (None, Session, Week, Month, Custom Session).
-* **Lookback (`InpLookback`):** The rolling regression window size (Used if Anchor = None).
+* **Lookback (`InpLookback`):** The rolling regression window size (Used if Anchor = None). Default: `120`.
 * **Custom Start (`InpCustomStart`):** Session start time in format "HH:MM" (Used if Anchor = Custom).
 * **Custom End (`InpCustomEnd`):** Session end time in format "HH:MM" (Used if Anchor = Custom).
 
@@ -98,20 +137,22 @@ You may observe the lower timeframe price (M1) pierce the M5 outer band on the m
 * **Draw Center Line (`InpDrawCenterLine`):** Toggle to draw the gold Equilibrium Center Line ($Z=0.0$).
 * **Draw Inner Bands (`InpDrawInnerBands`):** Toggle to draw the dotted Coral/LightSkyBlue Warning Bands ($Z=\pm 1.5$).
 * **Inner Band Multiplier (`InpInnerMultiplier`):** The Z-Score multiplier for the inner bands (Default: `1.5`).
-* **Draw Outer Bands (`InpDrawOuterBands`):** Toggle to draw the dashed Crimson/DeepSkyBlue Extreme Bands ($Z=\pm 2.0$).
+* **Draw Outer Bands (`InpDrawOuterBands`):** Toggle to draw the dashed OrangeRed/DeepSkyBlue Core Entry Bands ($Z=\pm 2.0$).
 * **Outer Band Multiplier (`InpOuterMultiplier`):** The Z-Score multiplier for the outer bands (Default: `2.0`).
+* **Draw Extreme Bands (`InpDrawExtremeBands`):** Toggle to draw the solid Crimson/DodgerBlue Stop/Reversal Bands ($Z=\pm 2.5$).
+* **Extreme Band Multiplier (`InpExtremeMultiplier`):** The Z-Score multiplier for the extreme bands (Default: `2.5`).
 
 ---
 
-## 6. Optimized Global Multi-Asset Presets
+## 7. Optimized Global Multi-Asset Presets
 
-To ensure statistical validity, only trade assets that share a **fundamental, structural, or macroeconomic link**. Below are the most robust, cointegrated global pairs optimized for live execution, mapped in `PairsTrading_Preset_Manager.mqh`:
+To ensure statistical validity, only trade assets that share a **fundamental, structural, or macroeconomic link**. Below are the most robust, cointegrated global pairs optimized for live execution, mapped in `PairsTrading_Preset_Manager.mqh` (Symbol A is set as the chart's main active asset):
 
-| Asset Class | Symbol A | Symbol B | Recommended TF | Lookback / Anchor | Inner / Outer Mult | Trading Style & Concept |
+| Asset Class | Symbol A (Chart) | Symbol B (`InpSecondSymbol`) | Recommended TF | Lookback / Anchor | Inner / Outer / Extreme Mult | Trading Style & Concept |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Energies** | `UKOIL` (Brent) | `USOIL` (WTI) | `M5` / `M15` | `120` / `ANCHOR_NONE` | `1.5` / `2.0` | **Crude Oil Spread.** Sweet/Light vs. Heavy/Sour grade arbitrage. Heavily mean-reverting. |
-| **Precious Metals** | `XAUUSD` (Gold) | `XAGUSD` (Silver) | `M15` / `H1` | `120` / `ANCHOR_WEEK` | `1.5` / `2.0` | **Gold-to-Silver Ratio.** Decades-old commodity value parity. Highly stable weekly anchors. |
-| **Forex Majors** | `EURUSD` | `GBPUSD` | `M5` / `M15` | `120` / `ANCHOR_CUSTOM_SESSION` <br>*(e.g., 09:00 - 18:00)* | `1.5` / `2.0` | **European Relative Value.** High cointegration due to close UK-Eurozone macro ties. Custom session filters out overnight illiquidity. |
-| **Forex Commodity** | `AUDUSD` | `NZDUSD` | `M15` / `H1` | `120` / `ANCHOR_SESSION` | `1.5` / `2.0` | **Aussie vs. Kiwi.** Commodity export-driven Oceanic currencies. Daily reset captures session shifts beautifully. |
-| **Equity Indices** | `US100` (Nasdaq) | `US500` (S&P500) | `M15` / `H1` | `144` / `ANCHOR_WEEK` | `1.5` / `2.0` | **Growth vs. Broad Market.** Tech sector rotations vs. global indexing. Excellent weekly trend reversion. |
-| **Equity Indices** | `DE40` (DAX) | `EU50` (Stoxx50) | `M15` / `H1` | `120` / `ANCHOR_WEEK` | `1.5` / `2.0` | **Group Arbitrage.** High European index cointegration due to shared Eurozone macro factors. |
+| **Energies** | `UKOIL` (Brent) | `USOIL` (WTI) | `M5` / `M15` | `120` / `ANCHOR_NONE` | `1.5` / `2.0` / `2.5` | **Crude Oil Spread.** Sweet/Light vs. Heavy/Sour grade arbitrage. Heavily mean-reverting. |
+| **Precious Metals** | `XAUUSD` (Gold) | `XAGUSD` (Silver) | `M15` / `H1` | `120` / `ANCHOR_WEEK` | `1.5` / `2.0` / `2.5` | **Gold-to-Silver Ratio.** Decades-old commodity value parity. Highly stable weekly anchors. |
+| **Forex Majors** | `EURUSD` | `GBPUSD` | `M5` / `M15` | `120` / `ANCHOR_CUSTOM_SESSION` <br>*(e.g., 09:00 - 18:00)* | `1.5` / `2.0` / `2.5` | **European Relative Value.** High cointegration due to close UK-Eurozone macro ties. Custom session filters out overnight illiquidity. |
+| **Forex Commodity** | `AUDUSD` | `NZDUSD` | `M15` / `H1` | `120` / `ANCHOR_SESSION` | `1.5` / `2.0` / `2.5` | **Aussie vs. Kiwi.** Commodity export-driven Oceanic currencies. Daily reset captures session shifts beautifully. |
+| **Equity Indices** | `US100` (Nasdaq) | `US500` (S&P500) | `M15` / `H1` | `144` / `ANCHOR_WEEK` | `1.5` / `2.0` / `2.5` | **Growth vs. Broad Market.** Tech sector rotations vs. global indexing. Excellent weekly trend reversion. |
+| **Equity Indices** | `DE40` (DAX) | `EU50` (Stoxx50) | `M15` / `H1` | `120` / `ANCHOR_WEEK` | `1.5` / `2.0` / `2.5` | **Group Arbitrage.** High European index cointegration due to shared Eurozone macro factors. |
