@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.50" // Upgraded to 3 dynamic Z-Score bands (7-channel layout)
+#property version   "1.51" // Fixed unstable session-start noise by enforcing EMPTY_VALUE cutoff
 #property description "Wyckoff-style Cointegration Bands on Main Chart."
 #property description "Projects dynamic equilibrium line (Z=0), warning (Z=+-1.5), extreme (Z=+-2.0) and reversal (Z=+-2.5) bands."
 #property indicator_chart_window
@@ -379,13 +379,13 @@ int OnCalculate(const int rates_total,
         }
 
       //--- D. Execute unified calculator math and fetch dynamic OLS parameters
-      //--- By running CalculateZScore, the engine automatically populates beta, alpha, and std_dev internally
       double z = g_calc.CalculateZScore(rates_total, i, active_window_size, g_sync_close_A, g_sync_close_B);
 
       double beta    = g_calc.GetBeta();
       double alpha   = g_calc.GetAlpha();
       double std_dev = g_calc.GetStdDev();
 
+      //--- FIXED: Enforce absolute EMPTY_VALUE cutoff when active window size is statistically unstable (< 15 bars)
       if(active_window_size >= 15 && std_dev > 0.0)
         {
          // Center Line (Z=0.0 Equilibrium): A_hat = beta * B_t + alpha
@@ -407,13 +407,13 @@ int OnCalculate(const int rates_total,
         }
       else
         {
-         BufMiddle[i]       = close[i];
-         BufUpperOuter[i]   = close[i];
-         BufLowerOuter[i]   = close[i];
-         BufUpperInner[i]   = close[i];
-         BufLowerInner[i]   = close[i];
-         BufUpperExtreme[i] = close[i];
-         BufLowerExtreme[i] = close[i];
+         BufMiddle[i]       = EMPTY_VALUE;
+         BufUpperOuter[i]   = EMPTY_VALUE;
+         BufLowerOuter[i]   = EMPTY_VALUE;
+         BufUpperInner[i]   = EMPTY_VALUE;
+         BufLowerInner[i]   = EMPTY_VALUE;
+         BufUpperExtreme[i] = EMPTY_VALUE;
+         BufLowerExtreme[i] = EMPTY_VALUE;
         }
      }
 
