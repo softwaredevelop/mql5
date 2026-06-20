@@ -3,12 +3,12 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.12" // Fixed new_period and h_time compiler typos
+#property version   "1.30" // Upgraded to 3 dynamic Z-Score bands and single comparison symbol
 #property description "Wyckoff-style Cointegration Bands (Multi-Timeframe)."
 #property description "Displays Higher Timeframe Cointegration Channel directly on lower TF chart."
 #property indicator_chart_window
-#property indicator_buffers 5
-#property indicator_plots   5
+#property indicator_buffers 7
+#property indicator_plots   7
 
 //--- Plot 1: Cointegrated Equilibrium Line (Fair Value / Z=0)
 #property indicator_label1  "Equilibrium Center"
@@ -45,6 +45,20 @@
 #property indicator_style5  STYLE_DOT
 #property indicator_width5  1
 
+//--- Plot 6: Upper Extreme Band (Z = Stop/Reversal Zone)
+#property indicator_label6  "Upper Extreme Band"
+#property indicator_type6   DRAW_LINE
+#property indicator_color6  clrCrimson
+#property indicator_style6  STYLE_SOLID
+#property indicator_width6  1
+
+//--- Plot 7: Lower Extreme Band (Z = Stop/Reversal Zone)
+#property indicator_label7  "Lower Extreme Band"
+#property indicator_type7   DRAW_LINE
+#property indicator_color7  clrDodgerBlue
+#property indicator_style7  STYLE_SOLID
+#property indicator_width7  1
+
 #include <MyIncludes\PairsTrading_Calculator.mqh>
 
 //--- Anchored Timeframe Resets Enum
@@ -58,20 +72,21 @@ enum ENUM_ANCHOR_PERIOD
   };
 
 //--- Input Parameters
-input string            InpSymbolA            = "UKOIL";  // Symbol A (Main Chart Equivalent, e.g. UKOIL or BRENT)
-input string            InpSymbolB            = "USOIL";  // Symbol B (Benchmark, e.g. USOIL or WTI)
+input string            InpSecondSymbol       = "USOIL";   // Comparison Symbol (Symbol B)
 input ENUM_TIMEFRAMES   InpTimeframe          = PERIOD_M5; // Target Higher Timeframe (Recommended: Higher than Chart)
 input ENUM_ANCHOR_PERIOD InpAnchor             = ANCHOR_NONE; // Dynamic Anchored Reset Period
-input int               InpLookback           = 120;      // Rolling Window size (Used if Anchor = NONE)
-input string            InpCustomStart        = "09:00";  // Custom Session Start (HH:MM, Broker Time)
-input string            InpCustomEnd          = "18:00";  // Custom Session End (HH:MM, Broker Time)
+input int               InpLookback           = 120;       // Rolling Window size (Used if Anchor = NONE)
+input string            InpCustomStart        = "09:00";   // Custom Session Start (HH:MM, Broker Time)
+input string            InpCustomEnd          = "18:00";   // Custom Session End (HH:MM, Broker Time)
 
-//--- Dynamic Channel Options
-input bool              InpDrawCenterLine     = true;     // Draw Center Equilibrium Line?
-input bool              InpDrawInnerBands     = true;     // Draw Inner (Warning) Bands?
-input double            InpInnerMultiplier    = 1.5;      // Inner Band Z-Score Multiplier
-input bool              InpDrawOuterBands     = true;     // Draw Outer (Extreme) Bands?
-input double            InpOuterMultiplier    = 2.0;      // Outer Band Z-Score Multiplier
+//--- Dynamic Channel Options (3 distinct Z-Score levels)
+input bool              InpDrawCenterLine     = true;        // Draw Center Equilibrium Line?
+input bool              InpDrawInnerBands     = true;        // Draw Inner (Warning) Bands?
+input double            InpInnerMultiplier    = 1.5;         // Inner Band Z-Score Multiplier
+input bool              InpDrawOuterBands     = true;        // Draw Outer (Extreme) Bands?
+input double            InpOuterMultiplier    = 2.0;         // Outer Band Z-Score Multiplier
+input bool              InpDrawExtremeBands   = true;        // Draw Extreme (Reversal) Bands?
+input double            InpExtremeMultiplier  = 2.5;         // Extreme Band Z-Score Multiplier
 
 //--- Buffers
 double BufMiddle[];
@@ -79,6 +94,8 @@ double BufUpperOuter[];
 double BufLowerOuter[];
 double BufUpperInner[];
 double BufLowerInner[];
+double BufUpperExtreme[];
+double BufLowerExtreme[];
 
 //--- Internal HTF Data Caches
 datetime h_time[];
@@ -91,6 +108,7 @@ double   h_res_std[];
 
 //--- Global Engine and State Tracking
 CPairsTradingCalculator *g_calc;
+bool                     g_data_synced       = false;
 bool                     g_data_ready        = false;
 int                      g_htf_count         = 0;
 datetime                 g_last_htf_time     = 0;
@@ -143,11 +161,13 @@ bool IsTimeInSession(datetime time_val, int start_hour, int start_min, int end_h
 //+------------------------------------------------------------------+
 void SetEmptyValues(int i)
   {
-   BufMiddle[i]     = EMPTY_VALUE;
-   BufUpperOuter[i] = EMPTY_VALUE;
-   BufLowerOuter[i] = EMPTY_VALUE;
-   BufUpperInner[i] = EMPTY_VALUE;
-   BufLowerInner[i] = EMPTY_VALUE;
+   BufMiddle[i]       = EMPTY_VALUE;
+   BufUpperOuter[i]   = EMPTY_VALUE;
+   BufLowerOuter[i]   = EMPTY_VALUE;
+   BufUpperInner[i]   = EMPTY_VALUE;
+   BufLowerInner[i]   = EMPTY_VALUE;
+   BufUpperExtreme[i] = EMPTY_VALUE;
+   BufLowerExtreme[i] = EMPTY_VALUE;
   }
 
 //+------------------------------------------------------------------+
@@ -156,21 +176,26 @@ void SetEmptyValues(int i)
 int OnInit()
   {
    g_data_ready = false;
+   g_data_synced = false;
    g_last_htf_time = 0;
    g_htf_count = 0;
    g_htf_anchor_start = 0;
 
-   SetIndexBuffer(0, BufMiddle,     INDICATOR_DATA);
-   SetIndexBuffer(1, BufUpperOuter, INDICATOR_DATA);
-   SetIndexBuffer(2, BufLowerOuter, INDICATOR_DATA);
-   SetIndexBuffer(3, BufUpperInner, INDICATOR_DATA);
-   SetIndexBuffer(4, BufLowerInner, INDICATOR_DATA);
+   SetIndexBuffer(0, BufMiddle,       INDICATOR_DATA);
+   SetIndexBuffer(1, BufUpperOuter,   INDICATOR_DATA);
+   SetIndexBuffer(2, BufLowerOuter,   INDICATOR_DATA);
+   SetIndexBuffer(3, BufUpperInner,   INDICATOR_DATA);
+   SetIndexBuffer(4, BufLowerInner,   INDICATOR_DATA);
+   SetIndexBuffer(5, BufUpperExtreme, INDICATOR_DATA);
+   SetIndexBuffer(6, BufLowerExtreme, INDICATOR_DATA);
 
-   ArraySetAsSeries(BufMiddle,     false);
-   ArraySetAsSeries(BufUpperOuter, false);
-   ArraySetAsSeries(BufLowerOuter, false);
-   ArraySetAsSeries(BufUpperInner, false);
-   ArraySetAsSeries(BufLowerInner, false);
+   ArraySetAsSeries(BufMiddle,       false);
+   ArraySetAsSeries(BufUpperOuter,   false);
+   ArraySetAsSeries(BufLowerOuter,   false);
+   ArraySetAsSeries(BufUpperInner,   false);
+   ArraySetAsSeries(BufLowerInner,   false);
+   ArraySetAsSeries(BufUpperExtreme, false);
+   ArraySetAsSeries(BufLowerExtreme, false);
 
 //--- Parse custom session times
    string parts[];
@@ -189,7 +214,7 @@ int OnInit()
    string anchor_name = EnumToString(InpAnchor);
    string tf_name = StringSubstr(EnumToString(InpTimeframe), 7);
    string short_name = StringFormat("PairsBands MTF(%s vs %s, %s, %s)",
-                                    InpSymbolA, InpSymbolB, tf_name,
+                                    _Symbol, InpSecondSymbol, tf_name,
                                     (InpAnchor == ANCHOR_NONE ? (string)InpLookback : StringSubstr(anchor_name, 7)));
 
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
@@ -203,6 +228,9 @@ int OnInit()
       return INIT_FAILED;
      }
 
+//--- Initialize 1-second timer for weekend/async chart refreshes
+   EventSetTimer(1);
+
    return(INIT_SUCCEEDED);
   }
 
@@ -211,7 +239,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(CheckPointer(g_calc) == POINTER_DYNAMIC)
+   EventKillTimer();
+   if(CheckPointer(g_calc) != POINTER_INVALID)
       delete g_calc;
   }
 
@@ -234,12 +263,15 @@ int OnCalculate(const int rates_total,
       required_bars = 1000; // Need larger history depth for monthly/weekly/custom anchors
 
 //--- Ensure both symbol histories are fully loaded on the HTF in the terminal
-   if(!EnsureHTFDataReady(InpSymbolA, InpTimeframe, required_bars) ||
-      !EnsureHTFDataReady(InpSymbolB, InpTimeframe, required_bars))
+   if(!EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars) ||
+      !EnsureHTFDataReady(InpSecondSymbol, InpTimeframe, required_bars))
      {
       g_data_ready = false;
+      g_data_synced = false;
       return 0; // Wait for next tick to let history load
      }
+
+   g_data_synced = true;
 
 //--- 1. Check if a new HTF bar has formed
    datetime htf_time_current = iTime(_Symbol, InpTimeframe, 0);
@@ -270,21 +302,22 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      //--- 2. High-Performance Linear Price Alignment on the HTF Timeline
-      double default_close_A = iClose(InpSymbolA, InpTimeframe, 0);
-      double default_close_B = iClose(InpSymbolB, InpTimeframe, 0);
+      //--- 2. High-Performance Hybrid Price Alignment on the HTF Timeline
+      //--- Step A: Copy chart native symbol close prices via ultra-fast block copy
+      if(CopyClose(_Symbol, InpTimeframe, 0, g_htf_count, h_close_A) != g_htf_count)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
+      //--- Step B: Sync comparison symbol prices via time-aligned fallback loop
+      double default_close_B = iClose(InpSecondSymbol, InpTimeframe, 0);
 
       for(int j = 0; j < g_htf_count; j++)
         {
-         int shift_A = iBarShift(InpSymbolA, InpTimeframe, h_time[j], false);
-         if(shift_A >= 0)
-            h_close_A[j] = iClose(InpSymbolA, InpTimeframe, shift_A);
-         else
-            h_close_A[j] = (j > 0) ? h_close_A[j-1] : default_close_A;
-
-         int shift_B = iBarShift(InpSymbolB, InpTimeframe, h_time[j], false);
+         int shift_B = iBarShift(InpSecondSymbol, InpTimeframe, h_time[j], false);
          if(shift_B >= 0)
-            h_close_B[j] = iClose(InpSymbolB, InpTimeframe, shift_B);
+            h_close_B[j] = iClose(InpSecondSymbol, InpTimeframe, shift_B);
          else
             h_close_B[j] = (j > 0) ? h_close_B[j-1] : default_close_B;
         }
@@ -334,14 +367,14 @@ int OnCalculate(const int rates_total,
                   TimeToStruct(h_time[j], dt_curr);
                   TimeToStruct(h_time[j-1], dt_prev);
                   if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-                     htf_new_period = true; // FIXED: corrected typo from new_period
+                     htf_new_period = true;
                   break;
                  }
                case ANCHOR_CUSTOM_SESSION:
                  {
                   MqlDateTime dt_curr, dt_prev;
-                  TimeToStruct(h_time[j], dt_curr); // FIXED: aligned strictly to HTF times
-                  TimeToStruct(h_time[j-1], dt_prev); // FIXED: aligned strictly to HTF times
+                  TimeToStruct(h_time[j], dt_curr);
+                  TimeToStruct(h_time[j-1], dt_prev);
                   int min_curr = dt_curr.hour * 60 + dt_curr.min;
                   int min_prev = dt_prev.hour * 60 + dt_prev.min;
                   int start_min = g_start_hour * 60 + g_start_min;
@@ -394,12 +427,12 @@ int OnCalculate(const int rates_total,
       double single_c_A[1], single_c_B[1];
 
       // Synchronized live price copying from the forming HTF bar 0
-      int shift_A = iBarShift(InpSymbolA, InpTimeframe, htf_time_current, false);
-      int shift_B = iBarShift(InpSymbolB, InpTimeframe, htf_time_current, false);
+      int shift_A = iBarShift(_Symbol, InpTimeframe, htf_time_current, false);
+      int shift_B = iBarShift(InpSecondSymbol, InpTimeframe, htf_time_current, false);
 
       if(shift_A >= 0 && shift_B >= 0 &&
-         CopyClose(InpSymbolA, InpTimeframe, shift_A, 1, single_c_A) == 1 &&
-         CopyClose(InpSymbolB, InpTimeframe, shift_B, 1, single_c_B) == 1)
+         CopyClose(_Symbol, InpTimeframe, shift_A, 1, single_c_A) == 1 &&
+         CopyClose(InpSecondSymbol, InpTimeframe, shift_B, 1, single_c_B) == 1)
         {
          h_close_A[live_idx] = single_c_A[0];
          h_close_B[live_idx] = single_c_B[0];
@@ -455,11 +488,13 @@ int OnCalculate(const int rates_total,
 
             if(fair_price != EMPTY_VALUE && std_dev > 0.0)
               {
-               BufMiddle[i]     = InpDrawCenterLine ? fair_price : EMPTY_VALUE;
-               BufUpperOuter[i] = InpDrawOuterBands ? (fair_price + InpOuterMultiplier * std_dev) : EMPTY_VALUE;
-               BufLowerOuter[i] = InpDrawOuterBands ? (fair_price - InpOuterMultiplier * std_dev) : EMPTY_VALUE;
-               BufUpperInner[i] = InpDrawInnerBands ? (fair_price + InpInnerMultiplier * std_dev) : EMPTY_VALUE;
-               BufLowerInner[i] = InpDrawInnerBands ? (fair_price - InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+               BufMiddle[i]       = InpDrawCenterLine   ? fair_price : EMPTY_VALUE;
+               BufUpperOuter[i]   = InpDrawOuterBands   ? (fair_price + InpOuterMultiplier * std_dev) : EMPTY_VALUE;
+               BufLowerOuter[i]   = InpDrawOuterBands   ? (fair_price - InpOuterMultiplier * std_dev) : EMPTY_VALUE;
+               BufUpperInner[i]   = InpDrawInnerBands   ? (fair_price + InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+               BufLowerInner[i]   = InpDrawInnerBands   ? (fair_price - InpInnerMultiplier * std_dev) : EMPTY_VALUE;
+               BufUpperExtreme[i] = InpDrawExtremeBands ? (fair_price + InpExtremeMultiplier * std_dev) : EMPTY_VALUE;
+               BufLowerExtreme[i] = InpDrawExtremeBands ? (fair_price - InpExtremeMultiplier * std_dev) : EMPTY_VALUE;
               }
             else
               {
@@ -478,6 +513,23 @@ int OnCalculate(const int rates_total,
      }
 
    return(rates_total);
+  }
+
+//+------------------------------------------------------------------+
+//| OnTimer                                                          |
+//| Handles loading checks and force-redraws                         |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   if(!g_data_synced)
+     {
+      int required_bars = InpLookback + 5;
+      if(EnsureHTFDataReady(InpSecondSymbol, _Period, required_bars))
+        {
+         g_data_synced = true;
+         ChartRedraw(); // Force MT5 to invoke OnCalculate
+        }
+     }
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
