@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                           KeltnerChannel_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // Refactored to use MovingAverage_Engine
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // VWMA compatible with dynamic volume routing
 #property description "Professional Keltner Channels with separate source selection"
 #property description "for the Middle Line (MA) and the ATR calculation."
 
@@ -39,8 +39,7 @@
 //--- Input Parameters ---
 input group                     "Middle Line (MA) Settings"
 input int                       InpMaPeriod     = 20;
-// UPDATED: Use ENUM_MA_TYPE
-input ENUM_MA_TYPE              InpMaMethod     = EMA;
+input ENUM_MA_TYPE              InpMaMethod     = EMA;             // Middle Line MA Type
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_TYPICAL_STD;
 
 //+------------------------------------------------------------------+
@@ -129,7 +128,18 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufferMiddle, BufferUpper, BufferLower);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Route calculations dynamically to support volume-weighted types (VWMA)
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, volume, BufferMiddle, BufferUpper, BufferLower);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, tick_volume, BufferMiddle, BufferUpper, BufferLower);
+     }
 
    return(rates_total);
   }
