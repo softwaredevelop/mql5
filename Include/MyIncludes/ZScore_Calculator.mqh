@@ -1,10 +1,14 @@
 //+------------------------------------------------------------------+
 //|                                          ZScore_Calculator.mqh   |
 //|      Engine for Statistical Z-Score Calculation.                 |
-//|      Standard Deviation distance from Moving Average.            |
+//|      Standard Deviation distance from any Moving Average Type.   |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.40" // Upgraded to support any ENUM_MA_TYPE and volume integration
+
+#ifndef ZSCORE_CALCULATOR_MQH
+#define ZSCORE_CALCULATOR_MQH
 
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
@@ -16,12 +20,13 @@ class CZScoreCalculator
 protected:
    int               m_period;
 
-   //--- Engine for Mean (SMA)
+   //--- Dynamic Engine for Mean (User selected MA Type)
    CMovingAverageCalculator *m_ma_calc;
 
    //--- Buffers
    double            m_price[];
    double            m_ma_buffer[];
+   double            m_volume[];
 
    virtual bool      PreparePrice(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
@@ -29,11 +34,20 @@ public:
                      CZScoreCalculator();
    virtual          ~CZScoreCalculator();
 
-   bool              Init(int period);
+   //--- Updated Init signature to accept dynamic MA type
+   bool              Init(int period, ENUM_MA_TYPE ma_type);
 
+   //--- Standard Calculate (Without volume data)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
                                const double &open[], const double &high[],
                                const double &low[], const double &close[],
+                               double &out_z[]);
+
+   //--- Overloaded Calculate with Volume (Specifically for VWMA support)
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               const long &volume[],
                                double &out_z[]);
   };
 
@@ -49,27 +63,27 @@ CZScoreCalculator::CZScoreCalculator() : m_ma_calc(NULL)
 //+------------------------------------------------------------------+
 CZScoreCalculator::~CZScoreCalculator()
   {
-   if(CheckPointer(m_ma_calc) == POINTER_DYNAMIC)
+   if(CheckPointer(m_ma_calc) != POINTER_INVALID)
       delete m_ma_calc;
   }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CZScoreCalculator::Init(int period)
+bool CZScoreCalculator::Init(int period, ENUM_MA_TYPE ma_type)
   {
    m_period = (period < 2) ? 2 : period;
 
-// Z-Score standard uses Simple Moving Average (SMA) for Mean
+// Set up dynamic calculator engine based on selected MA type
    m_ma_calc = new CMovingAverageCalculator();
-   if(!m_ma_calc.Init(m_period, SMA))
+   if(CheckPointer(m_ma_calc) == POINTER_INVALID || !m_ma_calc.Init(m_period, ma_type))
       return false;
 
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CZScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
                                   const double &open[], const double &high[],
@@ -79,7 +93,7 @@ void CZScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
    if(rates_total < m_period)
       return;
 
-// 1. Resize Internal
+// 1. Resize Internal Prices
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
@@ -87,14 +101,14 @@ void CZScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
      }
 
 // 2. Prepare Price Array
-   if(!PreparePrice(rates_total, (prev_calculated>0 ? prev_calculated-1 : 0), price_type, open, high, low, close))
+   int start_prep = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   if(!PreparePrice(rates_total, start_prep, price_type, open, high, low, close))
       return;
 
-// 3. Calculate Mean (SMA)
-// We run this on m_price array
-   m_ma_calc.CalculateOnArray(rates_total, prev_calculated, m_price, m_ma_buffer);
+// 3. Calculate Mean (Using standard array calculation)
+   m_ma_calc.CalculateOnArray(rates_total, prev_calculated, m_price, m_ma_buffer, 0);
 
-// 4. Calculate Z-Score
+// 4. Calculate Z-Score Distance
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : m_period - 1;
    if(start_index < m_period - 1)
       start_index = m_period - 1;
@@ -102,11 +116,6 @@ void CZScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
    for(int i = start_index; i < rates_total; i++)
      {
       double sum_sq = 0;
-
-      // Calculate Standard Deviation
-      // StdDev = Sqrt( Sum( (Price - Mean)^2 ) / N )
-      // Note: Using Population StdDev formula here (divide by N), typical in trading.
-      // Mean for this window is m_ma_buffer[i]
 
       for(int k = 0; k < m_period; k++)
         {
@@ -116,7 +125,68 @@ void CZScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
 
       double std_dev = MathSqrt(sum_sq / m_period);
 
-      if(std_dev > 1.0e-9) // Anti-div-by-zero
+      if(std_dev > 1.0e-9) // Anti-division-by-zero guard
+         out_z[i] = (m_price[i] - m_ma_buffer[i]) / std_dev;
+      else
+         out_z[i] = 0.0;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Overloaded - With Volume for VWMA)                    |
+//+------------------------------------------------------------------+
+void CZScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
+                                  const double &open[], const double &high[],
+                                  const double &low[], const double &close[],
+                                  const long &volume[],
+                                  double &out_z[])
+  {
+   if(rates_total < m_period)
+      return;
+
+// 1. Resize Internal Buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_ma_buffer, rates_total);
+     }
+   if(ArraySize(m_volume) != rates_total)
+     {
+      ArrayResize(m_volume, rates_total);
+     }
+
+// 2. Prepare Price Array
+   int start_prep = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   if(!PreparePrice(rates_total, start_prep, price_type, open, high, low, close))
+      return;
+
+// 3. Prepare Volume Array
+   for(int i = start_prep; i < rates_total; i++)
+     {
+      m_volume[i] = (double)volume[i];
+     }
+
+// 4. Calculate Mean (Using volume-based array calculation)
+   m_ma_calc.CalculateOnArray(rates_total, prev_calculated, m_price, m_volume, m_ma_buffer, 0);
+
+// 5. Calculate Z-Score Distance
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : m_period - 1;
+   if(start_index < m_period - 1)
+      start_index = m_period - 1;
+
+   for(int i = start_index; i < rates_total; i++)
+     {
+      double sum_sq = 0;
+
+      for(int k = 0; k < m_period; k++)
+        {
+         double diff = m_price[i - k] - m_ma_buffer[i];
+         sum_sq += diff * diff;
+        }
+
+      double std_dev = MathSqrt(sum_sq / m_period);
+
+      if(std_dev > 1.0e-9) // Anti-division-by-zero guard
          out_z[i] = (m_price[i] - m_ma_buffer[i]) / std_dev;
       else
          out_z[i] = 0.0;
@@ -160,5 +230,6 @@ bool CZScoreCalculator::PreparePrice(int rates_total, int start_index, ENUM_APPL
      }
    return true;
   }
-//+------------------------------------------------------------------+
+
+#endif // ZSCORE_CALCULATOR_MQH
 //+------------------------------------------------------------------+
