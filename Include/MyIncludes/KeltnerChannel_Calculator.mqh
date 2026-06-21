@@ -1,9 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                     KeltnerChannel_Calculator.mqh|
-//|      VERSION 3.00: Uses MovingAverage_Engine & ATR Engine.       |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 3.10: Dynamic Volume-Weighted MA Support (VWMA)     |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // Refactored to support volume arrays for VWMA integration
+
+#ifndef KELTNER_CHANNEL_CALCULATOR_MQH
+#define KELTNER_CHANNEL_CALCULATOR_MQH
 
 #include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\ATR_Calculator.mqh>
@@ -32,7 +36,13 @@ public:
    //--- Init now takes ENUM_MA_TYPE
    bool              Init(int ma_p, ENUM_MA_TYPE ma_m, int atr_p, double mult, ENUM_ATR_SOURCE atr_src);
 
+   //--- Standard Calculate (Without volume)
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+                               double &middle_buffer[], double &upper_buffer[], double &lower_buffer[]);
+
+   //--- Overloaded Calculate with Volume (Specifically for VWMA support)
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+                               const long &volume[],
                                double &middle_buffer[], double &upper_buffer[], double &lower_buffer[]);
   };
 
@@ -90,7 +100,7 @@ bool CKeltnerChannelCalculator::Init(int ma_p, ENUM_MA_TYPE ma_m, int atr_p, dou
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CKeltnerChannelCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
@@ -104,6 +114,52 @@ void CKeltnerChannelCalculator::Calculate(int rates_total, int prev_calculated, 
 
 //--- 1. Calculate Middle Line (MA) - Incremental
    m_ma_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, middle_buffer);
+
+//--- 2. Calculate ATR - Incremental
+   m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
+
+//--- 3. Calculate Bands - Incremental Loop
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   int ma_period = m_ma_calc.GetPeriod();
+   int atr_period = m_atr_calc.GetPeriod();
+   int start_pos = MathMax(ma_period, atr_period);
+
+   int loop_start = MathMax(start_pos, start_index);
+
+   for(int i = loop_start; i < rates_total; i++)
+     {
+      // Ensure both components are valid
+      if(middle_buffer[i] != 0.0 && middle_buffer[i] != EMPTY_VALUE &&
+         m_atr_buffer[i] != 0.0 && m_atr_buffer[i] != EMPTY_VALUE)
+        {
+         upper_buffer[i] = middle_buffer[i] + (m_atr_buffer[i] * m_multiplier);
+         lower_buffer[i] = middle_buffer[i] - (m_atr_buffer[i] * m_multiplier);
+        }
+      else
+        {
+         upper_buffer[i] = EMPTY_VALUE;
+         lower_buffer[i] = EMPTY_VALUE;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Overloaded - With Volume for VWMA)                    |
+//+------------------------------------------------------------------+
+void CKeltnerChannelCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+      const long &volume[],
+      double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
+  {
+   if(CheckPointer(m_ma_calc) == POINTER_INVALID || CheckPointer(m_atr_calc) == POINTER_INVALID)
+      return;
+
+//--- Resize internal ATR buffer
+   if(ArraySize(m_atr_buffer) != rates_total)
+      ArrayResize(m_atr_buffer, rates_total);
+
+//--- 1. Calculate Middle Line (MA) - Incremental with Volume
+   m_ma_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, middle_buffer);
 
 //--- 2. Calculate ATR - Incremental
    m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
@@ -150,4 +206,5 @@ void CKeltnerChannelCalculator_HA::CreateCalculators(void)
    m_ma_calc = new CMovingAverageCalculator_HA();
   }
 //+------------------------------------------------------------------+
+#endif // KELTNER_CHANNEL_CALCULATOR_MQH
 //+------------------------------------------------------------------+
