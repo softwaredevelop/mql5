@@ -995,7 +995,7 @@ name=Velocity
 draw=11
 style=0
 width=2
-color=8421504,65280,255
+color=8421504,5275647,17919,16436871,16760576
 </graph>
 
 <graph>
@@ -1014,6 +1014,14 @@ width=1
 color=36095
 </graph>
 
+<graph>
+name=Signal
+draw=1
+style=0
+width=1
+color=2237106
+</graph>
+
 <level>
 level=1.000000
 style=2
@@ -1029,11 +1037,31 @@ color=12632256
 width=1
 descr=
 </level>
+
+<level>
+level=0.300000
+style=2
+color=12632256
+width=1
+descr=
+</level>
+
+<level>
+level=-0.300000
+style=2
+color=12632256
+width=1
+descr=
+</level>
 <inputs>
 InpVelPeriod=5
 InpATRPeriod=13
-InpThreshold=1.0
+InpThresholdLow=0.3
+InpThresholdHigh=1.0
 InpShowSpeed=true
+InpShowSignal=true
+InpSignalPeriod=5
+InpSignalType=7
 </inputs>
 </indicator>
 </window>
