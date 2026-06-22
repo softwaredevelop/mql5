@@ -4,7 +4,7 @@
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Refactored with dynamic MA Signal Line and VWMA volume integration
+#property version   "3.30" // Upgraded to 5-Zone Thermal Kinetics and dual-threshold coloring
 #property description "Displays Velocity (Histogram), Speed Envelope, and customizable Signal Line."
 #property description "Touching the envelope lines signals climatic efficiency."
 
@@ -12,16 +12,24 @@
 #property indicator_buffers 5
 #property indicator_plots   4
 
-//--- Levels
+//--- Institutional Levels Configuration (4-level Kinematic boundaries)
 #property indicator_level1 1.0
 #property indicator_level2 -1.0
+#property indicator_level3 0.3
+#property indicator_level4 -0.3
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
-//--- Plot 1: Velocity Histogram
+//--- Plot 1: Velocity Histogram (5-Zone Thermal Palette)
 #property indicator_label1  "Velocity"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-#property indicator_color1  clrGray, clrLime, clrRed
+// 5-Color Palette:
+// 0: Noise/Neutral     (Gray)
+// 1: Bull Flow         (Coral)
+// 2: Bull Climax       (OrangeRed)
+// 3: Bear Flow         (LightSkyBlue)
+// 4: Bear Climax       (DeepSkyBlue)
+#property indicator_color1  clrGray, clrCoral, clrOrangeRed, clrLightSkyBlue, clrDeepSkyBlue
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
@@ -42,7 +50,7 @@
 //--- Plot 4: Optional Signal Line (Wyckoff Reversal Trigger)
 #property indicator_label4  "Signal"
 #property indicator_type4   DRAW_LINE
-#property indicator_color4  clrMaroon
+#property indicator_color4  clrFireBrick
 #property indicator_style4  STYLE_SOLID
 #property indicator_width4  1
 
@@ -51,15 +59,16 @@
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Parameters ---
-input int               InpVelPeriod   = 3;           // Velocity Vector Lookback
-input int               InpATRPeriod   = 14;          // Volatility Base (ATR)
-input double            InpThreshold   = 1.0;         // Expansion Threshold (Sigma)
-input bool              InpShowSpeed   = true;        // Show Speed Envelope?
+input int               InpVelPeriod     = 3;              // Velocity Vector Lookback
+input int               InpATRPeriod     = 14;             // Volatility Base (ATR)
+input double            InpThresholdLow  = 0.3;            // Low Threshold (Flow Zone)
+input double            InpThresholdHigh = 1.0;            // High Threshold (Climax Zone)
+input bool              InpShowSpeed     = true;           // Show Speed Envelope?
 
 //--- Signal Line Parameters (Dynamic MA Engine Integration)
-input bool              InpShowSignal  = true;        // Show Signal Line?
-input int               InpSignalPeriod= 5;           // Signal Line Period
-input ENUM_MA_TYPE      InpSignalType  = SMA;         // Signal Line MA Type
+input bool              InpShowSignal    = true;            // Show Signal Line?
+input int               InpSignalPeriod  = 5;               // Signal Line Period
+input ENUM_MA_TYPE      InpSignalType    = SMA;             // Signal Line MA Type
 
 //--- Buffers
 double BufVel[];
@@ -222,14 +231,25 @@ int OnCalculate(const int rates_total,
       double vel = CMetricsTools::CalculateSlope(close[i], close[i - InpVelPeriod], atr, InpVelPeriod);
       BufVel[i] = vel;
 
-      // Color coding logic based on significance threshold
-      if(vel > InpThreshold)
-         BufCol[i] = 1.0; // Index 1: Lime
+      // Color coding logic based on two-tier thermal thresholds
+      // 0: Gray (Neutral / No edge)
+      // 1: Coral (Bullish Flow / Trend building)
+      // 2: OrangeRed (Bullish Climax / Exhaustion zone)
+      // 3: LightSkyBlue (Bearish Flow / Trend building)
+      // 4: DeepSkyBlue (Bearish Climax / Exhaustion zone)
+      if(vel >= InpThresholdHigh)
+         BufCol[i] = 2.0; // Index 2: OrangeRed
       else
-         if(vel < -InpThreshold)
-            BufCol[i] = 2.0; // Index 2: Red
+         if(vel >= InpThresholdLow)
+            BufCol[i] = 1.0; // Index 1: Coral
          else
-            BufCol[i] = 0.0; // Index 0: Gray (Neutral Noise)
+            if(vel <= -InpThresholdHigh)
+               BufCol[i] = 4.0; // Index 4: DeepSkyBlue
+            else
+               if(vel <= -InpThresholdLow)
+                  BufCol[i] = 3.0; // Index 3: LightSkyBlue
+               else
+                  BufCol[i] = 0.0; // Index 0: Gray
 
       // Calculate Speed Scalar (Total Path Length over Period / normalizer)
       double path_length = 0.0;
