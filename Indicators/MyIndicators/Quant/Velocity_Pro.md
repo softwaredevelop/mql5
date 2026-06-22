@@ -20,9 +20,8 @@ We apply classical kinematic principles to financial price action to extract the
 * **Formula:**
   $$\text{Velocity}_t = \frac{P_t - P_{t-N}}{N \times \text{ATR}_t}$$
 * **Interpretation:** Measures the net displacement. How far did the price actually get? Visualized as a colored histogram.
-  * **Green (Momentum High):** Fast upward expansion.
-  * **Red (Momentum Low):** Fast downward expansion.
-  * **Gray (Neutral Noise):** Volatility contraction or directionless noise.
+  * **Persistent Momentum:** Fast directional expansion.
+  * **Neutral Noise:** Volatility contraction or directionless consolidation.
 
 ### B. Speed (The Scalar)
 
@@ -38,37 +37,23 @@ We apply classical kinematic principles to financial price action to extract the
 
 ---
 
-## 3. Kinematic Efficiency & Strategic Triggers
+## 3. Kinematic Efficiency & Multi-Stage Regimes (5-Zone Palette)
 
-The relationship between the **Histogram (Velocity)** and the **Mirrored Envelopes (Speed)** tells the true story of market efficiency:
+To represent the progressive build-up of market momentum and exhaustion, `Velocity Pro` features a **Dual-Threshold Architecture** ($\pm 0.3$ and $\pm 1.0$) and a **5-Zone Thermal Color Histogram**:
 
-### A. Persistent Trend Regime (Symmetric Lockstep)
-
-If Velocity is high and hugs the outer Speed envelope ($\text{Velocity} \approx \text{Speed}$):
-
-* Every single price tick contributed directly to the directional move.
-* *Market State:* High-efficiency, high-conviction institutional trend. Breakouts are highly likely to succeed.
-
-### B. Choppy / Volatile Regime (Kinematic Inefficiency)
-
-If Speed is high (envelopes are wide) but Velocity remains low (gray histogram bars near 0.0):
-
-* The market is oscillating wildly but achieving zero net displacement. High energy is spent getting nowhere.
-* *Market State:* High inefficiency. Do NOT trade breakouts. Expect immediate fakeouts and stop-hunts.
-
-### C. The Kinematic Reversal Trigger (Wyckoff Setup)
-
-The addition of the Signal Line creates an incredibly accurate reversal trigger:
-
-1. Wait for the Velocity histogram to reach or pierce the **Speed Envelope** (signaling a maximum exhaustion/climax event).
-2. Wait for the Velocity histogram to contract and **cross back over its Signal Line** (typically configured as a 5-period TMA or EMA).
-3. **The Signal:** This crossover confirms that the extreme momentum has officially faded. Execute a mean-reversion counter-trend trade, placing the stop-loss strictly beyond the extreme candle's high/low.
+| Velocity Value | Color | Market Regime | Statistical Significance | Action / Concept |
+| :--- | :--- | :--- | :--- | :--- |
+| **$v \ge 1.0$** | `clrOrangeRed` | **Bullish Climax** (Exhaustion) | $< 4.5\%$ of events | **Severe Overextended High.** High probability reversal zone. Prepare to Short. |
+| **$v \in [0.3, 1.0)$** | `clrCoral` | **Bullish Flow** (Trend Build-up) | $\approx 20.5\%$ of events | **Strong Bullish Momentum.** Trend-following buy setups and pyramiding. |
+| **$v \in [-0.3, 0.3]$** | `clrGray` | **Neutral Zone** (Random Noise) | $\approx 50.0\%$ of events | **Equilibrium.** Avoid breakouts. Expect chops and false signals. |
+| **$v \in (-1.0, -0.3]$** | `clrLightSkyBlue` | **Bearish Flow** (Trend Build-up) | $\approx 20.5\%$ of events | **Strong Bearish Momentum.** Trend-following sell setups and pyramiding. |
+| **$v \le -1.0$** | `clrDeepSkyBlue` | **Bearish Climax** (Exhaustion) | $< 4.5\%$ of events | **Severe Overextended Low.** High probability reversal zone. Prepare to Buy. |
 
 ---
 
 ## 4. Advanced MQL5 Implementation Details
 
-### A. High-Performance $O(1)$ Performance
+### A. High-Performance $O(1)$ Complexity
 
 The indicator calculates ATR, Velocity, Speed, and the Signal Line incrementally. It utilizes the platform's `prev_calculated` parameter to process only the newest incoming bar, avoiding redundant historic calculations and preserving CPU cycles.
 
@@ -94,17 +79,48 @@ This completely purges the disabled Signal Line from the MT5 Data Window, keepin
 
 ---
 
-## 5. Input Parameters
+## 5. Parameters
 
 ### A. Core Kinematics Settings
 
 * **Velocity Period (`InpVelPeriod`):** The vector/scalar lookback window size (Default: `3` bars).
+
 * **ATR Period (`InpATRPeriod`):** The lookback window for the volatility normalizer (Default: `14`).
-* **Threshold (`InpThreshold`):** The momentum significance level for color transitions (Default: `1.0` Sigma).
+
+* **Low Threshold (`InpThresholdLow`):** The threshold for "Flow Zone" trend building (Default: `0.3`).
+* **High Threshold (`InpThresholdHigh`):** The threshold for "Climax Zone" trend exhaustion (Default: `1.0`).
 * **Show Speed (`InpShowSpeed`):** Toggle to display the orange Speed envelopes (Default: `true`).
 
 ### B. Signal Line Settings
 
 * **Show Signal Line (`InpShowSignal`):** Toggle to enable/disable the Signal Line (Default: `true`).
+
 * **Signal Line Period (`InpSignalPeriod`):** The lookback period for the Signal Line MA (Default: `5`).
+
 * **Signal Line MA Type (`InpSignalType`):** Select the MA type for the Signal Line (Default: `SMA`).
+
+---
+
+## 6. Strategic Quantitative Usage
+
+### A. Kinematic Efficiency (The Gap Analysis)
+
+* **Trend Efficiency:** If Velocity is high and rides the top of the Speed envelope ($v \approx \text{Speed}$), every tick contributes to the directional move. This confirms a highly efficient, high-conviction institutional trend.
+
+* **Intraday Chop:** If Speed is soaring (envelopes are wide) but Velocity remains low (gray bars near 0.0), the market is spending immense energy getting nowhere. Expect immediate fakeouts and stop-hunts.
+
+### B. The Kinematic Reversal Trigger (Wyckoff Setup)
+
+The addition of the Signal Line creates an incredibly accurate reversal trigger:
+
+1. Wait for the Velocity histogram to reach or pierce the **Speed Envelope** (signaling a maximum exhaustion/climax event in the OrangeRed/DeepSkyBlue zone).
+2. Wait for the Velocity histogram to contract and **cross back over its Signal Line** (typically configured as a 5-period TMA or EMA).
+3. **The Signal:** This crossover confirms that the extreme momentum has officially faded. Execute a mean-reversion counter-trend trade, placing the stop-loss strictly beyond the extreme candle's high/low.
+
+### C. Volume-Weighted Squeeze Fading (VWMA Signal Mode)
+
+VWMA Signal Lines are exceptionally accurate at detecting low-volume fakeouts.
+
+1. When a breakout of a major horizontal zone occurs, look at `Velocity_Pro` set with a **`VWMA`** Signal Line.
+2. If the price breaks out but the Velocity histogram spikes violently into the Climax Zone ($v \ge 1.0$) while the **VWMA Signal Line** fails to follow it rapidly, the price move is unsupported by sustainable volume and is a volume-dry fakeout.
+3. Prepare to fade the breakout as a **fakeout**, entering the reverse trade when the Velocity histogram crosses back below the VWMA Signal Line.
