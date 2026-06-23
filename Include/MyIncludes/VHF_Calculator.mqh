@@ -2,9 +2,16 @@
 //|                                            VHF_Calculator.mqh    |
 //|      Engine for Vertical Horizontal Filter (Adam White).         |
 //|      Algorithm: Selectable (Standard Close vs High-Low Range).   |
+//|      VERSION 1.10: Added Heikin Ashi smoothing pipeline support  |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.10"
+
+#ifndef VHF_CALCULATOR_MQH
+#define VHF_CALCULATOR_MQH
+
+#include <MyIncludes\HeikinAshi_Tools.mqh>
 
 enum ENUM_VHF_MODE
   {
@@ -12,9 +19,9 @@ enum ENUM_VHF_MODE
    VHF_MODE_HIGH_LOW    // Professional (Highest High - Lowest Low)
   };
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+//+==================================================================+
+//|             CLASS 1: CVHFCalculator (Base Class)                 |
+//+==================================================================+
 class CVHFCalculator
   {
 protected:
@@ -85,11 +92,9 @@ void CVHFCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
       // 1. Numerator (Range)
       if(m_mode == VHF_MODE_CLOSE_ONLY)
         {
-         // Classic: Search within source price (usually Close)
          for(int k = 0; k < m_period; k++)
            {
-            double p = m_price[i - k]; // i down to i-period+1 ? Standard VHF lookback is usually [i .. i-period+1]
-            // Actually, Adam White lookback N means Highest over N bars. [i-N+1 ... i]
+            double p = m_price[i - k];
             if(p > max_p)
                max_p = p;
             if(p < min_p)
@@ -98,11 +103,9 @@ void CVHFCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
         }
       else // VHF_MODE_HIGH_LOW
         {
-         // Pro: Search within TRUE High/Low arrays
-         // Note: m_high/m_low are populated in PrepareData
          for(int k = 0; k < m_period; k++)
            {
-            int idx = i - k; // Simple loop back
+            int idx = i - k;
             if(m_high[idx] > max_p)
                max_p = m_high[idx];
             if(m_low[idx] < min_p)
@@ -111,13 +114,11 @@ void CVHFCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
         }
 
       // 2. Denominator (Noise)
-      // Sum of Abs Changes of the SOURCE PRICE (Close) over Period
-      // usually Change[i] ... Change[i-N+1]
       for(int k = 0; k < m_period; k++)
         {
          int idx = i - k;
          double p_curr = m_price[idx];
-         double p_prev = m_price[idx-1]; // Safe if i >= period >= 1
+         double p_prev = m_price[idx-1];
          sum_change += MathAbs(p_curr - p_prev);
         }
 
@@ -129,13 +130,12 @@ void CVHFCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIE
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Data                                                     |
+//| Prepare Data (Standard)                                          |
 //+------------------------------------------------------------------+
 bool CVHFCalculator::PrepareData(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
    for(int i = start_index; i < rates_total; i++)
      {
-      // 1. Prepare Denominator Base (Close/Selected)
       switch(price_type)
         {
          case PRICE_CLOSE:
@@ -164,7 +164,6 @@ bool CVHFCalculator::PrepareData(int rates_total, int start_index, ENUM_APPLIED_
             break;
         }
 
-      // 2. Prepare Numerator Base (High/Low) - Only if needed
       if(m_mode == VHF_MODE_HIGH_LOW)
         {
          m_high[i] = high[i];
@@ -173,4 +172,71 @@ bool CVHFCalculator::PrepareData(int rates_total, int start_index, ENUM_APPLIED_
      }
    return true;
   }
+
+//+==================================================================+
+//|             CLASS 2: CVHFCalculator_HA (Heikin Ashi)             |
+//+==================================================================+
+class CVHFCalculator_HA : public CVHFCalculator
+  {
+private:
+   CHeikinAshi_Calculator m_ha_calculator;
+   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+protected:
+   virtual bool      PrepareData(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+  };
+
+//+------------------------------------------------------------------+
+//| Prepare Data (Heikin Ashi)                                       |
+//+------------------------------------------------------------------+
+bool CVHFCalculator_HA::PrepareData(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+  {
+   if(ArraySize(m_ha_open) != rates_total)
+     {
+      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_high, rates_total);
+      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_close, rates_total);
+     }
+   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+   for(int i = start_index; i < rates_total; i++)
+     {
+      switch(price_type)
+        {
+         case PRICE_CLOSE:
+            m_price[i] = m_ha_close[i];
+            break;
+         case PRICE_OPEN:
+            m_price[i] = m_ha_open[i];
+            break;
+         case PRICE_HIGH:
+            m_price[i] = m_ha_high[i];
+            break;
+         case PRICE_LOW:
+            m_price[i] = m_ha_low[i];
+            break;
+         case PRICE_MEDIAN:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
+            break;
+         case PRICE_TYPICAL:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
+            break;
+         case PRICE_WEIGHTED:
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            break;
+         default:
+            m_price[i] = m_ha_close[i];
+            break;
+        }
+
+      if(m_mode == VHF_MODE_HIGH_LOW)
+        {
+         m_high[i] = m_ha_high[i];
+         m_low[i]  = m_ha_low[i];
+        }
+     }
+   return true;
+  }
+
+#endif // VHF_CALCULATOR_MQH
 //+------------------------------------------------------------------+
