@@ -1,12 +1,12 @@
-# Velocity Pro (Indicator)
+# Velocity Pro Suite (Standard & MTF)
 
 ## 1. Summary (Introduction)
 
-**Velocity Pro** is an institutional-grade kinematics separate-window indicator designed to map market momentum. Unlike standard momentum indicators that simply calculate delta changes over a fixed window, this proprietary tool separates **"Directional Impulse" (Velocity Vector)** from the **"Raw Activity" (Speed Scalar)** of the market.
+The **Velocity Pro Suite** is an institutional-grade kinematics separate-window analytical suite comprising two advanced indicators: `Velocity_Pro` (Standard) and `Velocity_MTF_Pro` (Multi-Timeframe).
 
-This critical physical distinction allows quantitative systems to identify the exact efficiency of price action, cleanly separating high-conviction Trending Regimes from highly volatile, low-conviction Choppy Regimes.
+Unlike standard momentum indicators that simply calculate price delta changes over a fixed window, this proprietary tool separates **"Directional Impulse" (Velocity Vector)** from the **"Raw Activity" (Speed Scalar)** of the market. This critical physical distinction allows quantitative systems to identify the exact efficiency of price action, cleanly separating high-conviction Trending Regimes from highly volatile, low-conviction Choppy Regimes.
 
-To filter out minor high-frequency noise, `Velocity Pro` incorporates an optional, highly customizable **Signal Line** fully integrated with the `MovingAverage_Engine.mqh` (supporting SMA, EMA, and volume-weighted VWMA types). It serves as an ultra-low-latency trigger for counter-trend reversals and trend-continuation setups.
+To filter out minor high-frequency noise, the suite incorporates an optional, highly customizable **Signal Line** fully integrated with the `MovingAverage_Engine.mqh` (supporting SMA, EMA, and volume-weighted VWMA types). It serves as an ultra-low-latency trigger for counter-trend reversals and trend-continuation setups on both local and macro timeframes.
 
 ---
 
@@ -39,7 +39,7 @@ We apply classical kinematic principles to financial price action to extract the
 
 ## 3. Kinematic Efficiency & Multi-Stage Regimes (5-Zone Swapped Palette)
 
-To represent the progressive build-up of market momentum and exhaustion, `Velocity Pro` features a **Dual-Threshold Architecture** ($\pm 0.3$ and $\pm 1.0$) and a **5-Zone Thermal Color Histogram** with inverted bull/bear polarities (Blue for Bullish, Red/Coral for Bearish):
+To represent the progressive build-up of market momentum and exhaustion, the suite features a **Dual-Threshold Architecture** ($\pm 0.3$ and $\pm 1.0$) and a **5-Zone Thermal Color Histogram** with inverted bull/bear polarities (Blue for Bullish, Red/Coral for Bearish):
 
 | Velocity Value | Color | Market Regime | Statistical Significance | Action / Concept |
 | :--- | :--- | :--- | :--- | :--- |
@@ -55,11 +55,11 @@ To represent the progressive build-up of market momentum and exhaustion, `Veloci
 
 ### A. High-Performance $O(1)$ Complexity
 
-The indicator calculates ATR, Velocity, Speed, and the Signal Line incrementally. It utilizes the platform's `prev_calculated` parameter to process only the newest incoming bar, avoiding redundant historic calculations and preserving CPU cycles.
+The indicators calculate ATR, Velocity, Speed, and the Signal Line incrementally. They utilize the platform's `prev_calculated` parameter to process only the newest incoming bar, avoiding redundant historic calculations and preserving CPU cycles.
 
 ### B. Dynamic Volume-Weighted Signal Pipeline
 
-To support volume-weighted types (like **VWMA**) for the Signal Line, `Velocity_Pro` implements an automatic volume-routing pipeline. It queries `SYMBOL_VOLUME_LIMIT` to detect if the broker provides Real Volume, converts it to a double array (`g_double_volume[]`) incrementally, and passes it to the Signal Line calculator:
+To support volume-weighted types (like **VWMA**) for the Signal Line, the suite implements an automatic volume-routing pipeline. It queries `SYMBOL_VOLUME_LIMIT` to detect if the broker provides Real Volume, converts it to a double array (`g_double_volume[]` on Standard, `h_vol_double[]` on MTF) incrementally, and passes it to the Signal Line calculator:
 
 ```mql5
 g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufVel, g_double_volume, BufSignal, InpATRPeriod + InpVelPeriod);
@@ -67,15 +67,29 @@ g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufVel, g_dou
 
 This enables the Signal Line to adapt dynamically to volume distribution during high-velocity breakouts.
 
-### C. Plot Persistency and Data Window Cleanup
+### C. Forming LTF Block Flat-Force (The Warping Solution)
 
-To resolve MT5 plot persistency bugs, `OnInit()` explicitly restores `DRAW_LINE` and `"Signal"` label when enabled. When `InpShowSignal` is toggled `false`, the indicator dynamically nullifies the plot label:
+`Velocity_MTF_Pro` resolves the classic MTF live-bar warping bug by implementing the **Forming LTF Block Flat-Force** step-blocking algorithm. On every tick, the indicator locates the exact boundary of the active forming HTF block and dynamically forces the calculation's starting index back to the beginning of that block:
 
 ```mql5
-PlotIndexSetString(3, PLOT_LABEL, NULL);
+int first_bar_of_forming_htf = rates_total - 1;
+while(first_bar_of_forming_htf > 0 &&
+      iBarShift(_Symbol, InpTimeframe, time[first_bar_of_forming_htf], false) == 0)
+  {
+   first_bar_of_forming_htf--;
+  }
+first_bar_of_forming_htf++; // Start index of the forming HTF step block on lower TF chart
+
+if(start > first_bar_of_forming_htf)
+   start = first_bar_of_forming_htf;
 ```
 
-This completely purges the disabled Signal Line from the MT5 Data Window, keeping the user interface clean.
+This ensures the entire active HTF block (Histogram, Envelopes, and Signal Line) is overwritten flatly on every live tick, keeping the separate window display perfectly flat and responsive in real-time.
+
+### D. Asynchronous Timer Guard & HTF Calculations
+
+* **Background Timer:** High-frequency MTF data requests often suffer from terminal loading gaps. A 1-second `OnTimer` background daemon repeatedly verifies data readiness (`EnsureHTFDataReady`) and instantly triggers a chart redraw (`ChartRedraw()`) as soon as history is ready.
+* **HTF Calculations:** On every live tick, the latest HTF price/volume elements are copied, and the ATR, Velocity, and Signal calculators are executed incrementally on only the live index (`g_htf_count - 1`), optimizing CPU cycles.
 
 ---
 
@@ -84,9 +98,7 @@ This completely purges the disabled Signal Line from the MT5 Data Window, keepin
 ### A. Core Kinematics Settings
 
 * **Velocity Period (`InpVelPeriod`):** The vector/scalar lookback window size (Default: `3` bars).
-
 * **ATR Period (`InpATRPeriod`):** The lookback window for the volatility normalizer (Default: `14`).
-
 * **Low Threshold (`InpThresholdLow`):** The threshold for "Flow Zone" trend building (Default: `0.3`).
 * **High Threshold (`InpThresholdHigh`):** The threshold for "Climax Zone" trend exhaustion (Default: `1.0`).
 * **Show Speed (`InpShowSpeed`):** Toggle to display the orange Speed envelopes (Default: `true`).
@@ -94,10 +106,12 @@ This completely purges the disabled Signal Line from the MT5 Data Window, keepin
 ### B. Signal Line Settings
 
 * **Show Signal Line (`InpShowSignal`):** Toggle to enable/disable the Signal Line (Default: `true`).
-
 * **Signal Line Period (`InpSignalPeriod`):** The lookback period for the Signal Line MA (Default: `5`).
-
 * **Signal Line MA Type (`InpSignalType`):** Select the MA type for the Signal Line (Default: `SMA`).
+
+### C. MTF Specific Parameters
+
+* **Target Timeframe (`InpTimeframe`):** The target higher timeframe to calculate Kinematics on (Default: `PERIOD_M5`).
 
 ---
 
@@ -106,7 +120,6 @@ This completely purges the disabled Signal Line from the MT5 Data Window, keepin
 ### A. Kinematic Efficiency (The Gap Analysis)
 
 * **Trend Efficiency:** If Velocity is high and rides the top of the Speed envelope ($v \approx \text{Speed}$), every tick contributes to the directional move. This confirms a highly efficient, high-conviction institutional trend.
-
 * **Intraday Chop:** If Speed is soaring (envelopes are wide) but Velocity remains low (gray bars near 0.0), the market is spending immense energy getting nowhere. Expect immediate fakeouts and stop-hunts.
 
 ### B. The Kinematic Reversal Trigger (Wyckoff Setup)
@@ -124,3 +137,9 @@ VWMA Signal Lines are exceptionally accurate at detecting low-volume fakeouts.
 1. When a breakout of a major horizontal zone occurs, look at `Velocity_Pro` set with a **`VWMA`** Signal Line.
 2. If the price breaks out but the Velocity histogram spikes violently into the Climax Zone ($v \ge 1.0$) while the **VWMA Signal Line** fails to follow it rapidly, the price move is unsupported by sustainable volume and is a volume-dry fakeout.
 3. Prepare to fade the breakout as a **fakeout**, entering the reverse trade when the Velocity histogram crosses back below the VWMA Signal Line.
+
+### D. Top-Down Macro Kinematic Alignment (MTF Core Strategy)
+
+1. **Macro Volatility Filter (H1/H4):** Apply `Velocity_MTF_Pro` set to H1 or H4 on an M5 execution chart.
+2. **The Setup:** Wait for the macro **H1 Velocity** to enter the **Bullish/Bearish Flow Zone (LightSkyBlue/Coral)**, confirming a healthy build-up of macro trend momentum.
+3. **Execution:** On the lower M5 chart, only look for entries aligned with the macro direction. If H1 is LightSkyBlue, execute long-biased breakout setups when the local M5 Velocity crosses above its own Signal Line, maximizing the risk-to-reward ratio.
