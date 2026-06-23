@@ -4,7 +4,7 @@
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.30" // Upgraded to 5-Zone Thermal Kinetics and dual-threshold coloring
+#property version   "3.40" // Swapped color polarity: Bullish (Blue tones) and Bearish (Red/Coral tones)
 #property description "Displays Velocity (Histogram), Speed Envelope, and customizable Signal Line."
 #property description "Touching the envelope lines signals climatic efficiency."
 
@@ -20,16 +20,16 @@
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
-//--- Plot 1: Velocity Histogram (5-Zone Thermal Palette)
+//--- Plot 1: Velocity Histogram (Swapped Bull/Bear Thermal Palette)
 #property indicator_label1  "Velocity"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-// 5-Color Palette:
+// Swapped Palette:
 // 0: Noise/Neutral     (Gray)
-// 1: Bull Flow         (Coral)
-// 2: Bull Climax       (OrangeRed)
-// 3: Bear Flow         (LightSkyBlue)
-// 4: Bear Climax       (DeepSkyBlue)
-#property indicator_color1  clrGray, clrCoral, clrOrangeRed, clrLightSkyBlue, clrDeepSkyBlue
+// 1: Bullish Flow      (LightSkyBlue)
+// 2: Bullish Climax    (DeepSkyBlue)
+// 3: Bearish Flow      (Coral)
+// 4: Bearish Climax    (OrangeRed)
+#property indicator_color1  clrGray, clrLightSkyBlue, clrDeepSkyBlue, clrCoral, clrOrangeRed
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
@@ -177,7 +177,7 @@ void OnDeinit(const int r)
   }
 
 //+------------------------------------------------------------------+
-//| Calculate                                                        |
+//| OnCalculate                                                      |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -231,23 +231,23 @@ int OnCalculate(const int rates_total,
       double vel = CMetricsTools::CalculateSlope(close[i], close[i - InpVelPeriod], atr, InpVelPeriod);
       BufVel[i] = vel;
 
-      // Color coding logic based on two-tier thermal thresholds
+      // Color coding logic based on swapped bull/bear thermal thresholds
       // 0: Gray (Neutral / No edge)
-      // 1: Coral (Bullish Flow / Trend building)
-      // 2: OrangeRed (Bullish Climax / Exhaustion zone)
-      // 3: LightSkyBlue (Bearish Flow / Trend building)
-      // 4: DeepSkyBlue (Bearish Climax / Exhaustion zone)
+      // 1: LightSkyBlue (Bullish Flow / Trend building)
+      // 2: DeepSkyBlue (Bullish Climax / Exhaustion zone)
+      // 3: Coral (Bearish Flow / Trend building)
+      // 4: OrangeRed (Bearish Climax / Exhaustion zone)
       if(vel >= InpThresholdHigh)
-         BufCol[i] = 2.0; // Index 2: OrangeRed
+         BufCol[i] = 2.0; // Index 2: DeepSkyBlue
       else
          if(vel >= InpThresholdLow)
-            BufCol[i] = 1.0; // Index 1: Coral
+            BufCol[i] = 1.0; // Index 1: LightSkyBlue
          else
             if(vel <= -InpThresholdHigh)
-               BufCol[i] = 4.0; // Index 4: DeepSkyBlue
+               BufCol[i] = 4.0; // Index 4: OrangeRed
             else
                if(vel <= -InpThresholdLow)
-                  BufCol[i] = 3.0; // Index 3: LightSkyBlue
+                  BufCol[i] = 3.0; // Index 3: Coral
                else
                   BufCol[i] = 0.0; // Index 0: Gray
 
