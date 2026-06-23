@@ -37,17 +37,17 @@ We apply classical kinematic principles to financial price action to extract the
 
 ---
 
-## 3. Kinematic Efficiency & Multi-Stage Regimes (5-Zone Palette)
+## 3. Kinematic Efficiency & Multi-Stage Regimes (5-Zone Swapped Palette)
 
-To represent the progressive build-up of market momentum and exhaustion, `Velocity Pro` features a **Dual-Threshold Architecture** ($\pm 0.3$ and $\pm 1.0$) and a **5-Zone Thermal Color Histogram**:
+To represent the progressive build-up of market momentum and exhaustion, `Velocity Pro` features a **Dual-Threshold Architecture** ($\pm 0.3$ and $\pm 1.0$) and a **5-Zone Thermal Color Histogram** with inverted bull/bear polarities (Blue for Bullish, Red/Coral for Bearish):
 
 | Velocity Value | Color | Market Regime | Statistical Significance | Action / Concept |
 | :--- | :--- | :--- | :--- | :--- |
-| **$v \ge 1.0$** | `clrOrangeRed` | **Bullish Climax** (Exhaustion) | $< 4.5\%$ of events | **Severe Overextended High.** High probability reversal zone. Prepare to Short. |
-| **$v \in [0.3, 1.0)$** | `clrCoral` | **Bullish Flow** (Trend Build-up) | $\approx 20.5\%$ of events | **Strong Bullish Momentum.** Trend-following buy setups and pyramiding. |
+| **$v \ge 1.0$** | `clrDeepSkyBlue` | **Bullish Climax** (Exhaustion) | $< 4.5\%$ of events | **Severe Overextended High.** High probability reversal zone. Prepare to Short. |
+| **$v \in [0.3, 1.0)$** | `clrLightSkyBlue` | **Bullish Flow** (Trend Build-up) | $\approx 20.5\%$ of events | **Strong Bullish Momentum.** Trend-following buy setups and pyramiding. |
 | **$v \in [-0.3, 0.3]$** | `clrGray` | **Neutral Zone** (Random Noise) | $\approx 50.0\%$ of events | **Equilibrium.** Avoid breakouts. Expect chops and false signals. |
-| **$v \in (-1.0, -0.3]$** | `clrLightSkyBlue` | **Bearish Flow** (Trend Build-up) | $\approx 20.5\%$ of events | **Strong Bearish Momentum.** Trend-following sell setups and pyramiding. |
-| **$v \le -1.0$** | `clrDeepSkyBlue` | **Bearish Climax** (Exhaustion) | $< 4.5\%$ of events | **Severe Overextended Low.** High probability reversal zone. Prepare to Buy. |
+| **$v \in (-1.0, -0.3]$** | `clrCoral` | **Bearish Flow** (Trend Build-up) | $\approx 20.5\%$ of events | **Strong Bearish Momentum.** Trend-following sell setups and pyramiding. |
+| **$v \le -1.0$** | `clrOrangeRed` | **Bearish Climax** (Exhaustion) | $< 4.5\%$ of events | **Severe Overextended Low.** High probability reversal zone. Prepare to Buy. |
 
 ---
 
@@ -113,7 +113,7 @@ This completely purges the disabled Signal Line from the MT5 Data Window, keepin
 
 The addition of the Signal Line creates an incredibly accurate reversal trigger:
 
-1. Wait for the Velocity histogram to reach or pierce the **Speed Envelope** (signaling a maximum exhaustion/climax event in the OrangeRed/DeepSkyBlue zone).
+1. Wait for the Velocity histogram to reach or pierce the **Speed Envelope** (signaling a maximum exhaustion/climax event in the DeepSkyBlue/OrangeRed zone).
 2. Wait for the Velocity histogram to contract and **cross back over its Signal Line** (typically configured as a 5-period TMA or EMA).
 3. **The Signal:** This crossover confirms that the extreme momentum has officially faded. Execute a mean-reversion counter-trend trade, placing the stop-loss strictly beyond the extreme candle's high/low.
 
