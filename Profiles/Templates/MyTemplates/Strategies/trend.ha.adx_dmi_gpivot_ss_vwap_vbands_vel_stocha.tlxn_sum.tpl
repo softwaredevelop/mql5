@@ -995,7 +995,7 @@ name=Velocity
 draw=11
 style=0
 width=2
-color=8421504,5275647,17919,16436871,16760576
+color=8421504,16436871,16760576,5275647,17919
 </graph>
 
 <graph>
@@ -1061,7 +1061,7 @@ InpThresholdHigh=1.0
 InpShowSpeed=true
 InpShowSignal=true
 InpSignalPeriod=5
-InpSignalType=7
+InpSignalType=4
 </inputs>
 </indicator>
 </window>
