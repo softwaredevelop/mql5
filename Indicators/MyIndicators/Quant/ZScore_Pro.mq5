@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.70" // Integrated double-volume array translation to support VWMA Signal lines
+#property version   "1.80" // Swapped color polarity to perfectly align with ZScore_MTF_Pro and Velocity_Pro
 #property description "Statistical Z-Score Oscillator with dynamic Signal Line."
 #property description "Displays deviations from any selected Moving Average in Sigma units."
 
@@ -21,16 +21,16 @@
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
-//--- Plot 1: Z-Score Histogram (5-Zone Thermal Palette)
+//--- Plot 1: Z-Score Histogram (Swapped Bull/Bear Thermal Palette)
 #property indicator_label1  "Z-Score"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-// 5-Color Palette:
+// Swapped Palette:
 // 0: Noise/Neutral     (Gray)
-// 1: Warning High      (Coral)
-// 2: Extreme High      (OrangeRed)
-// 3: Warning Low       (LightSkyBlue)
-// 4: Extreme Low       (DeepSkyBlue)
-#property indicator_color1  clrGray, clrCoral, clrOrangeRed, clrLightSkyBlue, clrDeepSkyBlue
+// 1: Bullish Flow      (LightSkyBlue)
+// 2: Bullish Climax    (DeepSkyBlue)
+// 3: Bearish Flow      (Coral)
+// 4: Bearish Climax    (OrangeRed)
+#property indicator_color1  clrGray, clrLightSkyBlue, clrDeepSkyBlue, clrCoral, clrOrangeRed
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
@@ -42,6 +42,7 @@
 #property indicator_width2  1
 
 #include <MyIncludes\ZScore_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Input Parameters ---
 input int                       InpPeriod      = 20;          // Z-Score Lookback Period
@@ -195,30 +196,30 @@ int OnCalculate(const int rates_total,
       g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufferZ, g_double_volume, BufferSignal, InpPeriod - 1);
      }
 
-//--- 3. Apply 5-Zone Thermal Coloring Logic (O(1) incremental)
+//--- 3. Apply 5-Zone Swapped Thermal Coloring Logic (O(1) incremental)
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    for(int i = start_index; i < rates_total; i++)
      {
       double z = BufferZ[i];
 
-      // 5-Zone Thermal Coloring:
-      // Z > 2.5  -> OrangeRed (Extreme High / Sell Reversal Zone)
-      // Z > 2.0  -> Coral (Warning High / Caution Zone)
-      // Z < -2.5 -> DeepSkyBlue (Extreme Low / Buy Reversal Zone)
-      // Z < -2.0 -> LightSkyBlue (Warning Low / Caution Zone)
+      // Swapped 5-Zone Thermal Coloring:
+      // Z > 2.5  -> DeepSkyBlue (Extreme High / Bullish Climax)
+      // Z > 2.0  -> LightSkyBlue (Warning High / Bullish Flow)
+      // Z < -2.5 -> OrangeRed (Extreme Low / Bearish Climax)
+      // Z < -2.0 -> Coral (Warning Low / Bearish Flow)
       // Else     -> Gray (Neutral Noise Zone)
       if(z > 2.5)
-         BufferColors[i] = 2.0; // Index 2: OrangeRed
+         BufferColors[i] = 2.0; // Index 2: DeepSkyBlue
       else
          if(z > 2.0)
-            BufferColors[i] = 1.0; // Index 1: Coral
+            BufferColors[i] = 1.0; // Index 1: LightSkyBlue
          else
             if(z < -2.5)
-               BufferColors[i] = 4.0; // Index 4: DeepSkyBlue
+               BufferColors[i] = 4.0; // Index 4: OrangeRed
             else
                if(z < -2.0)
-                  BufferColors[i] = 3.0; // Index 3: LightSkyBlue
+                  BufferColors[i] = 3.0; // Index 3: Coral
                else
                   BufferColors[i] = 0.0; // Index 0: Gray
      }
