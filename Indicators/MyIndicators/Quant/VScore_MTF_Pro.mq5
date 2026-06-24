@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Fixed property string syntax and aligned with classic calculator signature
+#property version   "1.21" // Fixed dynamic live-updating cumulative state corruption bug
 #property description "V-Score (Multi-Timeframe)."
 #property description "Displays HTF VWAP Deviation Z-Score cleanly without live-bar warping."
 
@@ -25,7 +25,7 @@
 
 //--- Plot: Color Histogram (5-Zone Thermal Palette)
 #property indicator_label1  "V-Score MTF"
-#property indicator_type1   DRAW_COLOR_HISTOGRAM // FIXED: Removed illegal string quotes around draw type
+#property indicator_type1   DRAW_COLOR_HISTOGRAM // FIXED: Removed string quotes to prevent compiler error
 
 // 5-Color Palette:
 // 0: Noise/Neutral     (Gray)
@@ -240,8 +240,9 @@ int OnCalculate(const int rates_total,
             h_vol[live_idx] = vol[0];
            }
 
-         // Incremental recalculation on the live HTF index (O(1) tick performance)
-         g_calc.Calculate(g_htf_count, live_idx, h_time, h_open, h_high, h_low, h_close, h_vol, h_vol, h_res);
+         // FIXED: Passed g_htf_count as prev_calculated (instead of live_idx) to mimic native MT5 OnCalculate live ticks
+         // This completely prevents infinite cumulative volume summation on every live tick!
+         g_calc.Calculate(g_htf_count, g_htf_count, h_time, h_open, h_high, h_low, h_close, h_vol, h_vol, h_res);
         }
      }
 
