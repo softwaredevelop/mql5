@@ -1,14 +1,17 @@
 //+------------------------------------------------------------------+
 //|                                             Laguerre_Engine.mqh  |
-//|      VERSION 1.20: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 1.30: Added zero-copy inline price getter.          |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.30"
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 enum ENUM_INPUT_SOURCE { SOURCE_PRICE, SOURCE_MOMENTUM };
 
+//+==================================================================+
+//|             CLASS: CLaguerreEngine                               |
 //+==================================================================+
 class CLaguerreEngine
   {
@@ -35,13 +38,12 @@ public:
 
    void              GetPriceBuffer(double &dest_array[]);
 
-   //--- NEW: Accessors for internal state buffers (Needed for Laguerre RSI)
+   //--- NEW: Zero-copy inline price getter (Eliminates deep-copy performance bottleneck)
+   double            GetPrice(int index) const { return m_price[index]; }
+
+   //--- Accessors for internal state buffers (Needed for Laguerre RSI)
    void              GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[]);
   };
-
-//+==================================================================+
-//|                 METHOD IMPLEMENTATIONS                           |
-//+==================================================================+
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
@@ -111,7 +113,7 @@ void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM
       ArrayResize(m_L3, rates_total);
      }
 
-// Resize output buffer if provided (might be dummy in RSI calc)
+// Resize output buffer if provided
    if(ArraySize(filt_buffer) != rates_total)
       ArrayResize(filt_buffer, rates_total);
 
@@ -261,4 +263,5 @@ bool CLaguerreEngine_HA::PreparePriceSeries(int rates_total, int start_index, EN
      }
    return true;
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
