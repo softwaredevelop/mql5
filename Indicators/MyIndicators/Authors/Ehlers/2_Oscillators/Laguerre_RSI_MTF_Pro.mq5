@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.02" // Positonal compilation fix (pasted missing ENUM_LRSI_DISPLAY_MODE enum definition)
+#property version   "1.10" // Upgraded with dynamic volume routing to support VWMA Signal types
 #property description "Multi-Timeframe (MTF) John Ehlers' Laguerre RSI."
 #property description "Displays HTF Laguerre RSI and Signal Line cleanly without live-bar warping."
 
@@ -38,12 +38,15 @@
 
 #include <MyIncludes\Laguerre_RSI_Calculator.mqh>
 
-//--- FIXED: Added missing Enum definition for Display Mode ---
+//--- Enum for Display Mode ---
+#ifndef ENUM_LRSI_DISPLAY_MODE_DEFINED
+#define ENUM_LRSI_DISPLAY_MODE_DEFINED
 enum ENUM_LRSI_DISPLAY_MODE
   {
    DISPLAY_LRSI_ONLY,
    DISPLAY_LRSI_AND_SIGNAL
   };
+#endif
 
 //--- Input Parameters ---
 input group "Timeframe Settings"
@@ -67,13 +70,14 @@ double    h_res_rsi[];   // HTF RSI Results cached
 double    h_res_sig[];   // HTF Signal Results cached
 datetime  h_time[];      // HTF Time index
 double    h_open[], h_high[], h_low[], h_close[]; // HTF Price Data
+long      h_vol[]; // HTF raw volume cache
 
 //--- Global variables ---
 CLaguerreRSICalculator *g_calculator;
 bool                    g_is_mtf_mode         = false;
 ENUM_TIMEFRAMES         g_calc_timeframe;
 bool                    g_data_ready          = false;
-bool                     g_data_synced         = false;
+bool                    g_data_synced         = false;
 int                     g_htf_count           = 0;
 datetime                g_last_htf_time       = 0;
 
@@ -203,7 +207,12 @@ int OnCalculate(const int rates_total,
 //================================================================
    if(!g_is_mtf_mode)
      {
-      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferLRSI_MTF, BufferSignal_MTF);
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+      if(volume_limit > 0)
+         g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, BufferLRSI_MTF, BufferSignal_MTF);
+      else
+         g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, tick_volume, BufferLRSI_MTF, BufferSignal_MTF);
 
       // Hide Signal if requested
       if(InpDisplayMode == DISPLAY_LRSI_ONLY)
@@ -229,6 +238,9 @@ int OnCalculate(const int rates_total,
 
    g_data_synced = true;
 
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
 //--- 1. Check if a new HTF bar has formed
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
@@ -251,6 +263,7 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_high,  g_htf_count);
       ArrayResize(h_low,   g_htf_count);
       ArrayResize(h_close, g_htf_count);
+      ArrayResize(h_vol,   g_htf_count);
 
       ArrayResize(h_res_rsi, g_htf_count);
       ArrayResize(h_res_sig, g_htf_count);
@@ -265,8 +278,21 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
+      // High-Performance dynamic volume routing on the HTF Timeline
+      int copied_vol = 0;
+      if(volume_limit > 0)
+         copied_vol = CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_vol);
+      else
+         copied_vol = CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_vol);
+
+      if(copied_vol != g_htf_count)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
       //--- Calculate Laguerre RSI and Signal on HTF (Closed bars and forming bar initialized)
-      g_calculator.Calculate(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_res_rsi, h_res_sig);
+      g_calculator.Calculate(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_vol, h_res_rsi, h_res_sig);
 
       g_data_ready = true;
      }
@@ -279,6 +305,7 @@ int OnCalculate(const int rates_total,
    if(live_idx >= 2)
      {
       double o[1], h[1], l[1], c[1];
+      long vol[1];
       int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
       if(shift >= 0 &&
          CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
@@ -291,9 +318,21 @@ int OnCalculate(const int rates_total,
          h_low[live_idx]   = l[0];
          h_close[live_idx] = c[0];
 
+         // Copy live volume dynamically
+         int copied = 0;
+         if(volume_limit > 0)
+            copied = CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, vol);
+         else
+            copied = CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, vol);
+
+         if(copied == 1)
+           {
+            h_vol[live_idx] = vol[0];
+           }
+
          // Incremental recalculation on the live HTF index in O(1)
          // Passed g_htf_count as prev_calculated to preserve state safety
-         g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close, h_res_rsi, h_res_sig);
+         g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close, h_vol, h_res_rsi, h_res_sig);
         }
      }
 
