@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                             Laguerre_RSI_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.30" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.40" // VWMA compatible with dynamic volume routing
 #property description "John Ehlers' Laguerre RSI with an optional signal line."
 
 //--- Indicator Window and Plot Properties ---
@@ -37,7 +37,7 @@
 
 #include <MyIncludes\Laguerre_RSI_Calculator.mqh>
 
-//--- NEW: Enum for Display Mode ---
+//--- Enum for Display Mode ---
 enum ENUM_LRSI_DISPLAY_MODE
   {
    DISPLAY_LRSI_ONLY,
@@ -95,7 +95,7 @@ void OnDeinit(const int reason) { if(CheckPointer(g_calculator) != POINTER_INVAL
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -110,8 +110,18 @@ int OnCalculate(const int rates_total,
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-//--- Delegate calculation with prev_calculated optimization
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferLRSI, BufferSignal);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Delegate calculations dynamically to support volume-weighted types (VWMA) on the Signal Line
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, BufferLRSI, BufferSignal);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, tick_volume, BufferLRSI, BufferSignal);
+     }
 
 //--- Hide Signal if needed (Optimized loop)
    if(InpDisplayMode == DISPLAY_LRSI_ONLY)
@@ -123,4 +133,5 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
