@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with dynamic volume routing to support VWMA Slowing/Signals
 #property description "Laguerre Stochastic Slow. Calculates Stochastic from Laguerre"
 #property description "components (L0-L3) and applies smoothing for cleaner signals."
 
@@ -122,9 +122,20 @@ int OnCalculate(const int rates_total,
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                          BufferSlowK, BufferSignalD);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Delegate calculations dynamically to support volume-weighted types (VWMA) on Slowing/Signal
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, BufferSlowK, BufferSignalD);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, tick_volume, BufferSlowK, BufferSignalD);
+     }
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
