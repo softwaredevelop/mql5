@@ -1,9 +1,14 @@
 //+------------------------------------------------------------------+
 //|                               Laguerre_Stoch_Slow_Calculator.mqh |
 //|      Laguerre Stochastic Slow: Smoothed version of Fast Stoch.   |
+//|      VERSION 1.20: Overloaded Calculate to support VWMA.         |
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.20"
+
+#ifndef LAGUERRE_STOCH_SLOW_CALCULATOR_MQH
+#define LAGUERRE_STOCH_SLOW_CALCULATOR_MQH
 
 #include <MyIncludes\Laguerre_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
@@ -30,7 +35,13 @@ public:
 
    bool              Init(double gamma, int slowing_period, ENUM_MA_TYPE slowing_method, int signal_period, ENUM_MA_TYPE signal_method);
 
+   //--- Standard Calculate (Without volume)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &slow_k_buffer[], double &signal_d_buffer[]);
+
+   //--- Overloaded Calculate (With volume to support VWMA Slowing/Signal)
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               const long &volume[],
                                double &slow_k_buffer[], double &signal_d_buffer[]);
   };
 
@@ -79,7 +90,7 @@ bool CLaguerreStochSlowCalculator::Init(double gamma, int slowing_period, ENUM_M
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CLaguerreStochSlowCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &slow_k_buffer[], double &signal_d_buffer[])
@@ -104,31 +115,75 @@ void CLaguerreStochSlowCalculator::Calculate(int rates_total, int prev_calculate
 
    for(int i = start_index; i < rates_total; i++)
      {
-      // Find Highest High and Lowest Low among L0..L3
       double hh = MathMax(MathMax(L0[i], L1[i]), MathMax(L2[i], L3[i]));
       double ll = MathMin(MathMin(L0[i], L1[i]), MathMin(L2[i], L3[i]));
 
       double diff = hh - ll;
 
       if(diff > 0)
-        {
-         // Standard formula: (Current - Low) / (High - Low)
          m_raw_k[i] = ((L0[i] - ll) / diff) * 100.0;
-        }
       else
-        {
          m_raw_k[i] = (i > 0) ? m_raw_k[i-1] : 50.0;
-        }
      }
 
 //--- 4. Calculate Slow %K (Smoothing Raw %K)
-// This is the main line of the indicator
    m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, slow_k_buffer);
 
 //--- 5. Calculate Signal %D (Smoothing Slow %K)
-// The offset is the slowing period, as valid data starts after that
    int signal_offset = m_slowing_engine.GetPeriod();
    m_signal_engine.CalculateOnArray(rates_total, prev_calculated, slow_k_buffer, signal_d_buffer, signal_offset);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Overloaded - With Volume for VWMA)                    |
+//+------------------------------------------------------------------+
+void CLaguerreStochSlowCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+      const long &volume[],
+      double &slow_k_buffer[], double &signal_d_buffer[])
+  {
+   if(rates_total < 2)
+      return;
+
+//--- Resize Internal Buffer
+   if(ArraySize(m_raw_k) != rates_total)
+      ArrayResize(m_raw_k, rates_total);
+
+//--- 1. Calculate Laguerre Components
+   double dummy_filt[];
+   m_laguerre_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, dummy_filt);
+
+//--- 2. Retrieve L0..L3 buffers
+   double L0[], L1[], L2[], L3[];
+   m_laguerre_engine.GetLBuffers(L0, L1, L2, L3);
+
+//--- 3. Calculate Raw %K (Incremental Loop)
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   for(int i = start_index; i < rates_total; i++)
+     {
+      double hh = MathMax(MathMax(L0[i], L1[i]), MathMax(L2[i], L3[i]));
+      double ll = MathMin(MathMin(L0[i], L1[i]), MathMin(L2[i], L3[i]));
+
+      double diff = hh - ll;
+
+      if(diff > 0)
+         m_raw_k[i] = ((L0[i] - ll) / diff) * 100.0;
+      else
+         m_raw_k[i] = (i > 0) ? m_raw_k[i-1] : 50.0;
+     }
+
+//--- 4. Convert long volume to double to support VWMA Slowing & Signal
+   double vol_double[];
+   ArrayResize(vol_double, rates_total);
+   for(int j = start_index; j < rates_total; j++)
+      vol_double[j] = (double)volume[j];
+
+//--- 5. Calculate Slow %K (Smoothing Raw %K)
+   m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, vol_double, slow_k_buffer);
+
+//--- 6. Calculate Signal %D (Smoothing Slow %K)
+   int signal_offset = m_slowing_engine.GetPeriod();
+   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, slow_k_buffer, vol_double, signal_d_buffer, signal_offset);
   }
 
 //+==================================================================+
@@ -141,10 +196,10 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//| Factory Override                                                 |
-//+------------------------------------------------------------------+
 void CLaguerreStochSlowCalculator_HA::CreateEngines(void)
   {
    m_laguerre_engine = new CLaguerreEngine_HA();
   }
+//+------------------------------------------------------------------+
+#endif // LAGUERRE_STOCH_SLOW_CALCULATOR_MQH
 //+------------------------------------------------------------------+
