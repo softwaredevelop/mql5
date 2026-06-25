@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with dynamic volume routing to support VWMA Signals
 #property description "Laguerre Stochastic Fast. Calculates Fast Stochastic directly"
 #property description "from the internal state variables (L0-L3) of the Laguerre Filter."
 
@@ -42,7 +42,7 @@ input group                     "Laguerre Settings"
 input double                    InpGamma        = 0.7;
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
 
-input group                     "Signal Line Settings"
+input group "Signal Line Settings"
 input int                       InpSignalPeriod = 3;
 input ENUM_MA_TYPE              InpSignalMethod = SMA;
 
@@ -119,9 +119,20 @@ int OnCalculate(const int rates_total,
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                          BufferStoch, BufferSignal);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Delegate calculations dynamically to support volume-weighted types (VWMA) on the Signal Line
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, BufferStoch, BufferSignal);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, tick_volume, BufferStoch, BufferSignal);
+     }
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
