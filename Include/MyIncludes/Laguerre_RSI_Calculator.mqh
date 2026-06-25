@@ -1,13 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                     Laguerre_RSI_Calculator.mqh  |
-//|      VERSION 1.20: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 1.30: Added volume-weighted Calculate overload.      |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.30" // Refactored to support volume arrays for VWMA signal lines
+
+#ifndef LAGUERRE_RSI_CALCULATOR_MQH
+#define LAGUERRE_RSI_CALCULATOR_MQH
 
 #include <MyIncludes\Laguerre_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
+//+==================================================================+
+//|             CLASS: CLaguerreRSICalculator                        |
 //+==================================================================+
 class CLaguerreRSICalculator
   {
@@ -25,8 +31,13 @@ public:
 
    bool              Init(double gamma, int signal_p, ENUM_MA_TYPE signal_ma);
 
-   //--- Updated: Accepts prev_calculated
+   //--- Standard Calculate (Without volume data)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               double &lrsi_buffer[], double &signal_buffer[]);
+
+   //--- NEW: Overloaded Calculate with Volume (Specifically for VWMA support)
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               const long &volume[],
                                double &lrsi_buffer[], double &signal_buffer[]);
   };
 
@@ -67,7 +78,7 @@ bool CLaguerreRSICalculator::Init(double gamma, int signal_p, ENUM_MA_TYPE signa
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                        double &lrsi_buffer[], double &signal_buffer[])
@@ -76,7 +87,7 @@ void CLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
       return;
 
 //--- 1. Calculate Laguerre Components (Incremental)
-   double dummy_filt[]; // We don't use the filter output here, just internal state
+   double dummy_filt[];
    m_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, dummy_filt);
 
 //--- 2. Retrieve L0..L3 buffers
@@ -111,9 +122,8 @@ void CLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
       if(cu + cd > 0.0)
          lrsi_value = 100.0 * cu / (cu + cd);
       else
-         lrsi_value = (i > 0) ? lrsi_buffer[i-1] : 50.0; // Fallback to previous or neutral
+         lrsi_value = (i > 0) ? lrsi_buffer[i-1] : 50.0;
 
-      // Clamp
       if(lrsi_value > 100.0)
          lrsi_value = 100.0;
       if(lrsi_value < 0.0)
@@ -122,11 +132,72 @@ void CLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENU
       lrsi_buffer[i] = lrsi_value;
      }
 
-//--- 4. Calculate Signal Line (Using Optimized Engine)
-// We pass lrsi_buffer as the 'close' price for the MA calculator.
-// The other arrays (open, high, low) are dummy, but we pass lrsi_buffer to be safe.
+//--- 4. Calculate Signal Line (Without Volume)
    m_ma_calculator.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
                              lrsi_buffer, lrsi_buffer, lrsi_buffer, lrsi_buffer,
+                             signal_buffer);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Overloaded - With Volume for VWMA)                    |
+//+------------------------------------------------------------------+
+void CLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                                       const long &volume[],
+                                       double &lrsi_buffer[], double &signal_buffer[])
+  {
+   if(rates_total < 2)
+      return;
+
+//--- 1. Calculate Laguerre Components (Incremental)
+   double dummy_filt[];
+   m_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, dummy_filt);
+
+//--- 2. Retrieve L0..L3 buffers
+   double L0[], L1[], L2[], L3[];
+   m_engine.GetLBuffers(L0, L1, L2, L3);
+
+//--- 3. Calculate LRSI (Incremental Loop)
+   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 1;
+   if(start_index < 1)
+      start_index = 1;
+
+   for(int i = start_index; i < rates_total; i++)
+     {
+      double cu = 0.0, cd = 0.0;
+
+      if(L0[i] >= L1[i])
+         cu = L0[i] - L1[i];
+      else
+         cd = L1[i] - L0[i];
+
+      if(L1[i] >= L2[i])
+         cu += L1[i] - L2[i];
+      else
+         cd += L2[i] - L1[i];
+
+      if(L2[i] >= L3[i])
+         cu += L2[i] - L3[i];
+      else
+         cd += L3[i] - L2[i];
+
+      double lrsi_value;
+      if(cu + cd > 0.0)
+         lrsi_value = 100.0 * cu / (cu + cd);
+      else
+         lrsi_value = (i > 0) ? lrsi_buffer[i-1] : 50.0;
+
+      if(lrsi_value > 100.0)
+         lrsi_value = 100.0;
+      if(lrsi_value < 0.0)
+         lrsi_value = 0.0;
+
+      lrsi_buffer[i] = lrsi_value;
+     }
+
+//--- 4. Calculate Signal Line (With Volume)
+   m_ma_calculator.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                             lrsi_buffer, lrsi_buffer, lrsi_buffer, lrsi_buffer,
+                             volume,
                              signal_buffer);
   }
 
@@ -141,8 +212,8 @@ public:
       if(CheckPointer(m_engine) != POINTER_INVALID)
          delete m_engine;
       m_engine = new CLaguerreEngine_HA();
-
-      // m_ma_calculator is already created in base constructor
      };
   };
+//+------------------------------------------------------------------+
+#endif // LAGUERRE_RSI_CALCULATOR_MQH
 //+------------------------------------------------------------------+
