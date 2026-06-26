@@ -1,9 +1,13 @@
 //+------------------------------------------------------------------+
 //|                               Stochastic_Adaptive_Calculator.mqh |
-//|      VERSION 2.00: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 2.10: Dynamic Volume-Weighted MA Support (VWMA)     |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.10" // Refactored with overloaded Calculate to support VWMA slowing/signals
+
+#ifndef STOCHASTIC_ADAPTIVE_CALCULATOR_MQH
+#define STOCHASTIC_ADAPTIVE_CALCULATOR_MQH
 
 #include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\HeikinAshi_Tools.mqh>
@@ -36,8 +40,13 @@ public:
    //--- Init now takes ENUM_MA_TYPE
    bool              Init(int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma);
 
-   //--- Updated: Accepts prev_calculated
+   //--- Standard Calculate (Without volume)
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+                               double &k_buffer[], double &d_buffer[]);
+
+   //--- NEW: Overloaded Calculate (With volume to support VWMA Slowing/Signal)
+   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+                               const long &volume[],
                                double &k_buffer[], double &d_buffer[]);
   };
 
@@ -60,7 +69,7 @@ bool CStochasticAdaptiveCalculator::Init(int er_p, int min_p, int max_p, int slo
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CStochasticAdaptiveCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
@@ -130,14 +139,98 @@ void CStochasticAdaptiveCalculator::Calculate(int rates_total, int prev_calculat
          m_raw_k[i] = (i > 0) ? m_raw_k[i-1] : 50.0;
      }
 
-//--- 4. Calculate Slow %K (Main Line) using Slowing Engine
-// Offset: raw_k_start
+//--- 4. Calculate Slow %K (Main Line) using Slowing Engine (Without Volume)
    m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, k_buffer, raw_k_start);
 
-//--- 5. Calculate %D (Signal Line) using Signal Engine
-// Offset: raw_k_start + slowing_period - 1
+//--- 5. Calculate %D (Signal Line) using Signal Engine (Without Volume)
    int d_offset = raw_k_start + m_slowing_engine.GetPeriod() - 1;
    m_signal_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, d_offset);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Overloaded - With Volume for VWMA)                    |
+//+------------------------------------------------------------------+
+void CStochasticAdaptiveCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
+      const long &volume[],
+      double &k_buffer[], double &d_buffer[])
+  {
+// Minimum bars check
+   if(rates_total <= m_er_period + m_max_period)
+      return;
+
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+// Resize Buffers
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArrayResize(m_er_buffer, rates_total);
+      ArrayResize(m_nsp_buffer, rates_total);
+      ArrayResize(m_raw_k, rates_total);
+     }
+
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
+
+//--- 1. Calculate Efficiency Ratio (ER)
+   int loop_start_er = MathMax(m_er_period, start_index);
+
+   for(int i = loop_start_er; i < rates_total; i++)
+     {
+      double direction = MathAbs(m_price[i] - m_price[i - m_er_period]);
+      double volatility = 0;
+      for(int j = 0; j < m_er_period; j++)
+         volatility += MathAbs(m_price[i - j] - m_price[i - j - 1]);
+
+      m_er_buffer[i] = (volatility > 0.000001) ? direction / volatility : 0;
+     }
+
+//--- 2. Calculate Adaptive Period (NSP)
+   for(int i = loop_start_er; i < rates_total; i++)
+     {
+      m_nsp_buffer[i] = (int)(m_er_buffer[i] * (m_max_period - m_min_period) + m_min_period);
+      if(m_nsp_buffer[i] < 1)
+         m_nsp_buffer[i] = 1;
+     }
+
+//--- 3. Calculate Raw %K (Adaptive)
+   int raw_k_start = m_er_period + m_max_period - 1;
+   int loop_start_k = MathMax(raw_k_start, start_index);
+
+   for(int i = loop_start_k; i < rates_total; i++)
+     {
+      int current_nsp = (int)m_nsp_buffer[i];
+      double highest = m_price[i];
+      double lowest = m_price[i];
+
+      // Lookback based on dynamic period
+      for(int j = 1; j < current_nsp; j++)
+        {
+         if(i-j < 0)
+            break;
+         highest = MathMax(highest, m_price[i-j]);
+         lowest = MathMin(lowest, m_price[i-j]);
+        }
+
+      double range = highest - lowest;
+      if(range > 0.000001)
+         m_raw_k[i] = (m_price[i] - lowest) / range * 100.0;
+      else
+         m_raw_k[i] = (i > 0) ? m_raw_k[i-1] : 50.0;
+     }
+
+//--- 4. Convert long volume to double to support VWMA Slowing & Signal
+   double vol_double[];
+   ArrayResize(vol_double, rates_total);
+   for(int j = start_index; j < rates_total; j++)
+      vol_double[j] = (double)volume[j];
+
+//--- 5. Calculate Slow %K (Smoothing Raw %K with Volume)
+   m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, vol_double, k_buffer, raw_k_start);
+
+//--- 6. Calculate %D (Signal Line with Volume)
+   int d_start = raw_k_start + m_slowing_engine.GetPeriod() - 1;
+   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, vol_double, d_buffer, d_start);
   }
 
 //+------------------------------------------------------------------+
@@ -191,7 +284,7 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Prepare Price (Heikin Ashi)                                      |
 //+------------------------------------------------------------------+
 bool CStochasticAdaptiveCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -235,4 +328,6 @@ bool CStochasticAdaptiveCalculator_HA::PreparePriceSeries(int rates_total, int s
      }
    return true;
   }
+#endif // STOCHASTIC_ADAPTIVE_CALCULATOR_MQH
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
