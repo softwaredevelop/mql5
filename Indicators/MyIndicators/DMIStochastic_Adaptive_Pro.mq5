@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Initial Release for merged logic
+#property version   "1.10" // Upgraded with dynamic volume routing to support VWMA Slowing/Signals
 #property description "DMI Stochastic with Kaufman's ER Adaptive Lookback. Supports Heikin Ashi."
 
 //--- Indicator Window and Plot Properties ---
@@ -130,8 +130,18 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return(0);
 
-// Execute the calculation logic (O(1) implementation via calculator)
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Delegate calculations dynamically to support volume-weighted types (VWMA) on Slowing/Signal
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, volume, BufferK, BufferD);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, BufferK, BufferD);
+     }
 
    return(rates_total);
   }
