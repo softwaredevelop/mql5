@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
-//|                                          DMIStochastic_Pro.mq5 |
+//|                                          DMIStochastic_Pro.mq5   |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.20" // Added fixed digits precision
+#property version   "2.30" // Upgraded with dynamic volume routing to support VWMA Slowing/Signals
 #property description "Barbara Star's DMI Stochastic Oscillator. Supports Standard and Heikin Ashi sources."
 
 //--- Indicator Window and Plot Properties ---
@@ -39,7 +39,7 @@
 
 //--- Input Parameters ---
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;     // Candle source
-input ENUM_DMI_OSC_TYPE  InpOscType      = OSC_PDI_MINUS_NDI;     // Oscillator Formula
+input ENUM_DMI_OSC_TYPE  InpOscType      = OSC_PDI_MINUS_NDI;   // Oscillator Formula
 input int                InpDMIPeriod    = 10;                  // DMI Period
 input int                InpFastKPeriod  = 10;                  // Stochastic %K Period
 input int                InpSlowKPeriod  = 3;                   // Stochastic %K Slowing
@@ -114,7 +114,18 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return(0);
 
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Delegate calculations dynamically to support volume-weighted types (VWMA) on Slowing/Signal
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, volume, BufferK, BufferD);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, BufferK, BufferD);
+     }
 
    return(rates_total);
   }
