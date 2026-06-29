@@ -3,23 +3,13 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.01" // Fixed buffer variable naming mismatch in mapping loop
+#property version   "1.10" // Upgraded with dynamic levels input panel and chronological state safety
 #property description "Statistical Z-Score Oscillator (Multi-Timeframe) with dynamic Signal Line."
 #property description "Displays HTF deviations from any selected Moving Average in Sigma units cleanly."
 
 #property indicator_separate_window
 #property indicator_buffers 3
 #property indicator_plots   2
-
-//--- Institutional Levels Configuration (6 Sigma boundaries)
-#property indicator_level1 2.0
-#property indicator_level2 -2.0
-#property indicator_level3 2.5
-#property indicator_level4 -2.5
-#property indicator_level5 3.0
-#property indicator_level6 -3.0
-#property indicator_levelcolor clrSilver
-#property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: Z-Score Histogram (Swapped Bull/Bear Thermal Palette)
 #property indicator_label1  "Z-Score MTF"
@@ -45,15 +35,28 @@
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Input Parameters ---
+input group "Timeframe Settings"
 input ENUM_TIMEFRAMES           InpTimeframe   = PERIOD_H1;       // Target Higher Timeframe
+
+input group "Z-Score Settings"
 input int                       InpPeriod      = 20;              // Z-Score Lookback Period
 input ENUM_MA_TYPE              InpMAType      = SMA;             // Z-Score MA Type
 input ENUM_APPLIED_PRICE        InpPrice       = PRICE_CLOSE;     // Z-Score Applied Price
 
-//--- Signal Line Parameters
+input group "Signal Line Settings"
 input bool                      InpShowSignal  = true;            // Show Signal Line?
 input int                       InpSignalPeriod= 5;               // Signal Line Period
 input ENUM_MA_TYPE              InpSignalType  = SMA;             // Signal Line MA Type
+
+input group "Indicator Levels"
+input double                    InpLevelFlowHigh   = 2.0;         // High Warning Level (Bullish Flow)
+input double                    InpLevelFlowLow    = -2.0;        // Low Warning Level (Bearish Flow)
+input double                    InpLevelClimaxHigh = 2.5;         // High Climax Level (Bullish Climax)
+input double                    InpLevelClimaxLow  = -2.5;        // Low Climax Level (Bearish Climax)
+input double                    InpLevelExtremeHigh= 3.0;         // High Exhaustion Level
+input double                    InpLevelExtremeLow = -3.0;        // Low Exhaustion Level
+input color                     InpLevelColor      = clrSilver;   // Levels Color
+input ENUM_LINE_STYLE           InpLevelStyle      = STYLE_DOT;   // Levels Style
 
 //--- Buffers ---
 double BufferZ[];
@@ -113,6 +116,18 @@ int OnInit()
    ArraySetAsSeries(BufferZ,      false);
    ArraySetAsSeries(BufferColors, false);
    ArraySetAsSeries(BufferSignal, false);
+
+//--- Dynamically configure horizontal levels to support custom input parameters
+   IndicatorSetInteger(INDICATOR_LEVELS, 6);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelFlowHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelFlowLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, InpLevelClimaxHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 3, InpLevelClimaxLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 4, InpLevelExtremeHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 5, InpLevelExtremeLow);
+
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
 
 //--- Configure Core Z-Score Calculator
    g_calculator = new CZScoreCalculator();
@@ -197,6 +212,19 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
+   if(rates_total < 2)
+      return 0;
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return 0;
+
+//--- Force standard chronological indexing for state-safety
+   ArraySetAsSeries(time, false);
+   ArraySetAsSeries(open, false);
+   ArraySetAsSeries(high, false);
+   ArraySetAsSeries(low, false);
+   ArraySetAsSeries(close, false);
+
 //--- Ensure target timeframe history is ready
    int required_bars = InpPeriod + 10;
    if(!EnsureHTFDataReady(_Symbol, InpTimeframe, required_bars))
@@ -265,6 +293,14 @@ int OnCalculate(const int rates_total,
       for(int j = 0; j < g_htf_count; j++)
          h_vol_double[j] = (double)h_vol[j];
 
+      // Force chronological array alignment for calculations
+      ArraySetAsSeries(h_time, false);
+      ArraySetAsSeries(h_open, false);
+      ArraySetAsSeries(h_high, false);
+      ArraySetAsSeries(h_low, false);
+      ArraySetAsSeries(h_close, false);
+      ArraySetAsSeries(h_vol, false);
+
       // Calculate Core Z-Score on HTF (Closed bars and forming bar initialized)
       if(volume_limit > 0)
          g_calculator.Calculate(g_htf_count, 0, InpPrice, h_open, h_high, h_low, h_close, h_vol, h_res);
@@ -328,7 +364,7 @@ int OnCalculate(const int rates_total,
         }
      }
 
-//--- 3. FIXED: Dynamically adjust 'start' to the beginning of the current forming HTF bar
+//--- 3. Dynamically adjust 'start' to the beginning of the current forming HTF bar
 //--- This forces the entire forming LTF step block to remain perfectly flat, updating on every tick!
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
@@ -356,40 +392,45 @@ int OnCalculate(const int rates_total,
            {
             double z = h_res[idx_htf];
 
-            BufferZ[i] = z; // FIXED: Corrected buffer array name
+            BufferZ[i] = z;
 
             if(InpShowSignal)
-               BufferSignal[i] = h_sig[idx_htf]; // FIXED: Corrected buffer array name
+               BufferSignal[i] = h_sig[idx_htf];
             else
-               BufferSignal[i] = EMPTY_VALUE; // FIXED: Corrected buffer array name
+               BufferSignal[i] = EMPTY_VALUE;
 
-            // Swapped 5-Zone Color Logic (Blue for Bullish, Red/Coral for Bearish)
-            if(z >= 2.5)
-               BufferColors[i] = 2.0; // FIXED: Corrected buffer array name (Index 2: DeepSkyBlue Climax)
+            // Swapped 5-Zone Color Logic dynamically mapped to user-defined level parameters:
+            // Z >= ClimaxHigh  -> DeepSkyBlue Climax
+            // Z >= FlowHigh    -> LightSkyBlue Flow
+            // Z <= ClimaxLow   -> OrangeRed Climax
+            // Z <= FlowLow     -> Coral Flow
+            // Else             -> Gray Neutral
+            if(z >= InpLevelClimaxHigh)
+               BufferColors[i] = 2.0;
             else
-               if(z >= 2.0)
-                  BufferColors[i] = 1.0; // FIXED: Corrected buffer array name (Index 1: LightSkyBlue Flow)
+               if(z >= InpLevelFlowHigh)
+                  BufferColors[i] = 1.0;
                else
-                  if(z <= -2.5)
-                     BufferColors[i] = 4.0; // FIXED: Corrected buffer array name (Index 4: OrangeRed Climax)
+                  if(z <= InpLevelClimaxLow)
+                     BufferColors[i] = 4.0;
                   else
-                     if(z <= -2.0)
-                        BufferColors[i] = 3.0; // FIXED: Corrected buffer array name (Index 3: Coral Flow)
+                     if(z <= InpLevelFlowLow)
+                        BufferColors[i] = 3.0;
                      else
-                        BufferColors[i] = 0.0; // FIXED: Corrected buffer array name (Index 0: Gray Neutral)
+                        BufferColors[i] = 0.0;
            }
          else
            {
-            BufferZ[i]      = EMPTY_VALUE; // FIXED: Corrected buffer array name
-            BufferSignal[i] = EMPTY_VALUE; // FIXED: Corrected buffer array name
-            BufferColors[i] = 0.0; // FIXED: Corrected buffer array name
+            BufferZ[i]      = EMPTY_VALUE;
+            BufferSignal[i] = EMPTY_VALUE;
+            BufferColors[i] = 0.0;
            }
         }
       else
         {
-         BufferZ[i]      = EMPTY_VALUE; // FIXED: Corrected buffer array name
-         BufferSignal[i] = EMPTY_VALUE; // FIXED: Corrected buffer array name
-         BufferColors[i] = 0.0; // FIXED: Corrected buffer array name
+         BufferZ[i]      = EMPTY_VALUE;
+         BufferSignal[i] = EMPTY_VALUE;
+         BufferColors[i] = 0.0;
         }
      }
 
@@ -412,5 +453,4 @@ void OnTimer()
         }
      }
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
