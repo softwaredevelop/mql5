@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.11" // Declared missing long h_vol[] cache array and fully resolved all 18 parameter matching errors
+#property version   "1.20" // Optimized for incremental calculation and pointer safety
 #property description "Multi-Timeframe (MTF) Universal Anchored Moving Average."
 #property description "Displays HTF Anchored MA segments cleanly directly on lower TF charts without live-bar warping or connecting line drag."
 
@@ -50,7 +50,7 @@ double    h_res_odd[];   // HTF Odd Results cached
 double    h_res_even[];  // HTF Even Results cached
 datetime  h_time[];      // HTF Time index
 double    h_open[], h_high[], h_low[], h_close[]; // HTF Price Data
-long      h_vol[];       // FIXED: Declared missing global HTF volume cache array
+long      h_vol[];       // HTF Volume cache array
 
 //--- Global variables ---
 CMovingAverageAnchoredCalculator *g_calculator;
@@ -172,22 +172,25 @@ int OnCalculate(const int rates_total,
    if(rates_total < 2)
       return(0);
 
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+//--- Force standard chronological indexing for state-safety
+   ArraySetAsSeries(time, false);
+   ArraySetAsSeries(open, false);
+   ArraySetAsSeries(high, false);
+   ArraySetAsSeries(low, false);
+   ArraySetAsSeries(close, false);
 
 //================================================================
 // MODE 1: Current Timeframe (Standard)
 //================================================================
    if(!g_is_mtf_mode)
      {
-      // Force standard chronological indexing for state-safety
-      ArraySetAsSeries(time, false);
-      ArraySetAsSeries(open, false);
-      ArraySetAsSeries(high, false);
-      ArraySetAsSeries(low, false);
-      ArraySetAsSeries(close, false);
-
       // Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
       long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
 
@@ -238,7 +241,7 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_high,  g_htf_count);
       ArrayResize(h_low,   g_htf_count);
       ArrayResize(h_close, g_htf_count);
-      ArrayResize(h_vol,   g_htf_count); // FIXED: Resized newly declared h_vol cache buffer
+      ArrayResize(h_vol,   g_htf_count);
 
       ArrayResize(h_res_odd,  g_htf_count);
       ArrayResize(h_res_even, g_htf_count);
@@ -272,8 +275,9 @@ int OnCalculate(const int rates_total,
       ArraySetAsSeries(h_high, false);
       ArraySetAsSeries(h_low, false);
       ArraySetAsSeries(h_close, false);
+      ArraySetAsSeries(h_vol, false);
 
-      //--- Calculate KAMA on HTF (Closed bars and forming bar initialized) (FIXED: Passed h_vol to match overloaded 11-param signature)
+      //--- Calculate Anchored MA on HTF (Closed bars and forming bar initialized)
       g_calculator.Calculate(g_htf_count, 0, price_type, h_time, h_open, h_high, h_low, h_close, h_vol, h_res_odd, h_res_even);
 
       g_data_ready = true;
@@ -316,12 +320,11 @@ int OnCalculate(const int rates_total,
            }
 
          // Incremental recalculation on the live HTF index in O(1)
-         // Passed g_htf_count as prev_calculated to preserve state safety (Double accumulation preventer) (FIXED: Passed h_vol to match overloaded 11-param signature)
          g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_time, h_open, h_high, h_low, h_close, h_vol, h_res_odd, h_res_even);
         }
      }
 
-//--- 3. FIXED: Dynamically adjust 'start' to the beginning of the current forming HTF bar
+//--- 3. Dynamically adjust 'start' to the beginning of the current forming HTF bar
 //--- This forces the entire forming LTF step block to remain perfectly flat, updating on every tick!
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
@@ -382,5 +385,4 @@ void OnTimer()
         }
      }
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
