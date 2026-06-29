@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.05" // Optimized for array index safety and robust pointer verification
+#property version   "3.20" // Refactored to map Signal MA calculations elegantly via standard close-buffer mapping
 #property description "John Ehlers' Cyber Cycle indicator for identifying market cycles."
-#property description "Features O(1) calculation and flexible Signal Line options."
+#property description "Features O(1) calculation and flexible Signal Line options including VWMA."
 
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -37,7 +37,7 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_MEDIAN_STD; // Price Sou
 input group                     "Signal Line Settings"
 input ENUM_CYBER_SIGNAL_TYPE    InpSignalType   = SIGNAL_DELAY_1BAR; // Signal Type
 input int                       InpSignalPeriod = 3;                 // Period (if MA)
-input ENUM_MA_TYPE              InpSignalMethod = SMA;               // Method (if MA)
+input ENUM_MA_TYPE              InpSignalMethod = SMA;               // Method (if MA / VWMA)
 
 //--- Indicator Buffers ---
 double    BufferCycle[];
@@ -122,8 +122,18 @@ int OnCalculate(const int rates_total,
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
 
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                          BufferCycle, BufferSignal);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Route calculations dynamically to support volume-weighted types (VWMA) on the Signal Line
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, BufferCycle, BufferSignal);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, tick_volume, BufferCycle, BufferSignal);
+     }
 
    return(rates_total);
   }
