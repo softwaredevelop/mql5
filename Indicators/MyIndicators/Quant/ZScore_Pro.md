@@ -6,7 +6,9 @@ The **Z-Score Pro Suite** is an institutional-grade, high-performance statistica
 
 Based on Gaussian statistics and modern portfolio theory, the suite measures the volatility-adjusted distance between the current price and its dynamic moving average baseline. Unlike traditional bounded retail oscillators (RSI, Stochastic) which suffer from scaling compressions during trends, the Z-Score is statistically confined but mathematically unbounded, delivering a highly responsive, scale-free momentum tool.
 
-The suite integrates the powerful `MovingAverage_Engine.mqh` (supporting SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, and VWMA baselines), an optional customizable Signal Line, a **5-Zone Swapped Thermal Color Histogram** aligned with Heikin Ashi candle colors, and a dynamic volume-routing pipeline to support volume-weighted calculations.
+The suite integrates the powerful `MovingAverage_Engine.mqh` (supporting SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, and VWMA baselines), an optional customizable Signal Line, a **5-Zone Dynamic Thermal Color Histogram** aligned with Heikin Ashi candle colors, and a dynamic volume-routing pipeline to support volume-weighted calculations.
+
+With version 1.90/1.10, all horizontal significance boundaries and visual colors have been migrated to the input panel, allowing traders to adapt their volatility filters dynamically to different asset classes and timeframes.
 
 ---
 
@@ -49,15 +51,17 @@ To assist traders in timing mean-reversion entries, the suite features an option
 
 ## 4. Multi-Stage Statistical Mapping (The Swapped 5-Zone Palette)
 
-To represent the progressive build-up of market momentum and tension, the indicator implements a **6-Level Sigma Boundary Layout** ($\pm 2.0, \pm 2.5, \pm 3.0$) and a **5-Zone Swapped Thermal Color Histogram** (Blue for Bullish, Red/Coral for Bearish, perfectly aligned with Heikin Ashi candle colors):
+To represent the progressive build-up of market momentum and tension, the indicator implements a **6-Level Dynamic Sigma Boundary Layout** and a **5-Zone Dynamic Thermal Color Histogram** (Blue for Bullish, Red/Coral for Bearish, perfectly aligned with Heikin Ashi candle colors).
 
-| Z-Score Value | Color | Market Regime | Statistical Significance | Action / Concept |
-| :--- | :--- | :--- | :--- | :--- |
-| **$Z \ge 2.5$** | `clrDeepSkyBlue` | **Bullish Climax** (Exhaustion) | $< 0.6\%$ of events | **Severe Overbought.** High probability reversal zone. Prepare to Short. |
-| **$Z \in [2.0, 2.5)$** | `clrLightSkyBlue` | **Bullish Flow** (Momentum) | $\approx 2.2\%$ of events | **Strong Bullish Momentum.** Scale-in warning zone for short positions. |
-| **$Z \in [-2.0, 2.0]$** | `clrGray` | **Neutral Zone** (Random Noise) | $\approx 95.4\%$ of events | **Equilibrium.** Standard trend continuation / noise. |
-| **$Z \in (-2.5, -2.0]$** | `clrCoral` | **Bearish Flow** (Momentum) | $\approx 2.2\%$ of events | **Strong Bearish Momentum.** Scale-in warning zone for long positions. |
-| **$Z \le -2.5$** | `clrOrangeRed` | **Bearish Climax** (Exhaustion) | $< 0.6\%$ of events | **Severe Oversold.** High probability reversal zone. Prepare to Buy. |
+Because the color transition logic is dynamically linked to the inputs, updating the level parameters automatically reshapes the histogram classification boundaries in real-time:
+
+| Z-Score Value ($Z$) | Color | Market Regime | Default Threshold | Action / Concept |
+| :--- | :--- | :--- | :---: | :--- |
+| **$Z \ge \text{InpLevelClimaxHigh}$** | `clrDeepSkyBlue` | **Bullish Climax** (Exhaustion) | $\ge 2.5$ | **Severe Overbought.** High probability reversal zone. Prepare to Short. |
+| **$Z \in [\text{InpLevelFlowHigh}, \text{InpLevelClimaxHigh})$** | `clrLightSkyBlue` | **Bullish Flow** (Momentum) | $[2.0, 2.5)$ | **Strong Bullish Momentum.** Scale-in warning zone for short positions. |
+| **$Z \in (\text{InpLevelFlowLow}, \text{InpLevelFlowHigh})$** | `clrGray` | **Neutral Zone** (Random Noise) | $(-2.0, 2.0)$ | **Equilibrium.** Standard trend continuation / noise. |
+| **$Z \in (\text{InpLevelClimaxLow}, \text{InpLevelFlowLow}]$** | `clrCoral` | **Bearish Flow** (Momentum) | $(-2.5, -2.0]$ | **Strong Bearish Momentum.** Scale-in warning zone for long positions. |
+| **$Z \le \text{InpLevelClimaxLow}$** | `clrOrangeRed` | **Bearish Climax** (Exhaustion) | $\le -2.5$ | **Severe Oversold.** High probability reversal zone. Prepare to Buy. |
 
 ---
 
@@ -93,7 +97,15 @@ A critical, highly subtle mathematical hazard exists when calculating stateful c
   g_calculator.Calculate(g_htf_count, g_htf_count, InpPrice, h_open, h_high, ...);
   ```
 
-  By passing `prev_calculated` as `g_htf_count`, the internal loop starts exactly at `start_index = g_htf_count - 1` (the live forming bar). The loop runs exactly once for the live bar, and since `i` is equal to `rates_total - 1`, the persistent registers (`m_cumulative_tpv` and `m_cumulative_vol`) are **never modified or double-accumulated**. This guarantees absolute mathematical stability on every tick.
+  By passing `prev_calculated` as `g_htf_count`, the internal loop starts exactly at `start_index = g_htf_count - 1` (the live forming bar). The loop runs exactly once for the live bar, and since `i` is equal to `rates_total - 1`, the persistent registers are **never modified or double-accumulated**. This guarantees absolute mathematical stability on every tick.
+
+### C. Ensuring Safe Chronological Mapping (Array Alignment Guard)
+
+Multi-timeframe mapping functions (`iBarShift`) and volume integrations are highly sensitive to chronological array sorting. To guarantee maximum stability and prevent critical index mismatches, both the standard and MTF indicators explicitly enforce chronological sorting on all price inputs, time parameters, and cached data structures (`ArraySetAsSeries(..., false)`) at the very beginning of the `OnCalculate` event. This guarantees index consistency under any client terminal setup.
+
+### D. Pointer Integrity Guard
+
+To prevent severe runtime exceptions (such as access violation fatal crashes), the execution sequence includes a robust validation layer. Before any mathematical routing occurs inside `OnCalculate`, the core calculator is validated using the `CheckPointer` function. If the pointer is invalid (`POINTER_INVALID`), the routine exits safely, shielding the system from memory faults.
 
 ---
 
@@ -102,20 +114,29 @@ A critical, highly subtle mathematical hazard exists when calculating stateful c
 ### A. Core Z-Score Settings
 
 * **Lookback Period (`InpPeriod`):** The rolling window size ($N$) for the volatility and moving average calculations (Default: `20`).
-
 * **Z-Score MA Type (`InpMAType`):** Select the baseline dynamic mean (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, VWMA). Default: `SMA`.
 * **Applied Price (`InpPrice`):** The price series source to analyze (Default: `PRICE_CLOSE`).
 
 ### B. Signal Line Settings
 
 * **Show Signal Line (`InpShowSignal`):** Toggle to enable/disable the Signal Line (Default: `true`).
-
 * **Signal Line Period (`InpSignalPeriod`):** The lookback period for the Signal Line MA (Default: `5`).
 * **Signal Line MA Type (`InpSignalType`):** Select the MA type for the Signal Line (Default: `SMA`).
 
 ### C. MTF Specific Parameters
 
-* **Target Timeframe (`InpTimeframe`):** The target higher timeframe to calculate Z-Scores on (Default: `PERIOD_M5`).
+* **Target Timeframe (`InpTimeframe`):** The target higher timeframe to calculate Z-Scores on (Default: `PERIOD_H1`).
+
+### D. Indicator Levels Settings
+
+* **High Warning Level (`InpLevelFlowHigh`):** Volatility band indicating positive structural expansion (Default: `2.0`).
+* **Low Warning Level (`InpLevelFlowLow`):** Volatility band indicating negative structural expansion (Default: `-2.0`).
+* **High Climax Level (`InpLevelClimaxHigh`):** Extreme bullish exhaustion threshold (Default: `2.5`).
+* **Low Climax Level (`InpLevelClimaxLow`):** Extreme bearish exhaustion threshold (Default: `-2.5`).
+* **High Exhaustion Level (`InpLevelExtremeHigh`):** Advanced statistical exhaustion threshold (Default: `3.0`).
+* **Low Exhaustion Level (`InpLevelExtremeLow`):** Advanced statistical exhaustion threshold (Default: `-3.0`).
+* **Levels Color (`InpLevelColor`):** Customize the color of the horizontal line layout (Default: `clrSilver`).
+* **Levels Style (`InpLevelStyle`):** Customize the line style of the horizontal line layout (Default: `STYLE_DOT`).
 
 ---
 
@@ -125,12 +146,12 @@ A critical, highly subtle mathematical hazard exists when calculating stateful c
 
 Instead of trading the moment the price touches the Extreme Levels, wait for structural momentum to fade:
 
-1. Wait for the Z-Score to enter the Extreme Zone (**DeepSkyBlue** $\ge +2.5$ or **OrangeRed** $\le -2.5$).
+1. Wait for the Z-Score to enter the Extreme Zone (**DeepSkyBlue** $\ge \text{InpLevelClimaxHigh}$ or **OrangeRed** $\le \text{InpLevelClimaxLow}$).
 2. Wait for the Z-Score histogram to contract and **cross back over the Signal Line** (typically configured as a 5-period TMA or EMA).
 3. **Execution:** Open a mean-reversion trade (Short if high, Long if low) on the crossover bar. Place the stop-loss strictly beyond the extreme candle's high/low.
 
 ### B. Top-Down Volatility Deviation (MTF Core Strategy)
 
 1. **Macro Volatility Deviation (H1/H4):** Apply `ZScore_MTF_Pro` set to H1 or H4 on an M5/M15 execution chart.
-2. **The Setup:** Wait for the macro **H1 Z-Score** to enter the **Bear Extreme Zone (OrangeRed $\le -2.5$)**, indicating that the macro price is extremely cheap relative to institutional fair value.
-3. **Execution:** On the lower M5 chart, only look for buy setups. Once the local M5 Z-Score crosses back above its own **-2.0** level (or crosses its signal line), execute **BUY** orders, riding the wave of macro mean-reversion back to the macro fair value.
+2. **The Setup:** Wait for the macro **H1 Z-Score** to enter the **Bear Extreme Zone (OrangeRed $\le \text{InpLevelClimaxLow}$)**, indicating that the macro price is extremely cheap relative to institutional fair value.
+3. **Execution:** On the lower M5 chart, only look for buy setups. Once the local M5 Z-Score crosses back above its own **InpLevelFlowLow (e.g., -2.0)** level (or crosses its signal line), execute **BUY** orders, riding the wave of macro mean-reversion back to the macro fair value.
