@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Universal Anchored Moving Average with segmented gapped drawing
+#property version   "1.20" // Optimized for incremental calculation and pointer safety
 #property description "Universal Anchored Moving Average (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, VWMA)."
 #property description "Resets its calculation baseline on specific calendar events to prevent connecting line drag."
 #property indicator_chart_window
@@ -119,6 +119,9 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpPeriod + 5)
       return(0);
 
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
@@ -145,5 +148,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
