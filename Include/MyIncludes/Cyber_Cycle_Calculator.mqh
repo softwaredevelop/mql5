@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.05" // Coerced internal array direction safety on resize actions
+#property version   "3.20" // Refactored to delegate directly to standard MA Calculate signature
 
 #ifndef CYBER_CYCLE_CALCULATOR_MQH
 #define CYBER_CYCLE_CALCULATOR_MQH
@@ -47,12 +47,14 @@ public:
 
    bool              Init(double alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, int sig_period, ENUM_MA_TYPE sig_method);
 
-   //--- Standard Calculation (OHLC)
+   //--- Standard Calculate (Without volume data)
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &cycle_out[], double &signal_out[]);
 
-   //--- Calculation on Custom Array
-   void              CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &cycle_out[], double &signal_out[]);
+   //--- Overloaded Calculate with Volume (Specifically for VWMA support)
+   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                               const long &volume[],
+                               double &cycle_out[], double &signal_out[]);
   };
 
 //+------------------------------------------------------------------+
@@ -91,7 +93,7 @@ bool CCyberCycleCalculator::Init(double alpha, ENUM_CYBER_SIGNAL_TYPE sig_type, 
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Wrapper for OHLC)                              |
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CCyberCycleCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                       double &cycle_out[], double &signal_out[])
@@ -101,30 +103,12 @@ void CCyberCycleCalculator::Calculate(int rates_total, int prev_calculated, ENUM
 
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
+//--- 1. Resize dynamic buffers and force chronological indexing
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
       ArraySetAsSeries(m_price, false);
      }
-
-   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
-      return;
-
-// Delegate to generic array calculation
-   CalculateOnArray(rates_total, prev_calculated, m_price, cycle_out, signal_out);
-  }
-
-//+------------------------------------------------------------------+
-//| Calculate On Array (Core Logic)                                  |
-//+------------------------------------------------------------------+
-void CCyberCycleCalculator::CalculateOnArray(int rates_total, int prev_calculated, const double &src_buffer[], double &cycle_out[], double &signal_out[])
-  {
-   if(rates_total < 7)
-      return;
-
-   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
-
-// Resize internal buffers and ensure strict chronological indexing
    if(ArraySize(m_smooth) != rates_total)
      {
       ArrayResize(m_smooth, rates_total);
@@ -133,25 +117,29 @@ void CCyberCycleCalculator::CalculateOnArray(int rates_total, int prev_calculate
       ArraySetAsSeries(m_cycle, false);
      }
 
-// Main Loop
+//--- 2. Prepare Price Series
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
+
    int loop_start = MathMax(6, start_index);
 
-// Explicitly zero-initialize historical indices 0 to 5 to avoid trash values in the terminal data window
+//--- 3. Explicitly initialize indices 0 to 5 to prevent trash memory values
    if(loop_start == 6)
      {
       for(int k=0; k<6; k++)
         {
-         m_smooth[k] = src_buffer[k];
+         m_smooth[k] = m_price[k];
          m_cycle[k] = 0.0;
          cycle_out[k] = 0.0;
          signal_out[k] = 0.0;
         }
      }
 
+//--- 4. Cyber Cycle Core Loop
    for(int i = loop_start; i < rates_total; i++)
      {
       // Step 1: Pre-smoothing (4-bar FIR filter)
-      m_smooth[i] = (src_buffer[i] + 2.0 * src_buffer[i-1] + 2.0 * src_buffer[i-2] + src_buffer[i-3]) / 6.0;
+      m_smooth[i] = (m_price[i] + 2.0 * m_price[i-1] + 2.0 * m_price[i-2] + m_price[i-3]) / 6.0;
 
       // Step 2: Calculate Cyber Cycle
       double term1 = (1.0 - 0.5 * m_alpha) * (1.0 - 0.5 * m_alpha) * (m_smooth[i] - 2.0 * m_smooth[i-1] + m_smooth[i-2]);
@@ -159,12 +147,10 @@ void CCyberCycleCalculator::CalculateOnArray(int rates_total, int prev_calculate
       double term3 = (1.0 - m_alpha) * (1.0 - m_alpha) * m_cycle[i-2];
 
       m_cycle[i] = term1 + term2 - term3;
-
-      // Output
       cycle_out[i] = m_cycle[i];
      }
 
-// Step 3: Signal Line calculation based on structural selections
+//--- 5. Calculate Signal Line (No Volume)
    if(m_signal_type == SIGNAL_DELAY_1BAR)
      {
       for(int i = loop_start; i < rates_total; i++)
@@ -172,10 +158,90 @@ void CCyberCycleCalculator::CalculateOnArray(int rates_total, int prev_calculate
      }
    else // SIGNAL_MA
      {
-      // Use MA Engine on the Cycle Line starting from safe offset boundary 6
+      // Pass the computed m_cycle array as the pricing source for standard MA calculations
       if(CheckPointer(m_signal_engine) != POINTER_INVALID)
         {
-         m_signal_engine.CalculateOnArray(rates_total, prev_calculated, m_cycle, signal_out, 6);
+         m_signal_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                                   m_cycle, m_cycle, m_cycle, m_cycle,
+                                   signal_out);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Overloaded - With Volume for VWMA)                    |
+//+------------------------------------------------------------------+
+void CCyberCycleCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
+                                      const long &volume[],
+                                      double &cycle_out[], double &signal_out[])
+  {
+   if(rates_total < 7)
+      return;
+
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+//--- 1. Resize dynamic buffers and force chronological indexing
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false);
+     }
+   if(ArraySize(m_smooth) != rates_total)
+     {
+      ArrayResize(m_smooth, rates_total);
+      ArrayResize(m_cycle, rates_total);
+      ArraySetAsSeries(m_smooth, false);
+      ArraySetAsSeries(m_cycle, false);
+     }
+
+//--- 2. Prepare Price Series
+   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+      return;
+
+   int loop_start = MathMax(6, start_index);
+
+//--- 3. Explicitly initialize indices 0 to 5 to prevent trash memory values
+   if(loop_start == 6)
+     {
+      for(int k=0; k<6; k++)
+        {
+         m_smooth[k] = m_price[k];
+         m_cycle[k] = 0.0;
+         cycle_out[k] = 0.0;
+         signal_out[k] = 0.0;
+        }
+     }
+
+//--- 4. Cyber Cycle Core Loop
+   for(int i = loop_start; i < rates_total; i++)
+     {
+      // Step 1: Pre-smoothing (4-bar FIR filter)
+      m_smooth[i] = (m_price[i] + 2.0 * m_price[i-1] + 2.0 * m_price[i-2] + m_price[i-3]) / 6.0;
+
+      // Step 2: Calculate Cyber Cycle
+      double term1 = (1.0 - 0.5 * m_alpha) * (1.0 - 0.5 * m_alpha) * (m_smooth[i] - 2.0 * m_smooth[i-1] + m_smooth[i-2]);
+      double term2 = 2.0 * (1.0 - m_alpha) * m_cycle[i-1];
+      double term3 = (1.0 - m_alpha) * (1.0 - m_alpha) * m_cycle[i-2];
+
+      m_cycle[i] = term1 + term2 - term3;
+      cycle_out[i] = m_cycle[i];
+     }
+
+//--- 5. Calculate Signal Line (With Volume)
+   if(m_signal_type == SIGNAL_DELAY_1BAR)
+     {
+      for(int i = loop_start; i < rates_total; i++)
+         signal_out[i] = m_cycle[i-1];
+     }
+   else // SIGNAL_MA
+     {
+      // Pass computed m_cycle array as price source alongside volume to support VWMA
+      if(CheckPointer(m_signal_engine) != POINTER_INVALID)
+        {
+         m_signal_engine.Calculate(rates_total, prev_calculated, PRICE_CLOSE,
+                                   m_cycle, m_cycle, m_cycle, m_cycle,
+                                   volume,
+                                   signal_out);
         }
      }
   }
