@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.80" // Swapped color polarity to perfectly align with ZScore_MTF_Pro and Velocity_Pro
+#property version   "1.90" // Upgraded to support dynamic level configuration via input panel
 #property description "Statistical Z-Score Oscillator with dynamic Signal Line."
 #property description "Displays deviations from any selected Moving Average in Sigma units."
 
@@ -11,20 +11,10 @@
 #property indicator_buffers 3
 #property indicator_plots   2
 
-//--- Institutional Levels Configuration (6 Sigma boundaries)
-#property indicator_level1 2.0
-#property indicator_level2 -2.0
-#property indicator_level3 2.5
-#property indicator_level4 -2.5
-#property indicator_level5 3.0
-#property indicator_level6 -3.0
-#property indicator_levelcolor clrSilver
-#property indicator_levelstyle STYLE_DOT
-
-//--- Plot 1: Z-Score Histogram (Swapped Bull/Bear Thermal Palette)
+//--- Plot 1: Z-Score Histogram (Bull/Bear Thermal Palette)
 #property indicator_label1  "Z-Score"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-// Swapped Palette:
+// Palette Configuration:
 // 0: Noise/Neutral     (Gray)
 // 1: Bullish Flow      (LightSkyBlue)
 // 2: Bullish Climax    (DeepSkyBlue)
@@ -45,14 +35,25 @@
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Input Parameters ---
+input group "Z-Score Settings"
 input int                       InpPeriod      = 20;          // Z-Score Lookback Period
 input ENUM_MA_TYPE              InpMAType      = SMA;         // Z-Score MA Type
 input ENUM_APPLIED_PRICE        InpPrice       = PRICE_CLOSE; // Z-Score Applied Price
 
-//--- Signal Line Parameters
+input group "Signal Line Settings"
 input bool                      InpShowSignal  = true;        // Show Signal Line?
 input int                       InpSignalPeriod= 5;           // Signal Line Period
 input ENUM_MA_TYPE              InpSignalType  = SMA;         // Signal Line MA Type
+
+input group "Indicator Levels"
+input double                    InpLevelFlowHigh   = 2.0;         // High Warning Level (Bullish Flow)
+input double                    InpLevelFlowLow    = -2.0;        // Low Warning Level (Bearish Flow)
+input double                    InpLevelClimaxHigh = 2.5;         // High Climax Level (Bullish Climax)
+input double                    InpLevelClimaxLow  = -2.5;        // Low Climax Level (Bearish Climax)
+input double                    InpLevelExtremeHigh= 3.0;         // High Exhaustion Level
+input double                    InpLevelExtremeLow = -3.0;        // Low Exhaustion Level
+input color                     InpLevelColor      = clrSilver;   // Levels Color
+input ENUM_LINE_STYLE           InpLevelStyle      = STYLE_DOT;   // Levels Style
 
 //--- Buffers ---
 double BufferZ[];
@@ -79,6 +80,18 @@ int OnInit()
    ArraySetAsSeries(BufferZ,      false);
    ArraySetAsSeries(BufferColors, false);
    ArraySetAsSeries(BufferSignal, false);
+
+//--- Dynamically configure horizontal levels to support custom input parameters
+   IndicatorSetInteger(INDICATOR_LEVELS, 6);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelFlowHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelFlowLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, InpLevelClimaxHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 3, InpLevelClimaxLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 4, InpLevelExtremeHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 5, InpLevelExtremeLow);
+
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
 
 //--- Configure Core Z-Score Calculator
    g_calculator = new CZScoreCalculator();
@@ -160,6 +173,9 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpPeriod)
       return 0;
 
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return 0;
+
 //--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
    long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
 
@@ -192,33 +208,32 @@ int OnCalculate(const int rates_total,
    if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
      {
       // Source start index is 'InpPeriod - 1' since Z-Score before that index is invalid/empty
-      // FIXED: Passed g_double_volume down to ensure VWMA signal line type calculates correctly
       g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufferZ, g_double_volume, BufferSignal, InpPeriod - 1);
      }
 
-//--- 3. Apply 5-Zone Swapped Thermal Coloring Logic (O(1) incremental)
+//--- 3. Apply Dynamic 5-Zone Swapped Thermal Coloring Logic (O(1) incremental)
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    for(int i = start_index; i < rates_total; i++)
      {
       double z = BufferZ[i];
 
-      // Swapped 5-Zone Thermal Coloring:
-      // Z > 2.5  -> DeepSkyBlue (Extreme High / Bullish Climax)
-      // Z > 2.0  -> LightSkyBlue (Warning High / Bullish Flow)
-      // Z < -2.5 -> OrangeRed (Extreme Low / Bearish Climax)
-      // Z < -2.0 -> Coral (Warning Low / Bearish Flow)
-      // Else     -> Gray (Neutral Noise Zone)
-      if(z > 2.5)
+      // Swapped 5-Zone Thermal Coloring dynamically mapped to user-defined level parameters:
+      // Z > ClimaxHigh  -> DeepSkyBlue (Extreme High / Bullish Climax)
+      // Z > FlowHigh    -> LightSkyBlue (Warning High / Bullish Flow)
+      // Z < ClimaxLow   -> OrangeRed (Extreme Low / Bearish Climax)
+      // Z < FlowLow     -> Coral (Warning Low / Bearish Flow)
+      // Else            -> Gray (Neutral Noise Zone)
+      if(z > InpLevelClimaxHigh)
          BufferColors[i] = 2.0; // Index 2: DeepSkyBlue
       else
-         if(z > 2.0)
+         if(z > InpLevelFlowHigh)
             BufferColors[i] = 1.0; // Index 1: LightSkyBlue
          else
-            if(z < -2.5)
+            if(z < InpLevelClimaxLow)
                BufferColors[i] = 4.0; // Index 4: OrangeRed
             else
-               if(z < -2.0)
+               if(z < InpLevelFlowLow)
                   BufferColors[i] = 3.0; // Index 3: Coral
                else
                   BufferColors[i] = 0.0; // Index 0: Gray
@@ -226,5 +241,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
