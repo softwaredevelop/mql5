@@ -1,11 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                  Laguerre_Filter_Calculator.mqh  |
-//|      Adapter for the Laguerre Filter indicator.                  |
-//|      VERSION 1.30: Optimized FIR calculation using direct getter |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.30"
+#property version   "1.31" // Upgraded for compatibility with dynamic chronological safeguards
+#property description "Adapter for the John Ehlers' Laguerre Filter indicator."
+
+#ifndef LAGUERRE_FILTER_CALCULATOR_MQH
+#define LAGUERRE_FILTER_CALCULATOR_MQH
 
 #include <MyIncludes\Laguerre_Engine.mqh>
 
@@ -33,6 +35,8 @@ public:
 //+------------------------------------------------------------------+
 bool CLaguerreFilterCalculator::Init(double gamma, ENUM_INPUT_SOURCE source_type)
   {
+   if(CheckPointer(m_engine) == POINTER_INVALID)
+      return false;
    return m_engine.Init(gamma, source_type);
   }
 
@@ -42,6 +46,9 @@ bool CLaguerreFilterCalculator::Init(double gamma, ENUM_INPUT_SOURCE source_type
 void CLaguerreFilterCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &filter_buffer[], double &fir_buffer[])
   {
+   if(CheckPointer(m_engine) == POINTER_INVALID)
+      return;
+
    m_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, filter_buffer);
 
 // FIR Filter Calculation (Optimized using the dynamic inline GetPrice getter)
@@ -72,5 +79,6 @@ public:
       m_engine = new CLaguerreEngine_HA();
      };
   };
-//+------------------------------------------------------------------+
+
+#endif // LAGUERRE_FILTER_CALCULATOR_MQH
 //+------------------------------------------------------------------+
