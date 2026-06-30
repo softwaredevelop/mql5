@@ -1,9 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                  Laguerre_Bands_Calculator.mqh   |
-//|      Laguerre Filter Middle Line + StdDev Bands (Bollinger).     |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.10" // Upgraded with strict internal chronological sorting safeguards
+
+#ifndef LAGUERRE_BANDS_CALCULATOR_MQH
+#define LAGUERRE_BANDS_CALCULATOR_MQH
 
 #include <MyIncludes\Laguerre_Engine.mqh>
 
@@ -87,19 +90,24 @@ void CLaguerreBandsCalculator::Calculate(int rates_total, int prev_calculated, c
    if(rates_total < m_period)
       return;
 
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID)
+      return;
+
 //--- 1. Determine Start Index
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Internal Buffer
+//--- 2. Resize Internal Buffer and force strict chronological indexing
    if(ArraySize(m_price) != rates_total)
+     {
       ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false); // Fixed: strict chronological safety on internal buffers
+     }
 
 //--- 3. Prepare Price (For StdDev calculation)
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
 //--- 4. Calculate Middle Line (Laguerre)
-// Note: The engine handles its own price preparation internally, but that's fine.
    m_laguerre_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, middle_buffer);
 
 //--- 5. Calculate Bands (StdDev from Laguerre)
@@ -194,6 +202,11 @@ bool CLaguerreBandsCalculator_HA::PreparePriceSeries(int rates_total, int start_
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
 
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
@@ -231,4 +244,6 @@ bool CLaguerreBandsCalculator_HA::PreparePriceSeries(int rates_total, int start_
      }
    return true;
   }
+
+#endif // LAGUERRE_BANDS_CALCULATOR_MQH
 //+------------------------------------------------------------------+
