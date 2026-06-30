@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                               Laguerre_Stoch_Slow_Calculator.mqh |
-//|      Laguerre Stochastic Slow: Smoothed version of Fast Stoch.   |
-//|      VERSION 1.20: Overloaded Calculate to support VWMA.         |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20"
+#property version   "1.21" // Upgraded with strict internal chronological sorting safeguards
 
 #ifndef LAGUERRE_STOCH_SLOW_CALCULATOR_MQH
 #define LAGUERRE_STOCH_SLOW_CALCULATOR_MQH
@@ -98,9 +96,15 @@ void CLaguerreStochSlowCalculator::Calculate(int rates_total, int prev_calculate
    if(rates_total < 2)
       return;
 
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID)
+      return;
+
 //--- Resize Internal Buffer
    if(ArraySize(m_raw_k) != rates_total)
+     {
       ArrayResize(m_raw_k, rates_total);
+      ArraySetAsSeries(m_raw_k, false); // Fixed: strict chronological array safety on local buffers
+     }
 
 //--- 1. Calculate Laguerre Components
    double dummy_filt[];
@@ -144,9 +148,15 @@ void CLaguerreStochSlowCalculator::Calculate(int rates_total, int prev_calculate
    if(rates_total < 2)
       return;
 
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID)
+      return;
+
 //--- Resize Internal Buffer
    if(ArraySize(m_raw_k) != rates_total)
+     {
       ArrayResize(m_raw_k, rates_total);
+      ArraySetAsSeries(m_raw_k, false); // Fixed: strict chronological array safety on local buffers
+     }
 
 //--- 1. Calculate Laguerre Components
    double dummy_filt[];
@@ -175,6 +185,7 @@ void CLaguerreStochSlowCalculator::Calculate(int rates_total, int prev_calculate
 //--- 4. Convert long volume to double to support VWMA Slowing & Signal
    double vol_double[];
    ArrayResize(vol_double, rates_total);
+   ArraySetAsSeries(vol_double, false); // Fixed: strict chronological array safety on local buffers
    for(int j = start_index; j < rates_total; j++)
       vol_double[j] = (double)volume[j];
 
@@ -200,6 +211,6 @@ void CLaguerreStochSlowCalculator_HA::CreateEngines(void)
   {
    m_laguerre_engine = new CLaguerreEngine_HA();
   }
-//+------------------------------------------------------------------+
+
 #endif // LAGUERRE_STOCH_SLOW_CALCULATOR_MQH
 //+------------------------------------------------------------------+
