@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                             Laguerre_Engine.mqh  |
-//|      VERSION 1.30: Added zero-copy inline price getter.          |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.30"
+#property version   "1.31" // Implemented strict chronological array safeguards on dynamic resizes
+
+#ifndef LAGUERRE_ENGINE_MQH
+#define LAGUERRE_ENGINE_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -23,7 +25,6 @@ protected:
    double            m_price[];
    double            m_L0[], m_L1[], m_L2[], m_L3[]; // Internal state buffers
 
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -32,13 +33,12 @@ public:
 
    bool              Init(double gamma, ENUM_INPUT_SOURCE source_type);
 
-   //--- Updated: Accepts prev_calculated
    void              CalculateFilter(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                      double &filt_buffer[]);
 
    void              GetPriceBuffer(double &dest_array[]);
 
-   //--- NEW: Zero-copy inline price getter (Eliminates deep-copy performance bottleneck)
+   //--- Zero-copy inline price getter (Eliminates deep-copy performance bottleneck)
    double            GetPrice(int index) const { return m_price[index]; }
 
    //--- Accessors for internal state buffers (Needed for Laguerre RSI)
@@ -103,7 +103,7 @@ void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM
    else
       start_index = prev_calculated - 1;
 
-//--- 2. Resize Internal Buffers
+//--- 2. Resize Internal Buffers & coerce strict chronological indexing (false) on resize
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
@@ -111,6 +111,12 @@ void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM
       ArrayResize(m_L1, rates_total);
       ArrayResize(m_L2, rates_total);
       ArrayResize(m_L3, rates_total);
+
+      ArraySetAsSeries(m_price, false);
+      ArraySetAsSeries(m_L0, false);
+      ArraySetAsSeries(m_L1, false);
+      ArraySetAsSeries(m_L2, false);
+      ArraySetAsSeries(m_L3, false);
      }
 
 // Resize output buffer if provided
@@ -156,7 +162,6 @@ void CLaguerreEngine::CalculateFilter(int rates_total, int prev_calculated, ENUM
 //+------------------------------------------------------------------+
 bool CLaguerreEngine::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       if(m_source_type == SOURCE_PRICE)
@@ -179,7 +184,7 @@ bool CLaguerreEngine::PreparePriceSeries(int rates_total, int start_index, ENUM_
                m_price[i] = (high[i]+low[i]+close[i])/3.0;
                break;
             case PRICE_WEIGHTED:
-               m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
+               m_price[i] = (high[i]+low[i]+2.0*close[i])/4.0;
                break;
             default:
                m_price[i] = close[i];
@@ -201,7 +206,6 @@ class CLaguerreEngine_HA : public CLaguerreEngine
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
@@ -213,20 +217,23 @@ protected:
 //+------------------------------------------------------------------+
 bool CLaguerreEngine_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
+// Resize internal HA buffers & coerce chronological indexing
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-//--- Copy to m_price (Optimized loop)
    for(int i = start_index; i < rates_total; i++)
      {
       if(m_source_type == SOURCE_PRICE)
@@ -249,7 +256,7 @@ bool CLaguerreEngine_HA::PreparePriceSeries(int rates_total, int start_index, EN
                m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
                break;
             case PRICE_WEIGHTED:
-               m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+               m_price[i] = (m_ha_high[i]+m_ha_low[i]+2.0*m_ha_close[i])/4.0;
                break;
             default:
                m_price[i] = m_ha_close[i];
@@ -263,5 +270,6 @@ bool CLaguerreEngine_HA::PreparePriceSeries(int rates_total, int start_index, EN
      }
    return true;
   }
-//+------------------------------------------------------------------+
+
+#endif // LAGUERRE_ENGINE_MQH
 //+------------------------------------------------------------------+
