@@ -1,9 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                  Laguerre_Channel_Calculator.mqh |
-//|      Laguerre Filter Middle Line + ATR Bands (Keltner Concept).  |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.10" // Upgraded with strict internal chronological sorting safeguards
+
+#ifndef LAGUERRE_CHANNEL_CALCULATOR_MQH
+#define LAGUERRE_CHANNEL_CALCULATOR_MQH
 
 #include <MyIncludes\Laguerre_Engine.mqh>
 #include <MyIncludes\ATR_Calculator.mqh>
@@ -96,9 +99,15 @@ void CLaguerreChannelCalculator::Calculate(int rates_total, int prev_calculated,
    if(rates_total < 2)
       return;
 
-//--- Resize Internal Buffer
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID || CheckPointer(m_atr_calc) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffer and force strict chronological sorting
    if(ArraySize(m_atr_buffer) != rates_total)
+     {
       ArrayResize(m_atr_buffer, rates_total);
+      ArraySetAsSeries(m_atr_buffer, false); // Fixed: strict chronological safety on internal buffers
+     }
 
 //--- 1. Calculate Middle Line (Laguerre)
    m_laguerre_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, middle_buffer);
@@ -141,4 +150,6 @@ void CLaguerreChannelCalculator_HA::CreateCalculators(void)
   {
    m_laguerre_engine = new CLaguerreEngine_HA();
   }
+
+#endif // LAGUERRE_CHANNEL_CALCULATOR_MQH
 //+------------------------------------------------------------------+
