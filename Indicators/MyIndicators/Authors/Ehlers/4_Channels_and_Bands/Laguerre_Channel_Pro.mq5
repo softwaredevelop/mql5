@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with 3-digit Gamma precision and strict chronological state safety
 #property description "Laguerre Channel (Keltner Concept): Laguerre Filter Middle Line + ATR Bands."
 
 #property indicator_chart_window
@@ -35,16 +35,16 @@
 
 //--- Input Parameters
 input group                     "Laguerre Settings"
-input double                    InpGamma        = 0.7;
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input double                    InpGamma        = 0.7;             // Gamma (0.0 - 1.0, e.g. 0.236, 0.382)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 input group                     "Channel (ATR) Settings"
-input int                       InpAtrPeriod    = 14;
-input double                    InpMultiplier   = 2.0;
-input ENUM_ATR_SOURCE           InpAtrSource    = ATR_SOURCE_STANDARD;
+input int                       InpAtrPeriod    = 14;              // ATR Period
+input double                    InpMultiplier   = 2.0;             // ATR Multiplier
+input ENUM_ATR_SOURCE           InpAtrSource    = ATR_SOURCE_STANDARD; // ATR Source Price
 
 //--- Buffers
 double    BufferUpper[];
@@ -80,9 +80,9 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- Shortname
+//--- Shortname - Updated format string to %.3f to support exact Fibonacci decimals
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Ch%s(%.2f, ATR %d)", type, InpGamma, InpAtrPeriod));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Ch%s(%.3f, ATR %d)", type, InpGamma, InpAtrPeriod));
 
 //--- Visuals
    int draw_begin = InpAtrPeriod;
@@ -119,6 +119,16 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < InpAtrPeriod)
       return(0);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
