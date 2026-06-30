@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                   CG_Oscillator_Calculator.mqh   |
-//|      Calculation engine for the John Ehlers' CG Oscillator.      |
-//|      VERSION 2.10: Added option for Original Ehlers Calculation. |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.20" // Upgraded with strict internal chronological sorting safeguards
+
+#ifndef CG_OSCILLATOR_CALCULATOR_MQH
+#define CG_OSCILLATOR_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -58,8 +60,12 @@ void CCGOscillatorCalculator::Calculate(int rates_total, int prev_calculated, EN
    else
       start_index = prev_calculated - 1;
 
+//--- Resize and force strict chronological sorting
    if(ArraySize(m_price) != rates_total)
+     {
       ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false); // Fixed: strict chronological safety on internal buffers
+     }
 
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
@@ -146,6 +152,11 @@ bool CCGOscillatorCalculator_HA::PreparePriceSeries(int rates_total, int start_i
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
@@ -155,5 +166,5 @@ bool CCGOscillatorCalculator_HA::PreparePriceSeries(int rates_total, int start_i
      }
    return true;
   }
-//+------------------------------------------------------------------+
+#endif // CG_OSCILLATOR_CALCULATOR_MQH
 //+------------------------------------------------------------------+
