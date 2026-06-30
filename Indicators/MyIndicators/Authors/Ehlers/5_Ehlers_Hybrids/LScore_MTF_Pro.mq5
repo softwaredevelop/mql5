@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Fully optimized Multi-Timeframe Laguerre Z-Score with dynamic levels
+#property version   "1.10" // Upgraded with 3-digit Gamma precision to support precise Fibonacci parameters
 #property description "Multi-Timeframe (MTF) Statistical Laguerre Z-Score (L-Score) Oscillator."
 #property description "Displays HTF Laguerre deviations cleanly directly on lower TF charts without live-bar warping."
 
@@ -39,7 +39,7 @@ input group "Timeframe Settings"
 input ENUM_TIMEFRAMES           InpTimeframe   = PERIOD_H1;       // Target Higher Timeframe
 
 input group "Laguerre Baseline Settings"
-input double                    InpGamma       = 0.5;         // Laguerre Gamma (0.0 to 1.0)
+input double                    InpGamma       = 0.5;         // Laguerre Gamma (0.0 to 1.0, e.g. 0.236, 0.382)
 input ENUM_APPLIED_PRICE_HA_ALL InpPrice       = PRICE_CLOSE_STD; // Price Source
 
 input group "Volatility Settings"
@@ -172,7 +172,7 @@ int OnInit()
       PlotIndexSetString(1, PLOT_LABEL, NULL);
      }
 
-//--- 5. Set Shortname
+//--- 5. Set Shortname - Updated format string to %.3f to support exact Fibonacci decimals
    string type = (InpPrice <= PRICE_HA_CLOSE) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
    string short_name = "";
@@ -181,11 +181,11 @@ int OnInit()
      {
       string sig_name = EnumToString(InpSignalType);
       StringToUpper(sig_name);
-      short_name = StringFormat("LScore%s%s(%.2f,%d) %s(%d)", type, tf_str, InpGamma, InpPeriod, sig_name, InpSignalPeriod);
+      short_name = StringFormat("LScore%s%s(%.3f,%d) %s(%d)", type, tf_str, InpGamma, InpPeriod, sig_name, InpSignalPeriod);
      }
    else
      {
-      short_name = StringFormat("LScore%s%s(%.2f,%d)", type, tf_str, InpGamma, InpPeriod);
+      short_name = StringFormat("LScore%s%s(%.3f,%d)", type, tf_str, InpGamma, InpPeriod);
      }
 
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
@@ -231,16 +231,16 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return(0);
 
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
    ENUM_APPLIED_PRICE price_type = (InpPrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpPrice) :
                                    (ENUM_APPLIED_PRICE)InpPrice;
-
-//--- Force standard chronological indexing for state-safety
-   ArraySetAsSeries(time, false);
-   ArraySetAsSeries(open, false);
-   ArraySetAsSeries(high, false);
-   ArraySetAsSeries(low, false);
-   ArraySetAsSeries(close, false);
 
 //================================================================
 // MODE 1: Current Timeframe (Standard)
@@ -469,12 +469,6 @@ int OnCalculate(const int rates_total,
             else
                BufferSignal_MTF[i] = EMPTY_VALUE;
 
-            // Swapped 5-Zone Color Logic dynamically mapped to user-defined level parameters:
-            // l_val >= ClimaxHigh  -> DeepSkyBlue Climax
-            // l_val >= FlowHigh    -> LightSkyBlue Flow
-            // l_val <= ClimaxLow   -> OrangeRed Climax
-            // l_val <= FlowLow     -> Coral Flow
-            // Else                 -> Gray Neutral
             if(l_val >= InpLevelClimaxHigh)
                BufferColors_MTF[i] = 2.0;
             else
