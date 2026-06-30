@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                               Laguerre_Stoch_Fast_Calculator.mqh |
-//|      Laguerre Stochastic: Stoch calculation on L0-L3 components. |
-//|      VERSION 1.20: Overloaded Calculate to support VWMA.         |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20"
+#property version   "1.21" // Upgraded with strict internal chronological sorting safeguards
 
 #ifndef LAGUERRE_STOCH_FAST_CALCULATOR_MQH
 #define LAGUERRE_STOCH_FAST_CALCULATOR_MQH
@@ -95,6 +93,9 @@ void CLaguerreStochFastCalculator::Calculate(int rates_total, int prev_calculate
    if(rates_total < 2)
       return;
 
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID || CheckPointer(m_signal_engine) == POINTER_INVALID)
+      return;
+
 //--- 1. Calculate Laguerre Components
    double dummy_filt[];
    m_laguerre_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, dummy_filt);
@@ -133,6 +134,9 @@ void CLaguerreStochFastCalculator::Calculate(int rates_total, int prev_calculate
    if(rates_total < 2)
       return;
 
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID || CheckPointer(m_signal_engine) == POINTER_INVALID)
+      return;
+
 //--- 1. Calculate Laguerre Components
    double dummy_filt[];
    m_laguerre_engine.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, dummy_filt);
@@ -160,6 +164,7 @@ void CLaguerreStochFastCalculator::Calculate(int rates_total, int prev_calculate
 //--- 4. Convert long volume to double to support VWMA Signal
    double vol_double[];
    ArrayResize(vol_double, rates_total);
+   ArraySetAsSeries(vol_double, false); // Fixed: strict chronological array safety on local buffers
    for(int j = start_index; j < rates_total; j++)
       vol_double[j] = (double)volume[j];
 
@@ -182,6 +187,6 @@ void CLaguerreStochFastCalculator_HA::CreateEngines(void)
    m_laguerre_engine = new CLaguerreEngine_HA();
    m_signal_engine = new CMovingAverageCalculator();
   }
-//+------------------------------------------------------------------+
+
 #endif // LAGUERRE_STOCH_FAST_CALCULATOR_MQH
 //+------------------------------------------------------------------+
