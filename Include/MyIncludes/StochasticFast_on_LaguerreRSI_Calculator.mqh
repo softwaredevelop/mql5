@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                  StochasticFast_on_LaguerreRSI_Calculator.mqh    |
-//|      Fast Stochastic Oscillator applied to Laguerre RSI.         |
-//|      VERSION 1.00: Strictly O(1) and VWMA compatible.            |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with strict internal chronological sorting safeguards
 
 #ifndef STOCHASTIC_FAST_ON_LAGUERRE_RSI_CALCULATOR_MQH
 #define STOCHASTIC_FAST_ON_LAGUERRE_RSI_CALCULATOR_MQH
@@ -106,10 +104,14 @@ void CStochasticFastOnLaguerreRSICalculator::Calculate(int rates_total, int prev
    if(rates_total < m_k_period)
       return;
 
-//--- Resize Internal Buffers
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID || CheckPointer(m_signal_engine) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffers & force strict chronological indexing
    if(ArraySize(m_rsi_buffer) != rates_total)
      {
       ArrayResize(m_rsi_buffer, rates_total);
+      ArraySetAsSeries(m_rsi_buffer, false); // Fixed: strict chronological safety on internal buffers
      }
 
 //--- 1. Calculate Laguerre RSI (Inline Logic)
@@ -174,10 +176,14 @@ void CStochasticFastOnLaguerreRSICalculator::Calculate(int rates_total, int prev
    if(rates_total < m_k_period)
       return;
 
-//--- Resize Internal Buffers
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID || CheckPointer(m_signal_engine) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffers & force strict chronological indexing
    if(ArraySize(m_rsi_buffer) != rates_total)
      {
       ArrayResize(m_rsi_buffer, rates_total);
+      ArraySetAsSeries(m_rsi_buffer, false); // Fixed: strict chronological safety on internal buffers
      }
 
 //--- 1. Calculate Laguerre RSI (Inline Logic)
@@ -231,6 +237,7 @@ void CStochasticFastOnLaguerreRSICalculator::Calculate(int rates_total, int prev
 //--- 3. Convert long volume to double to support VWMA Signal
    double vol_double[];
    ArrayResize(vol_double, rates_total);
+   ArraySetAsSeries(vol_double, false); // Fixed: strict chronological array safety on local buffers
    for(int j = start_index; j < rates_total; j++)
       vol_double[j] = (double)volume[j];
 
@@ -285,6 +292,6 @@ void CStochasticFastOnLaguerreRSICalculator_HA::CreateEngine(void)
    m_laguerre_engine = new CLaguerreEngine_HA();
    m_signal_engine = new CMovingAverageCalculator();
   }
-//+------------------------------------------------------------------+
+
 #endif // STOCHASTIC_FAST_ON_LAGUERRE_RSI_CALCULATOR_MQH
 //+------------------------------------------------------------------+
