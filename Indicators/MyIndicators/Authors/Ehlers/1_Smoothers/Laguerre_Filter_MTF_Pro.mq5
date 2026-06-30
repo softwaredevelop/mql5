@@ -3,21 +3,30 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.30" // Upgraded to support 3-digit Gamma and chronological state safety
+#property version   "1.40" // Upgraded to support comparative MTF FIR filter display with strict chronological safety
 #property description "Multi-Timeframe (MTF) John Ehlers' Laguerre Filter."
-#property description "Displays Higher Timeframe Laguerre low-lag moving average cleanly without live-bar warping."
+#property description "Displays HTF Laguerre filter and optional FIR comparative filter cleanly without live-bar warping."
 
 #property indicator_chart_window
-#property indicator_buffers 1
-#property indicator_plots   1
+#property indicator_buffers 2 // Expanded to 2 buffers to support FIR comparison
+#property indicator_plots   2
+
+//--- Plot 1: Laguerre Filter MTF
 #property indicator_label1  "Laguerre MTF"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrMediumPurple
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
+//--- Plot 2: FIR Filter MTF (Optional comparative line)
+#property indicator_label2  "FIR MTF"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrDarkBlue
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  1
+
 //--- Include the calculator engine ---
-#include <MyIncludes\Laguerre_Engine.mqh>
+#include <MyIncludes\Laguerre_Filter_Calculator.mqh>
 
 //--- Input Parameters ---
 input group "Timeframe Settings"
@@ -26,17 +35,20 @@ input ENUM_TIMEFRAMES           InpUpperTimeframe = PERIOD_H1;     // Target Hig
 input group "Laguerre Settings"
 input double                    InpGamma          = 0.7;           // Gamma (0.0 - 1.0, e.g. 0.236, 0.382)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD; // Price Source
+input bool                      InpShowFIR        = false;         // Show FIR Filter Comparison?
 
 //--- Indicator Buffers ---
 double    BufferFilter_MTF[];
+double    BufferFIR_MTF[];
 
 //--- Internal HTF Data Caches
-double    h_res[];       // HTF Results cached
+double    h_res_lag[];   // HTF Laguerre Results cached
+double    h_res_fir[];   // HTF FIR Results cached
 datetime  h_time[];      // HTF Time index
 double    h_open[], h_high[], h_low[], h_close[]; // HTF Price Data
 
 //--- Global HTF State Tracking
-CLaguerreEngine *g_calculator;
+CLaguerreFilterCalculator *g_calculator;
 datetime         g_last_htf_time       = 0;
 int              g_htf_count           = 0;
 bool             g_data_ready          = false;
@@ -85,34 +97,50 @@ int OnInit()
 
 //--- 2. Setup Buffers
    SetIndexBuffer(0, BufferFilter_MTF, INDICATOR_DATA);
-   ArraySetAsSeries(BufferFilter_MTF, false); // Standard indexing
+   SetIndexBuffer(1, BufferFIR_MTF,    INDICATOR_DATA);
+   ArraySetAsSeries(BufferFilter_MTF, false);
+   ArraySetAsSeries(BufferFIR_MTF,    false);
+
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
 //--- 3. Initialize Calculator
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-      g_calculator = new CLaguerreEngine_HA();
+      g_calculator = new CLaguerreFilterCalculator_HA();
    else
-      g_calculator = new CLaguerreEngine();
+      g_calculator = new CLaguerreFilterCalculator();
 
-// Initialize in SOURCE_PRICE mode
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma, SOURCE_PRICE))
      {
       Print("Failed to initialize Laguerre Calculator.");
       return(INIT_FAILED);
      }
 
-//--- 4. Set Shortname - Updated format string to %.3f to support exact Fibonacci decimals
+//--- 4. Configure Display Mode for the comparative FIR Filter Line
+   if(InpShowFIR)
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
+      PlotIndexSetString(1, PLOT_LABEL, "FIR MTF");
+     }
+   else
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
+      PlotIndexSetString(1, PLOT_LABEL, NULL);
+     }
+
+//--- 5. Set Shortname - Dynamic 3-digit Gamma precision (%.3f)
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre%s%s(%.3f)", type, tf_str, InpGamma));
 
-// Draw begin logic (approximate for MTF)
+// Draw begin logic
    int draw_begin = 2; // Laguerre warms up fast
    if(g_is_mtf_mode)
       draw_begin = 0;
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_is_mtf_mode ? 0 : 4); // FIR needs 4 bars minimum
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
 //--- Initialize 1-second timer for weekend/async chart refreshes (Only if MTF mode is active)
@@ -168,7 +196,15 @@ int OnCalculate(const int rates_total,
 //================================================================
    if(!g_is_mtf_mode)
      {
-      g_calculator.CalculateFilter(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter_MTF);
+      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter_MTF, BufferFIR_MTF);
+
+      // Dynamic hide of the FIR buffer standard line if not requested
+      if(!InpShowFIR)
+        {
+         int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+         for(int i = start_index; i < rates_total; i++)
+            BufferFIR_MTF[i] = EMPTY_VALUE;
+        }
       return(rates_total);
      }
 
@@ -203,12 +239,21 @@ int OnCalculate(const int rates_total,
 
       g_htf_count = MathMin(htf_bars, 3000);
 
-      ArrayResize(h_time,  g_htf_count);
-      ArrayResize(h_open,  g_htf_count);
-      ArrayResize(h_high,  g_htf_count);
-      ArrayResize(h_low,   g_htf_count);
-      ArrayResize(h_close, g_htf_count);
-      ArrayResize(h_res,   g_htf_count);
+      ArrayResize(h_time,    g_htf_count);
+      ArrayResize(h_open,    g_htf_count);
+      ArrayResize(h_high,    g_htf_count);
+      ArrayResize(h_low,     g_htf_count);
+      ArrayResize(h_close,   g_htf_count);
+
+      ArrayResize(h_res_lag, g_htf_count);
+      ArrayResize(h_res_fir, g_htf_count);
+
+      // Force chronological array alignment on HTF caches after resize
+      ArraySetAsSeries(h_time,    false);
+      ArraySetAsSeries(h_open,    false);
+      ArraySetAsSeries(h_high,    false);
+      ArraySetAsSeries(h_low,     false);
+      ArraySetAsSeries(h_close,   false);
 
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
          CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
@@ -220,15 +265,8 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      // Force chronological array alignment for calculations
-      ArraySetAsSeries(h_time,  false);
-      ArraySetAsSeries(h_open,  false);
-      ArraySetAsSeries(h_high,  false);
-      ArraySetAsSeries(h_low,   false);
-      ArraySetAsSeries(h_close, false);
-
-      //--- Calculate Laguerre Filter on HTF (Closed bars and forming bar initialized)
-      g_calculator.CalculateFilter(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_res);
+      //--- Calculate Laguerre and FIR on HTF (Closed bars and forming bar initialized)
+      g_calculator.Calculate(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_res_lag, h_res_fir);
 
       g_data_ready = true;
      }
@@ -238,7 +276,7 @@ int OnCalculate(const int rates_total,
 
 //--- 2. Live Update for the Current Forming HTF Bar (Index: g_htf_count - 1) on every tick!
    int live_idx = g_htf_count - 1;
-   if(live_idx >= 2)
+   if(live_idx >= 4) // FIR needs minimum 4 bars
      {
       double o[1], h[1], l[1], c[1];
       int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
@@ -255,7 +293,7 @@ int OnCalculate(const int rates_total,
 
          // Incremental recalculation on the live HTF index in O(1)
          // Passed g_htf_count as prev_calculated to preserve state safety
-         g_calculator.CalculateFilter(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close, h_res);
+         g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close, h_res_lag, h_res_fir);
         }
      }
 
@@ -285,16 +323,24 @@ int OnCalculate(const int rates_total,
          int idx_htf = g_htf_count - 1 - shift_htf;
          if(idx_htf >= 0 && idx_htf < g_htf_count)
            {
-            BufferFilter_MTF[i] = h_res[idx_htf];
+            BufferFilter_MTF[i] = h_res_lag[idx_htf];
+
+            // Render MTF FIR comparative line dynamically if selected
+            if(InpShowFIR)
+               BufferFIR_MTF[i] = h_res_fir[idx_htf];
+            else
+               BufferFIR_MTF[i] = EMPTY_VALUE;
            }
          else
            {
             BufferFilter_MTF[i] = EMPTY_VALUE;
+            BufferFIR_MTF[i]    = EMPTY_VALUE;
            }
         }
       else
         {
          BufferFilter_MTF[i] = EMPTY_VALUE;
+         BufferFIR_MTF[i]    = EMPTY_VALUE;
         }
      }
 
