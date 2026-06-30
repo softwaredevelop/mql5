@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Dynamic Multi-Timeframe Laguerre Stochastic Slow with flat-force step-alignment
+#property version   "1.10" // Upgraded with 3-digit Gamma precision and strict chronological state safety
 #property description "Multi-Timeframe (MTF) John Ehlers' Laguerre Stochastic Slow."
 #property description "Displays HTF Laguerre Stochastic Slow and Signal Line cleanly without live-bar warping."
 
@@ -42,7 +42,7 @@ input group "Timeframe Settings"
 input ENUM_TIMEFRAMES           InpUpperTimeframe = PERIOD_H1;     // Target Higher Timeframe
 
 input group "Laguerre Settings"
-input double                    InpGamma          = 0.7;           // Gamma (0.0 - 1.0)
+input double                    InpGamma          = 0.7;           // Gamma (0.0 - 1.0, e.g. 0.236, 0.382)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD; // Price Source
 
 input group "Stochastic Settings"
@@ -128,10 +128,10 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- 4. Set Shortname
+//--- 4. Set Shortname - Updated format string to %.3f to support exact Fibonacci decimals
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Stoch Slow%s%s(%.2f)", type, tf_str, InpGamma));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Stoch Slow%s%s(%.3f)", type, tf_str, InpGamma));
 
 // Draw begin logic
    int draw_begin = InpSlowingPeriod + InpSignalPeriod;
@@ -175,6 +175,16 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < 2)
       return(0);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
@@ -238,6 +248,14 @@ int OnCalculate(const int rates_total,
 
       ArrayResize(h_res_slow_k, g_htf_count);
       ArrayResize(h_res_sig_d,  g_htf_count);
+
+      // Force chronological array alignment on HTF caches after resize
+      ArraySetAsSeries(h_time,  false);
+      ArraySetAsSeries(h_open,  false);
+      ArraySetAsSeries(h_high,  false);
+      ArraySetAsSeries(h_low,   false);
+      ArraySetAsSeries(h_close, false);
+      ArraySetAsSeries(h_vol,   false);
 
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
          CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
@@ -368,5 +386,4 @@ void OnTimer()
         }
      }
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
