@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                  StochasticSlow_on_LaguerreRSI_Calculator.mqh    |
-//|      Slow Stochastic Oscillator applied to Laguerre RSI.         |
-//|      VERSION 1.21: Synchronized all class names to prevent error |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.21"
+#property version   "1.22" // Upgraded with strict internal chronological sorting safeguards
 
 #ifndef STOCHASTIC_SLOW_ON_LAGUERRE_RSI_CALCULATOR_MQH
 #define STOCHASTIC_SLOW_ON_LAGUERRE_RSI_CALCULATOR_MQH
@@ -53,7 +51,7 @@ public:
   };
 
 //+------------------------------------------------------------------+
-//| Constructor (FIXED: Synchronized class name)                      |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
 CStochasticSlowOnLaguerreRSICalculator::CStochasticSlowOnLaguerreRSICalculator(void)
   {
@@ -61,7 +59,7 @@ CStochasticSlowOnLaguerreRSICalculator::CStochasticSlowOnLaguerreRSICalculator(v
   }
 
 //+------------------------------------------------------------------+
-//| Destructor (FIXED: Synchronized class name)                       |
+//| Destructor                                                       |
 //+------------------------------------------------------------------+
 CStochasticSlowOnLaguerreRSICalculator::~CStochasticSlowOnLaguerreRSICalculator(void)
   {
@@ -70,7 +68,7 @@ CStochasticSlowOnLaguerreRSICalculator::~CStochasticSlowOnLaguerreRSICalculator(
   }
 
 //+------------------------------------------------------------------+
-//| Factory Method (FIXED: Synchronized class name)                   |
+//| Factory Method                                                   |
 //+------------------------------------------------------------------+
 void CStochasticSlowOnLaguerreRSICalculator::CreateEngine(void)
   {
@@ -78,7 +76,7 @@ void CStochasticSlowOnLaguerreRSICalculator::CreateEngine(void)
   }
 
 //+------------------------------------------------------------------+
-//| Init (FIXED: Synchronized class name)                             |
+//| Init                                                             |
 //+------------------------------------------------------------------+
 bool CStochasticSlowOnLaguerreRSICalculator::Init(double gamma, int k_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma)
   {
@@ -98,7 +96,7 @@ bool CStochasticSlowOnLaguerreRSICalculator::Init(double gamma, int k_p, int slo
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Standard - No Volume) (FIXED: Synchronized class name)|
+//| Calculate (Standard - No Volume)                                 |
 //+------------------------------------------------------------------+
 void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       double &k_buffer[], double &d_buffer[])
@@ -106,11 +104,16 @@ void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev
    if(rates_total < m_k_period)
       return;
 
-//--- Resize Internal Buffers
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffers & force strict chronological indexing
    if(ArraySize(m_rsi_buffer) != rates_total)
      {
       ArrayResize(m_rsi_buffer, rates_total);
       ArrayResize(m_raw_k, rates_total);
+      ArraySetAsSeries(m_rsi_buffer, false); // Fixed: strict chronological safety on internal buffers
+      ArraySetAsSeries(m_raw_k, false);      // Fixed: strict chronological safety on internal buffers
      }
 
 //--- 1. Calculate Laguerre RSI (Inline Logic)
@@ -170,7 +173,7 @@ void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (With Volume) (FIXED: Synchronized class name)          |
+//| Calculate (With Volume)                                          |
 //+------------------------------------------------------------------+
 void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
       const long &volume[],
@@ -179,11 +182,16 @@ void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev
    if(rates_total < m_k_period)
       return;
 
-//--- Resize Internal Buffers
+   if(CheckPointer(m_laguerre_engine) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffers & force strict chronological indexing
    if(ArraySize(m_rsi_buffer) != rates_total)
      {
       ArrayResize(m_rsi_buffer, rates_total);
       ArrayResize(m_raw_k, rates_total);
+      ArraySetAsSeries(m_rsi_buffer, false); // Fixed: strict chronological safety on internal buffers
+      ArraySetAsSeries(m_raw_k, false);      // Fixed: strict chronological safety on internal buffers
      }
 
 //--- 1. Calculate Laguerre RSI (Inline Logic)
@@ -237,6 +245,7 @@ void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev
 //--- 3. Convert long volume to double to support VWMA Slowing & Signal
    double vol_double[];
    ArrayResize(vol_double, rates_total);
+   ArraySetAsSeries(vol_double, false); // Fixed: strict chronological array safety on local buffers
    for(int j = start_index; j < rates_total; j++)
       vol_double[j] = (double)volume[j];
 
@@ -249,7 +258,7 @@ void CStochasticSlowOnLaguerreRSICalculator::Calculate(int rates_total, int prev
   }
 
 //+------------------------------------------------------------------+
-//| Highest Helper (FIXED: Synchronized class name)                  |
+//| Highest Helper                                                   |
 //+------------------------------------------------------------------+
 double CStochasticSlowOnLaguerreRSICalculator::Highest(const double &array[], int period, int current_pos)
   {
@@ -265,7 +274,7 @@ double CStochasticSlowOnLaguerreRSICalculator::Highest(const double &array[], in
   }
 
 //+------------------------------------------------------------------+
-//| Lowest Helper (FIXED: Synchronized class name)                   |
+//| Lowest Helper                                                    |
 //+------------------------------------------------------------------+
 double CStochasticSlowOnLaguerreRSICalculator::Lowest(const double &array[], int period, int current_pos)
   {
@@ -294,6 +303,6 @@ void CStochasticSlowOnLaguerreRSICalculator_HA::CreateEngine(void)
   {
    m_laguerre_engine = new CLaguerreEngine_HA();
   }
-//+------------------------------------------------------------------+
+
 #endif // STOCHASTIC_SLOW_ON_LAGUERRE_RSI_CALCULATOR_MQH
 //+------------------------------------------------------------------+
