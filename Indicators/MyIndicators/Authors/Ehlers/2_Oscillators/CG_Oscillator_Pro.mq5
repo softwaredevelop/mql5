@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                            CG_Oscillator_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.10" // Supports Original Ehlers Mode
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.21" // Fixed indicator decimal digits rounding bug to restore high-resolution Data Window visibility
 #property description "John Ehlers' Center of Gravity (CG) Oscillator."
 
 #property indicator_separate_window
@@ -33,9 +33,10 @@ enum ENUM_CANDLE_SOURCE
   };
 
 //--- Input Parameters ---
-input int                InpPeriod       = 10;               // Observation Period
-input ENUM_CANDLE_SOURCE InpSource       = SOURCE_STANDARD;
-input bool               InpOriginalMode = true;             // True = Ehlers' Raw Values (Negative), False = Center around 0.0
+input group                     "CG Settings"
+input int                InpPeriod       = 10;               // Observation Period (N)
+input ENUM_CANDLE_SOURCE InpSource       = SOURCE_STANDARD;  // Candle Source
+input bool               InpOriginalMode = true;             // True = Ehlers' Raw (Negative), False = Center around 0.0
 
 //--- Indicator Buffers ---
 double    BufferCG[];
@@ -51,6 +52,13 @@ int OnInit()
    SetIndexBuffer(1, BufferSignal, INDICATOR_DATA);
    ArraySetAsSeries(BufferCG,     false);
    ArraySetAsSeries(BufferSignal, false);
+
+//--- Dynamically calculate and configure horizontal centerline based on selections
+   double center_level = InpOriginalMode ? -(InpPeriod + 1) / 2.0 : 0.0;
+   IndicatorSetInteger(INDICATOR_LEVELS, 1);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, center_level);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, STYLE_DOT);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, clrSilver);
 
    if(InpSource == SOURCE_HEIKIN_ASHI)
      {
@@ -72,7 +80,9 @@ int OnInit()
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpPeriod + 1);
-   IndicatorSetInteger(INDICATOR_DIGITS, 2);
+
+//--- FIXED: Set dynamic decimal digits to match symbol precision instead of hardcoded 2
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
   }
@@ -85,13 +95,31 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int prev_calculated, const datetime&[], const double &open[], const double &high[], const double &low[], const double &close[], const long&[], const long&[], const int&[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
+   if(rates_total < InpPeriod)
+      return 0;
+
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    g_calculator.Calculate(rates_total, prev_calculated, PRICE_MEDIAN, open, high, low, close, BufferCG, BufferSignal);
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
