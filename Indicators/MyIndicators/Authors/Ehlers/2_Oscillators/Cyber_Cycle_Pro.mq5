@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Refactored to map Signal MA calculations elegantly via standard close-buffer mapping
+#property version   "3.21" // Fixed indicator decimal digits rounding bug to restore Data Window visibility
 #property description "John Ehlers' Cyber Cycle indicator for identifying market cycles."
 #property description "Features O(1) calculation and flexible Signal Line options including VWMA."
 
@@ -77,7 +77,9 @@ int OnInit()
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 7);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 9);
-   IndicatorSetInteger(INDICATOR_DIGITS, 2);
+
+//--- FIXED: Set dynamic decimal digits to match symbol precision instead of hardcoded 2
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
   }
