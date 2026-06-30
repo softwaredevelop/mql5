@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with 3-digit Gamma precision and strict chronological state safety
 #property description "Laguerre Bands (Bollinger Concept): Laguerre Filter Middle Line"
 #property description "with Standard Deviation based bands."
 
@@ -36,8 +36,8 @@
 
 //--- Input Parameters
 input group                     "Laguerre Settings"
-input double                    InpGamma        = 0.7;
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input double                    InpGamma        = 0.7;             // Gamma (0.0 - 1.0, e.g. 0.236, 0.382)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -80,9 +80,9 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- Shortname
+//--- Shortname - Updated format string to %.3f to support exact Fibonacci decimals
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Bands%s(%.2f, %d, %.1f)", type, InpGamma, InpPeriod, InpDeviation));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Bands%s(%.3f, %d, %.1f)", type, InpGamma, InpPeriod, InpDeviation));
 
 //--- Visuals
    int draw_begin = InpPeriod;
@@ -119,6 +119,16 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < InpPeriod)
       return(0);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
