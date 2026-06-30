@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Optimized with Forming LTF Block Flat-Force and OnTimer Guard
+#property version   "1.30" // Upgraded to support 3-digit Gamma and chronological state safety
 #property description "Multi-Timeframe (MTF) John Ehlers' Laguerre Filter."
 #property description "Displays Higher Timeframe Laguerre low-lag moving average cleanly without live-bar warping."
 
@@ -24,7 +24,7 @@ input group "Timeframe Settings"
 input ENUM_TIMEFRAMES           InpUpperTimeframe = PERIOD_H1;     // Target Higher Timeframe
 
 input group "Laguerre Settings"
-input double                    InpGamma          = 0.7;           // Gamma (0.0 - 1.0)
+input double                    InpGamma          = 0.7;           // Gamma (0.0 - 1.0, e.g. 0.236, 0.382)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD; // Price Source
 
 //--- Indicator Buffers ---
@@ -101,11 +101,11 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- 4. Set Shortname
+//--- 4. Set Shortname - Updated format string to %.3f to support exact Fibonacci decimals
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
 
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre%s%s(%.2f)", type, tf_str, InpGamma));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre%s%s(%.3f)", type, tf_str, InpGamma));
 
 // Draw begin logic (approximate for MTF)
    int draw_begin = 2; // Laguerre warms up fast
@@ -148,6 +148,16 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < 2)
       return(0);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
@@ -209,6 +219,13 @@ int OnCalculate(const int rates_total,
          g_data_ready = false;
          return 0;
         }
+
+      // Force chronological array alignment for calculations
+      ArraySetAsSeries(h_time,  false);
+      ArraySetAsSeries(h_open,  false);
+      ArraySetAsSeries(h_high,  false);
+      ArraySetAsSeries(h_low,   false);
+      ArraySetAsSeries(h_close, false);
 
       //--- Calculate Laguerre Filter on HTF (Closed bars and forming bar initialized)
       g_calculator.CalculateFilter(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_res);
@@ -300,5 +317,4 @@ void OnTimer()
         }
      }
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
