@@ -72,7 +72,7 @@ The Laguerre Filter Pro Suite is engineered to operate efficiently under volatil
 
   This ensures that critical Fibonacci settings are clearly documented on the chart subwindow and inside the terminal legend.
 
-* **Strictly Chronological Sorting Safeguards:**
+* **Strict Chronological Sorting Safeguards:**
   To prevent calculation corruption caused by reverse-chronological array states (often forced by custom templates or third-party indicators on the active chart), the suite enforces chronological sorting (`ArraySetAsSeries(..., false)`) on all price inputs inside `OnCalculate()`.
 
 * **Memory Safety Validation (Pointer Guards):**
