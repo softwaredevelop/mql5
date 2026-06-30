@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                           Laguerre_Filter_Pro.mq5|
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.20" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.30" // Upgraded with 3-digit Gamma precision and chronological array safeguards
 #property description "John Ehlers' Laguerre Filter as a low-lag moving average."
 #property description "Includes an optional FIR filter for comparison."
 
@@ -26,9 +26,9 @@
 #include <MyIncludes\Laguerre_Filter_Calculator.mqh>
 
 //--- Input Parameters ---
-input double                    InpGamma        = 0.5;
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
-input bool                      InpShowFIR      = false;
+input double                    InpGamma        = 0.5;             // Laguerre Gamma (e.g. 0.236, 0.382, 0.618)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
+input bool                      InpShowFIR      = false;           // Show FIR Filter Comparison?
 
 //--- Indicator Buffers ---
 double    BufferFilter[];
@@ -46,15 +46,16 @@ int OnInit()
    ArraySetAsSeries(BufferFIR,    false);
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
+//--- Factory Logic & dynamic short name formatting updated to 3 decimal places (%.3f) to support Fibonacci ratios
    if(InpSourcePrice <= PRICE_HA_CLOSE)
      {
       g_calculator = new CLaguerreFilterCalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Filter HA(%.2f)", InpGamma));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Filter HA(%.3f)", InpGamma));
      }
    else
      {
       g_calculator = new CLaguerreFilterCalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Filter(%.2f)", InpGamma));
+      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Filter(%.3f)", InpGamma));
      }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma, SOURCE_PRICE))
@@ -81,7 +82,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -93,6 +94,13 @@ int OnCalculate(const int rates_total,
   {
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -113,5 +121,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
