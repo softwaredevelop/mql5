@@ -59,7 +59,7 @@ To meet institutional trading standards, the suite incorporates several advanced
 
   This ensures that critical Fibonacci settings are clearly documented on the chart subwindow and inside the terminal legend.
 
-* **Szigorú Chronological Sorting Safeguards:**
+* **Strict Chronological Sorting Safeguards:**
   To prevent calculation corruption caused by reverse-chronological array states (often forced by custom templates or third-party indicators on the chart), the suite enforces chronological sorting (`ArraySetAsSeries(..., false)`) at the beginning of `OnCalculate()`. This is also applied inside the `PreparePriceSeries` dynamic buffer resizes inside the `CLaguerreBandsCalculator` class.
 
 * **Memory Safety Validation (Pointer Guards):**
