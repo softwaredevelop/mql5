@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Fully optimized Laguerre Z-Score with dynamic level support
+#property version   "1.10" // Upgraded with 3-digit Gamma precision to support precise Fibonacci parameters
 #property description "Statistical Laguerre Z-Score (L-Score) Oscillator with dynamic Signal Line."
 #property description "Displays deviations from John Ehlers' Laguerre Filter in Sigma units."
 
@@ -36,7 +36,7 @@
 
 //--- Input Parameters ---
 input group "Laguerre Baseline Settings"
-input double                    InpGamma       = 0.5;         // Laguerre Gamma (0.0 to 1.0)
+input double                    InpGamma       = 0.5;         // Laguerre Gamma (0.0 to 1.0, e.g. 0.236, 0.382)
 input ENUM_APPLIED_PRICE_HA_ALL InpPrice       = PRICE_CLOSE_STD; // Price Source
 
 input group "Volatility Settings"
@@ -62,7 +62,7 @@ double BufferL[];
 double BufferColors[];
 double BufferSignal[];
 
-//--- Volume Cache to support Volume-Weighted types (VWMA) on custom arrays
+//--- Volume Cache to support Volume-Weighted types (VWMA) on current timeframe
 double g_double_volume[];
 
 //--- Global Calculator Objects ---
@@ -123,18 +123,18 @@ int OnInit()
       PlotIndexSetString(1, PLOT_LABEL, NULL);
      }
 
-//--- Dynamically set the indicator short name
+//--- Dynamically set indicator short name - Updated format string to %.3f to support exact Fibonacci decimals
    string short_name = "";
    if(InpShowSignal)
      {
       string sig_name = EnumToString(InpSignalType);
       StringToUpper(sig_name);
-      short_name = StringFormat("LScore%s(%.2f, %d) %s(%d)",
+      short_name = StringFormat("LScore%s(%.3f, %d) %s(%d)",
                                 (is_ha ? " HA" : ""), InpGamma, InpPeriod, sig_name, InpSignalPeriod);
      }
    else
      {
-      short_name = StringFormat("LScore%s(%.2f, %d)", (is_ha ? " HA" : ""), InpGamma, InpPeriod);
+      short_name = StringFormat("LScore%s(%.3f, %d)", (is_ha ? " HA" : ""), InpGamma, InpPeriod);
      }
 
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
@@ -179,11 +179,11 @@ int OnCalculate(const int rates_total,
                                    (ENUM_APPLIED_PRICE)(-(int)InpPrice) :
                                    (ENUM_APPLIED_PRICE)InpPrice;
 
-//--- Force standard chronological indexing for state-safety
-   ArraySetAsSeries(time, false);
-   ArraySetAsSeries(open, false);
-   ArraySetAsSeries(high, false);
-   ArraySetAsSeries(low, false);
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
    ArraySetAsSeries(close, false);
 
 //--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
@@ -220,12 +220,6 @@ int OnCalculate(const int rates_total,
      {
       double l_val = BufferL[i];
 
-      // Dynamic 5-Zone Thermal Coloring mapped to user-defined level parameters:
-      // L_val > ClimaxHigh  -> DeepSkyBlue Climax (Exhaustion)
-      // L_val > FlowHigh    -> LightSkyBlue Flow (Momentum)
-      // L_val < ClimaxLow   -> OrangeRed Climax (Exhaustion)
-      // L_val < FlowLow     -> Coral Flow (Momentum)
-      // Else                -> Gray Neutral (Noise Zone)
       if(l_val > InpLevelClimaxHigh)
          BufferColors[i] = 2.0;
       else
