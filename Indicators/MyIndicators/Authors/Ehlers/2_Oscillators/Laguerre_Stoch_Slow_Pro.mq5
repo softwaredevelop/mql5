@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.10" // Upgraded with dynamic volume routing to support VWMA Slowing/Signals
+#property version   "1.20" // Upgraded with 3-digit Gamma precision and strict chronological state safety
 #property description "Laguerre Stochastic Slow. Calculates Stochastic from Laguerre"
 #property description "components (L0-L3) and applies smoothing for cleaner signals."
 
@@ -39,8 +39,8 @@
 
 //--- Input Parameters
 input group                     "Laguerre Settings"
-input double                    InpGamma         = 0.7;
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD;
+input double                    InpGamma         = 0.7;             // Gamma (0.0 - 1.0, e.g. 0.236, 0.382)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD; // Price Source
 
 input group                     "Stochastic Settings"
 input int                       InpSlowingPeriod = 3;   // Smoothing for Raw %K
@@ -79,9 +79,9 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- Shortname
+//--- Shortname - Updated format string to %.3f to support exact Fibonacci decimals
    string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Stoch Slow%s(%.2f, %d, %d)", type, InpGamma, InpSlowingPeriod, InpSignalPeriod));
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre Stoch Slow%s(%.3f, %d, %d)", type, InpGamma, InpSlowingPeriod, InpSignalPeriod));
 
 //--- Visuals
    int draw_begin = InpSlowingPeriod + InpSignalPeriod;
@@ -118,6 +118,16 @@ int OnCalculate(const int rates_total,
    if(rates_total < 2)
       return(0);
 
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
@@ -137,5 +147,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
