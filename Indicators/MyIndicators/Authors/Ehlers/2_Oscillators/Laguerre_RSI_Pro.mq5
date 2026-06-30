@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.40" // VWMA compatible with dynamic volume routing
+#property version   "1.45" // Upgraded for 3-digit Gamma precision and chronological safety
 #property description "John Ehlers' Laguerre RSI with an optional signal line."
 
 //--- Indicator Window and Plot Properties ---
@@ -46,13 +46,13 @@ enum ENUM_LRSI_DISPLAY_MODE
 
 //--- Input Parameters ---
 input group "Laguerre RSI Settings"
-input double                    InpGamma        = 0.5;
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input double                    InpGamma        = 0.5;             // Gamma (e.g. 0.236, 0.382, 0.500)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
 
 input group "Signal Line Settings"
-input ENUM_LRSI_DISPLAY_MODE InpDisplayMode  = DISPLAY_LRSI_AND_SIGNAL;
-input int                    InpSignalPeriod = 3;
-input ENUM_MA_TYPE           InpSignalMAType = EMA;
+input ENUM_LRSI_DISPLAY_MODE InpDisplayMode  = DISPLAY_LRSI_AND_SIGNAL; // Display Mode
+input int                    InpSignalPeriod = 3;                       // Period (if MA)
+input ENUM_MA_TYPE           InpSignalMAType = EMA;                     // MA Type
 
 //--- Indicator Buffers ---
 double    BufferLRSI[], BufferSignal[];
@@ -80,7 +80,8 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre RSI%s(%.2f)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpGamma));
+//--- Updated format string to %.3f to support exact Fibonacci decimals
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Laguerre RSI%s(%.3f)", (InpSourcePrice <= PRICE_HA_CLOSE ? " HA" : ""), InpGamma));
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 2 + InpSignalPeriod - 1);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
@@ -108,6 +109,13 @@ int OnCalculate(const int rates_total,
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
@@ -133,5 +141,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
