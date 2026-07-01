@@ -14,7 +14,7 @@ Developed by the legendary mechanical engineer and technical analyst J. Welles W
 
 Wilder constructed this system using a specialized, stateful recursive smoothing algorithm (Wilder's Smoothing, mathematically equivalent to an SMMA), making it exceptionally sensitive to chronological sequence alignment.
 
-The suite features dynamic Heikin Ashi price integration, customizable **Dynamic Horizontal Levels** to identify trend thresholds, and advanced multi-timeframe step-blocking algorithms to prevent real-time drawing warping.
+The suite features dynamic Heikin Ashi price integration, locked institutional levels, and advanced multi-timeframe step-blocking algorithms to prevent real-time drawing warping.
 
 ---
 
@@ -70,22 +70,11 @@ $$\text{ADX}_t = \frac{\text{ADX}_{t-1} \times (N - 1) + \text{DX}_t}{N}$$
 
 ---
 
-## 3. Dynamic Levels Configuration
+## 3. Levels Configuration (Wilder's Standard Constant Boundaries)
 
-Welles Wilder identified specific statistical thresholds for trend identification:
-* **ADX < 25.0:** SIDELAY/sideways market. Trend momentum is weak. Trade range-bound reversion strategies.
-* **ADX > 25.0:** Trending market. Momentum is expanding. Trade breakout or trend-following models.
-* **ADX > 40.0:** Strong trend. Whipsaws are minimized. Protect trailing stops.
-
-Because these boundaries can change depending on asset volatility (e.g. crypto vs. fiat), the suite implements a **Dynamic Levels Engine**:
-* During `OnInit()`, the engine programmatically registers the horizontal grids on the separate subwindow:
-  ```mql5
-  IndicatorSetInteger(INDICATOR_LEVELS, 2);
-  IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevel1); // Default 25.0
-  IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevel2); // Default 40.0
-  ```
-
-This ensures that the dynamic centerline grid is rendered at the exact mathematical thresholds chosen by the user.
+Welles Wilder identified specific statistical thresholds for trend strength identification. Because these levels are universally accepted, stable, and highly standard constants, they are hardcoded as static horizontal lines to prevent cluttering the user input panel:
+* **Level 25.0 (Trend Threshold Level):** ADX trading below `25.0` indicates a range-bound, sideways, or choppy market (weak or absent trend). Trading below `25.0` favors range-reversion strategies. ADX crossing above `25.0` confirms the birth of an active trend expansion.
+* **Level 40.0 (Strong Trend Level):** ADX trading above `40.0` represents an exceptionally strong and established directional trend. Whipsaws are heavily minimized under this regime, making it highly effective for trend-riding and protecting trailing stop-loss coordinates.
 
 ---
 
@@ -93,7 +82,7 @@ This ensures that the dynamic centerline grid is rendered at the exact mathemati
 
 The entire suite is optimized to conform with our strict quantitative design guidelines:
 
-* **Szigorú Chronological Sorting Safeguards:**
+* **Strict Chronological Sorting Safeguards:**
   Because Welles Wilder's smoothing relies on a highly state-sensitive recursive history ($t-1$), any reverse-chronological array indexing will completely corrupt the calculations. To prevent this, the suite enforces chronological sorting (`ArraySetAsSeries(..., false)`) on all price inputs inside `OnCalculate()`.
 
 * **Memory Safety Validation (Pointer Guards):**
@@ -122,9 +111,9 @@ if(start > first_bar_of_forming_htf)
    start = first_bar_of_forming_htf;
 ```
 
-### B. State Mocking for IIR State Stability
+### B. State Mocking for Wilder's Smoothing Stability
 
-Since Wilder's smoothing is highly recursive, calling calculations continuously on the live forming bar on every tick would corrupt the feedback states. To avoid this, we perform **State Mocking** by passing `prev_calculated = g_htf_count` during live ticks. This processes the forming index exactly once, protecting closed historical registers from accumulation errors.
+Since Wilder's DMI smoothing is highly recursive, calling calculations continuously on the live forming bar on every tick would corrupt the feedback states. To avoid this, we perform **State Mocking** by passing `prev_calculated = g_htf_count` during live ticks. This processes the forming index exactly once, protecting closed historical registers from accumulation errors.
 
 ---
 
@@ -135,14 +124,7 @@ Since Wilder's smoothing is highly recursive, calling calculations continuously 
 * **Smoothing Period (`InpPeriodADX`):** Welles Wilder's lookback window size ($N$) for the directional movement and ADX calculations (Default: `14`, Range: $\ge 1$).
 * **Candle Source (`InpCandleSource`):** Selects the price series source (`CANDLE_STANDARD` or `CANDLE_HEIKIN_ASHI`). Default: `CANDLE_STANDARD`.
 
-### B. Indicator Levels Settings
-
-* **Trend Threshold Level (`InpLevel1`):** Horizontal grid value representing the beginning of trend expansion (Default: `25.0`).
-* **Strong Trend Level (`InpLevel2`):** Horizontal grid value representing a highly established trend (Default: `40.0`).
-* **Levels Color (`InpLevelColor`):** Customize the color of the horizontal line layout (Default: `clrSilver`).
-* **Levels Style (`InpLevelStyle`):** Customize the line style of the horizontal line layout (Default: `STYLE_DOT`).
-
-### C. MTF Specific Settings (MTF Version Only)
+### B. MTF Specific Settings (MTF Version Only)
 
 * **Target Timeframe (`InpTimeframe`):** The target higher timeframe to calculate ADX on (Default: `PERIOD_H1`).
 
