@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with strict chronological sorting safeguards and pointer guards
 #property description "Ehlers Channel (Keltner Concept): Super/Ultimate Smoother Middle Line + ATR Bands."
 
 #property indicator_chart_window
@@ -121,6 +121,16 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < MathMax(InpPeriod, InpAtrPeriod))
       return(0);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
