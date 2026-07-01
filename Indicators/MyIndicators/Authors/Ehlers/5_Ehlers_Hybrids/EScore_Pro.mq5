@@ -3,28 +3,23 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Refactored with dynamic MA Signal Line and volume integration
+#property version   "1.30" // Fixed inverted color palette, dynamic horizontal levels input panel and chronological safety
 #property description "Professional E-Score (Ehlers Smoother Z-Score)."
 #property description "5-Zone logic: Neutral, Flow (Bull/Bear), Extreme (Bull/Bear)"
 #property indicator_separate_window
 #property indicator_buffers 3  // Upgraded to 3 buffers for Signal Line support
 #property indicator_plots   2  // 2 Plots (Histogram + Signal Line)
 
-//--- Institutional Levels Configuration
-#property indicator_level1 2.5
-#property indicator_level2 2.0
-#property indicator_level3 1.5
-#property indicator_level4 -1.5
-#property indicator_level5 -2.0
-#property indicator_level6 -2.5
-
-#property indicator_levelcolor clrSilver
-#property indicator_levelstyle STYLE_DOT
-
-//--- Plot 1: Color Histogram (5-Zone Thermal Palette)
+//--- Plot 1: Color Histogram (5-Zone Swapped Thermal Palette)
 #property indicator_label1  "E-Score"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-#property indicator_color1  clrGray, clrCoral, clrOrangeRed, clrLightSkyBlue, clrDeepSkyBlue
+// Swapped Palette:
+// 0: Noise/Neutral     (Gray)
+// 1: Bullish Flow      (LightSkyBlue)
+// 2: Bullish Climax    (DeepSkyBlue)
+// 3: Bearish Flow      (Coral)
+// 4: Bearish Climax    (OrangeRed)
+#property indicator_color1  clrGray, clrLightSkyBlue, clrDeepSkyBlue, clrCoral, clrOrangeRed
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
@@ -39,14 +34,25 @@
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //--- Input Parameters
+input group                     "EScore Settings"
 input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER;   // Underlying Smoother
 input int                       InpPeriod       = 20;              // Volatility Lookback
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Source Price
 
-//--- Signal Line Parameters (Dynamic MA Engine Integration)
+input group                     "Signal Line Settings"
 input bool                      InpShowSignal   = true;            // Show Signal Line?
 input int                       InpSignalPeriod = 5;               // Signal Line Period
 input ENUM_MA_TYPE              InpSignalType   = SMA;             // Signal Line MA Type
+
+input group                     "Indicator Levels"
+input double                    InpLevelFlowHigh   = 1.5;         // High Warning Level (Bullish Flow)
+input double                    InpLevelFlowLow    = -1.5;        // Low Warning Level (Bearish Flow)
+input double                    InpLevelClimaxHigh = 2.0;         // High Climax Level (Bullish Climax)
+input double                    InpLevelClimaxLow  = -2.0;        // Low Climax Level (Bearish Climax)
+input double                    InpLevelExtremeHigh= 2.5;         // High Exhaustion Level
+input double                    InpLevelExtremeLow = -2.5;        // Low Exhaustion Level
+input color                     InpLevelColor      = clrSilver;   // Levels Color
+input ENUM_LINE_STYLE           InpLevelStyle      = STYLE_DOT;   // Levels Style
 
 //--- Buffers
 double ExtEScoreBuffer[];
@@ -73,6 +79,18 @@ int OnInit()
    ArraySetAsSeries(ExtEScoreBuffer, false);
    ArraySetAsSeries(ExtColorsBuffer, false);
    ArraySetAsSeries(ExtSignalBuffer, false);
+
+//--- Dynamically configure horizontal levels to support custom input parameters
+   IndicatorSetInteger(INDICATOR_LEVELS, 6);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelFlowHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelFlowLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, InpLevelClimaxHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 3, InpLevelClimaxLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 4, InpLevelExtremeHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 5, InpLevelExtremeLow);
+
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
 
 //--- Configure Core E-Score Calculator
    bool use_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
@@ -154,6 +172,16 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpPeriod + 5)
       return 0;
 
+   if(CheckPointer(g_calc) == POINTER_INVALID)
+      return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
 // Convert custom HA price mapping back to standard ENUM_APPLIED_PRICE
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
 
@@ -183,30 +211,34 @@ int OnCalculate(const int rates_total,
       g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, ExtEScoreBuffer, g_double_volume, ExtSignalBuffer, InpPeriod);
      }
 
-//--- 3. Apply 5-Zone Color Mapping Loop (O(1) incremental)
+//--- 3. Apply Dynamic 5-Zone Swapped Thermal Color Mapping Loop (O(1) incremental)
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    for(int i = start; i < rates_total; i++)
      {
       double v = ExtEScoreBuffer[i];
 
-      //--- 5-Zone Color Mapping
-      if(v >= 2.0)
-         ExtColorsBuffer[i] = 2.0; // Bull Extreme (Hot) -> OrangeRed
+      //--- Dynamic 5-Zone Color Mapping mapped to user-defined level parameters:
+      // Index 0: clrGray (Neutral Noise)
+      // Index 1: clrLightSkyBlue (Bull Flow)
+      // Index 2: clrDeepSkyBlue (Bull Climax)
+      // Index 3: clrCoral (Bear Flow)
+      // Index 4: clrOrangeRed (Bear Climax)
+      if(v >= InpLevelClimaxHigh)
+         ExtColorsBuffer[i] = 2.0;
       else
-         if(v >= 1.5)
-            ExtColorsBuffer[i] = 1.0; // Bull Flow (Warming) -> Coral
+         if(v >= InpLevelFlowHigh)
+            ExtColorsBuffer[i] = 1.0;
          else
-            if(v <= -2.0)
-               ExtColorsBuffer[i] = 4.0; // Bear Extreme (Freezing) -> DeepSkyBlue
+            if(v <= InpLevelClimaxLow)
+               ExtColorsBuffer[i] = 4.0;
             else
-               if(v <= -1.5)
-                  ExtColorsBuffer[i] = 3.0; // Bear Flow (Cooling) -> LightSkyBlue
+               if(v <= InpLevelFlowLow)
+                  ExtColorsBuffer[i] = 3.0;
                else
-                  ExtColorsBuffer[i] = 0.0; // Noise -> Gray
+                  ExtColorsBuffer[i] = 0.0;
      }
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
