@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.00" // Pure DMI-based Adaptivity
+#property version   "2.10" // Upgraded with strict chronological sorting safeguards and pointer guards
 #property description "Adaptive Stochastic applied to DMI Oscillator."
 #property description "Adapts lookback based on DMI's own volatility."
 
@@ -25,7 +25,7 @@
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
-//--- Levels
+//--- Levels (Static Stable Boundaries)
 #property indicator_level1 10.0
 #property indicator_level2 20.0
 #property indicator_level3 50.0
@@ -33,13 +33,14 @@
 #property indicator_level5 90.0
 #property indicator_minimum 0.0
 #property indicator_maximum 100.0
+#property indicator_levelstyle STYLE_DOT
 
 #include <MyIncludes\Stochastic_Adaptive_on_DMI_Calculator.mqh>
 
 //--- Input Parameters
 input group                     "DMI Settings"
-input int                       InpDMIPeriod     = 10;
-input ENUM_DMI_OSC_TYPE         InpOscType       = OSC_PDI_MINUS_NDI;
+input int                       InpDMIPeriod     = 10;              // DMI Period
+input ENUM_DMI_OSC_TYPE         InpOscType       = OSC_PDI_MINUS_NDI; // Oscillator Type
 
 input group                     "Adaptive Settings"
 input int                       InpErPeriod      = 10;   // Efficiency Ratio Period
@@ -47,16 +48,17 @@ input int                       InpMinStochPeriod= 5;    // Min Dynamic Period
 input int                       InpMaxStochPeriod= 30;   // Max Dynamic Period
 
 input group                     "Stochastic Settings"
-input int                       InpSlowingPeriod = 3;
-input ENUM_MA_TYPE              InpSlowingMAType = SMA;
-input int                       InpDPeriod       = 3;
-input ENUM_MA_TYPE              InpDMAType       = SMA;
+input int                       InpSlowingPeriod = 3;    // Slowing Period
+input ENUM_MA_TYPE              InpSlowingMAType = SMA;  // Slowing MA Type
+input int                       InpDPeriod       = 3;    // Signal Line Period
+input ENUM_MA_TYPE              InpDMAType       = SMA;  // Signal Line MA Type
 
 input group                     "Price Source"
 input ENUM_CANDLE_SOURCE        InpCandleSource  = CANDLE_STANDARD; // Controls DMI Input
 
 //--- Buffers
-double    BufferK[], BufferD[];
+double    BufferK[];
+double    BufferD[];
 
 //--- Global Object
 CStochAdaptiveOnDMICalculator *g_calculator;
@@ -78,7 +80,7 @@ int OnInit()
       g_calculator = new CStochAdaptiveOnDMICalculator();
 
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
-      !g_calculator.Init(InpDMIPeriod, InpOscType, InpErPeriod, InpMinStochPeriod, InpMaxStochPeriod, InpSlowingPeriod, InpSlowingMAType, InpDPeriod, InpDMAType))
+      !g_calculator.Init(0.5, InpDMIPeriod, InpOscType, InpErPeriod, InpMinStochPeriod, InpMaxStochPeriod, InpSlowingPeriod, InpSlowingMAType, InpDPeriod, InpDMAType))
      {
       Print("Failed to initialize Calculator.");
       return(INIT_FAILED);
@@ -100,7 +102,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(CheckPointer(g_calculator) == POINTER_DYNAMIC)
+   if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
   }
 
@@ -121,10 +123,19 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpDMIPeriod + InpMaxStochPeriod)
       return 0;
 
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
 // We pass standard OHLC, the HA calculator will convert internally if needed
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
