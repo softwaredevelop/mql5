@@ -1,11 +1,12 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                     Stochastic_Adaptive_on_DMI_Calculator.mqh    |
-//|      Engine: Adaptive Stochastic applied to DMI Oscillator.      |
-//|      VERSION 2.10: ER Calculated on DMI (Pure Logic).            |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.10" // Validated: Pure DMI-based Adaptivity with Kaufman Inversion
+#property version   "2.20" // Upgraded with strict internal chronological sorting safeguards
+
+#ifndef STOCHASTIC_ADAPTIVE_ON_DMI_CALCULATOR_MQH
+#define STOCHASTIC_ADAPTIVE_ON_DMI_CALCULATOR_MQH
 
 #include <MyIncludes\DMI_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
@@ -52,7 +53,7 @@ public:
                      CStochAdaptiveOnDMICalculator();
    virtual          ~CStochAdaptiveOnDMICalculator();
 
-   bool              Init(int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma);
+   bool              Init(double gamma, int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma);
 
    // CRITICAL: Calculates state incrementally based on prev_calculated
    void              Calculate(int rates_total, int prev_calculated,
@@ -71,7 +72,7 @@ CStochAdaptiveOnDMICalculator::CStochAdaptiveOnDMICalculator() : m_dmi_engine(NU
 //+------------------------------------------------------------------+
 CStochAdaptiveOnDMICalculator::~CStochAdaptiveOnDMICalculator()
   {
-   if(CheckPointer(m_dmi_engine) == POINTER_DYNAMIC)
+   if(CheckPointer(m_dmi_engine) != POINTER_INVALID)
       delete m_dmi_engine;
   }
 
@@ -86,7 +87,7 @@ void CStochAdaptiveOnDMICalculator::CreateDMIEngine()
 //+------------------------------------------------------------------+
 //| Initialization phase                                             |
 //+------------------------------------------------------------------+
-bool CStochAdaptiveOnDMICalculator::Init(int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma)
+bool CStochAdaptiveOnDMICalculator::Init(double gamma, int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma)
   {
    m_dmi_p       = dmi_p;
    m_osc_type    = osc_type;
@@ -96,7 +97,7 @@ bool CStochAdaptiveOnDMICalculator::Init(int dmi_p, ENUM_DMI_OSC_TYPE osc_type, 
 
    CreateDMIEngine();
 
-   if(!m_dmi_engine.Init(m_dmi_p))
+   if(CheckPointer(m_dmi_engine) == POINTER_INVALID || !m_dmi_engine.Init(m_dmi_p))
       return false;
    if(!m_slowing_engine.Init(slow_p, slow_ma))
       return false;
@@ -117,10 +118,13 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
    if(rates_total < m_dmi_p + m_er_p + m_max_stoch_p)
       return;
 
+   if(CheckPointer(m_dmi_engine) == POINTER_INVALID)
+      return;
+
 // O(1) Pointer
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
-// 1. Dynamic Buffer Resizing
+// 1. Dynamic Buffer Resizing and chronological sorting safety kényszerítés
    if(ArraySize(m_pDI) != rates_total)
      {
       ArrayResize(m_pDI, rates_total);
@@ -129,6 +133,13 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
       ArrayResize(m_er_buffer, rates_total);
       ArrayResize(m_nsp_buffer, rates_total);
       ArrayResize(m_raw_k, rates_total);
+
+      ArraySetAsSeries(m_pDI, false);
+      ArraySetAsSeries(m_nDI, false);
+      ArraySetAsSeries(m_dmi_osc, false);
+      ArraySetAsSeries(m_er_buffer, false);
+      ArraySetAsSeries(m_nsp_buffer, false);
+      ArraySetAsSeries(m_raw_k, false);
      }
 
 // 2. Base DMI Calculation via encapsulated Engine
@@ -215,3 +226,4 @@ protected:
      }
   };
 //+------------------------------------------------------------------+
+#endif // STOCHASTIC_ADAPTIVE_ON_DMI_CALCULATOR_MQH
