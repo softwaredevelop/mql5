@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.11" // Purged InpSourcePrice and price_type references for standard compile safety
+#property version     "2.12" // Reverted to static hardcoded levels to simplify the input panel and preserve Wilder's classics
 #property description "Professional ADX by Welles Wilder with selectable"
 #property description "candle source (Standard or Heikin Ashi)."
 
@@ -11,6 +11,11 @@
 #property indicator_separate_window
 #property indicator_buffers 3 // Only plotting buffers are needed here
 #property indicator_plots   3
+
+//--- Levels (Wilder's Standard Constant Boundaries)
+#property indicator_level1 25.0
+#property indicator_level2 40.0
+#property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: ADX line (Main trend strength)
 #property indicator_label1  "ADX"
@@ -48,12 +53,6 @@ input group                     "ADX Settings"
 input int                InpPeriodADX    = 14;              // Period for ADX calculations
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD; // Candle source
 
-input group                     "Indicator Levels"
-input double                    InpLevel1      = 25.0;            // Dynamic Trend Threshold
-input double                    InpLevel2      = 40.0;            // Dynamic Strong Trend Level
-input color                     InpLevelColor  = clrSilver;       // Levels Color
-input ENUM_LINE_STYLE           InpLevelStyle  = STYLE_DOT;       // Levels Style
-
 //--- Indicator Buffers ---
 double    BufferADX[];
 double    BufferPDI[];
@@ -76,13 +75,6 @@ int OnInit()
    ArraySetAsSeries(BufferADX, false);
    ArraySetAsSeries(BufferPDI, false);
    ArraySetAsSeries(BufferNDI, false);
-
-//--- Dynamically configure horizontal levels to support custom input parameters
-   IndicatorSetInteger(INDICATOR_LEVELS, 2);
-   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevel1);
-   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevel2);
-   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
-   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
 
 //--- Dynamically create the appropriate calculator instance
    switch(InpCandleSource)
