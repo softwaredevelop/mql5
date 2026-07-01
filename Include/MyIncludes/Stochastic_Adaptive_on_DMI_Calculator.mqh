@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.20" // Upgraded with strict internal chronological sorting safeguards
+#property version   "2.30" // Upgraded with dynamic volume-weighted (VWMA) smoothing support
 
 #ifndef STOCHASTIC_ADAPTIVE_ON_DMI_CALCULATOR_MQH
 #define STOCHASTIC_ADAPTIVE_ON_DMI_CALCULATOR_MQH
@@ -41,6 +41,7 @@ protected:
 
    // Persistent Buffers for internal states
    double            m_pDI[], m_nDI[];
+   double            m_volume[];     // Persistent volume buffer to support VWMA
    double            m_dmi_osc[];    // DMI Oscillator Data
    double            m_er_buffer[];  // Efficiency Ratio of DMI
    double            m_nsp_buffer[]; // Dynamic Stochastic Period (Lookback)
@@ -55,10 +56,17 @@ public:
 
    bool              Init(double gamma, int dmi_p, ENUM_DMI_OSC_TYPE osc_type, int er_p, int min_p, int max_p, int slow_p, ENUM_MA_TYPE slow_ma, int d_p, ENUM_MA_TYPE d_ma);
 
-   // CRITICAL: Calculates state incrementally based on prev_calculated
+   //--- Standard Calculate (Without volume data) - Redirects to overloaded with dummy volume fallback
    void              Calculate(int rates_total, int prev_calculated,
                                const double &open[], const double &high[],
                                const double &low[], const double &close[],
+                               double &out_k[], double &out_d[]);
+
+   //--- Overloaded Calculate with Volume (Specifically for VWMA support)
+   void              Calculate(int rates_total, int prev_calculated,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               const long &volume[],
                                double &out_k[], double &out_d[]);
   };
 
@@ -108,11 +116,26 @@ bool CStochAdaptiveOnDMICalculator::Init(double gamma, int dmi_p, ENUM_DMI_OSC_T
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (O(1) Engine)                                   |
+//| Standard Calculate (OHLC) - Dummy Volume Fallback Pattern        |
 //+------------------------------------------------------------------+
 void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculated,
       const double &open[], const double &high[],
       const double &low[], const double &close[],
+      double &out_k[], double &out_d[])
+  {
+   long dummy_vol[];
+   ArrayResize(dummy_vol, rates_total);
+   ArrayInitialize(dummy_vol, 1);
+   Calculate(rates_total, prev_calculated, open, high, low, close, dummy_vol, out_k, out_d);
+  }
+
+//+------------------------------------------------------------------+
+//| Overloaded Calculate (OHLC) with Volume                          |
+//+------------------------------------------------------------------+
+void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculated,
+      const double &open[], const double &high[],
+      const double &low[], const double &close[],
+      const long &volume[],
       double &out_k[], double &out_d[])
   {
    if(rates_total < m_dmi_p + m_er_p + m_max_stoch_p)
@@ -129,6 +152,7 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
      {
       ArrayResize(m_pDI, rates_total);
       ArrayResize(m_nDI, rates_total);
+      ArrayResize(m_volume, rates_total);
       ArrayResize(m_dmi_osc, rates_total);
       ArrayResize(m_er_buffer, rates_total);
       ArrayResize(m_nsp_buffer, rates_total);
@@ -136,6 +160,7 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
 
       ArraySetAsSeries(m_pDI, false);
       ArraySetAsSeries(m_nDI, false);
+      ArraySetAsSeries(m_volume, false);
       ArraySetAsSeries(m_dmi_osc, false);
       ArraySetAsSeries(m_er_buffer, false);
       ArraySetAsSeries(m_nsp_buffer, false);
@@ -149,6 +174,8 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
    int loop_start_dmi = MathMax(m_dmi_p, start_index);
    for(int i = loop_start_dmi; i < rates_total; i++)
      {
+      m_volume[i] = (double)volume[i]; // Copy and cast volume locally
+
       if(m_osc_type == OSC_PDI_MINUS_NDI)
          m_dmi_osc[i] = m_pDI[i] - m_nDI[i];
       else
@@ -167,11 +194,10 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
       m_er_buffer[i] = (volatility > 1.0e-9) ? direction / volatility : 0.0;
      }
 
-// 5. Adaptive Period (NSP) Calculation (THE WINNING LOGIC)
+// 5. Adaptive Period (NSP) Calculation
 // Inverse logic: High ER (Trend) = Short Period; Low ER (Chop) = Long Period
    for(int i = loop_start_er; i < rates_total; i++)
      {
-      // Using MathRound for accuracy instead of rough casting
       m_nsp_buffer[i] = MathRound(m_min_stoch_p + (1.0 - m_er_buffer[i]) * (m_max_stoch_p - m_min_stoch_p));
 
       // Safety Limit: Stochastic mathematically breaks if period < 2 (Div by Zero)
@@ -206,11 +232,11 @@ void CStochAdaptiveOnDMICalculator::Calculate(int rates_total, int prev_calculat
          m_raw_k[i] = (i > 0) ? m_raw_k[i-1] : 50.0; // Flatline prevention fallback
      }
 
-// 7. Final Smoothing (Engine handles O(1) internally)
-   m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, out_k, stoch_start);
+// 7. Final Smoothing (Engine handles volume-weighted (VWMA) O(1) natively if volume buffer is passed)
+   m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, m_volume, out_k, stoch_start);
 
    int d_offset = stoch_start + m_slowing_engine.GetPeriod() - 1;
-   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, out_k, out_d, d_offset);
+   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, out_k, m_volume, out_d, d_offset);
   }
 
 //+==================================================================+
@@ -221,7 +247,6 @@ class CStochAdaptiveOnDMICalculator_HA : public CStochAdaptiveOnDMICalculator
 protected:
    virtual void      CreateDMIEngine() override
      {
-      // Injects the HA version of the DMI engine (Polymorphism)
       m_dmi_engine = new CDMIEngine_HA();
      }
   };
