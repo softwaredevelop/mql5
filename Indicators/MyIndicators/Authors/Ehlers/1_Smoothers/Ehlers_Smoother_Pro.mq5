@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                         Ehlers_Smoother_Pro.mq5  |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.30" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.40" // Upgraded with strict chronological sorting safeguards and pointer guards
 #property description "John Ehlers' SuperSmoother and UltimateSmoother filters."
 
 #property indicator_chart_window
@@ -18,9 +18,10 @@
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 
 //--- Input Parameters ---
-input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER;
-input int                       InpPeriod       = 20;
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input group                     "Smoother Settings"
+input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER;   // Smoother Type
+input int                       InpPeriod       = 20;              // Smoothing Period
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
 
 //--- Indicator Buffers ---
 double    BufferFilter[];
@@ -78,18 +79,25 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
+   if(rates_total < 4)
+      return 0;
+
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
 
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
