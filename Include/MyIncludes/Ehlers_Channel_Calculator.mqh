@@ -1,9 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                    Ehlers_Channel_Calculator.mqh |
-//|      Ehlers Smoother Middle Line + ATR Bands (Keltner Concept).  |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.21" // Fixed class scope mismatches and compiler inheritance issues
+
+#ifndef EHLERS_CHANNEL_CALCULATOR_MQH
+#define EHLERS_CHANNEL_CALCULATOR_MQH
 
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 #include <MyIncludes\ATR_Calculator.mqh>
@@ -97,9 +100,15 @@ void CEhlersChannelCalculator::Calculate(int rates_total, int prev_calculated, c
    if(rates_total < 2)
       return;
 
-//--- Resize Internal Buffer
+   if(CheckPointer(m_smoother_calc) == POINTER_INVALID || CheckPointer(m_atr_calc) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffer and force strict chronological sorting
    if(ArraySize(m_atr_buffer) != rates_total)
+     {
       ArrayResize(m_atr_buffer, rates_total);
+      ArraySetAsSeries(m_atr_buffer, false); // Fixed: strict chronological safety on internal buffers
+     }
 
 //--- 1. Calculate Middle Line (Smoother)
    m_smoother_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, middle_buffer);
@@ -145,4 +154,5 @@ void CEhlersChannelCalculator_HA::CreateCalculators(void)
   {
    m_smoother_calc = new CEhlersSmootherCalculator_HA();
   }
+#endif // EHLERS_CHANNEL_CALCULATOR_MQH
 //+------------------------------------------------------------------+
