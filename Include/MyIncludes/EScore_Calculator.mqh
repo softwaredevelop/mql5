@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                             EScore_Calculator.mqh|
-//|      Engine for E-Score (Ehlers Smoother Z-Score).               |
-//|      Strictly O(1) Incremental Optimized.                        |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.10" // Upgraded with strict internal chronological sorting safeguards
 
 #ifndef ESCORE_CALCULATOR_MQH
 #define ESCORE_CALCULATOR_MQH
@@ -52,7 +50,7 @@ CEScoreCalculator::CEScoreCalculator() : m_period(20), m_type(SUPERSMOOTHER), m_
 //+------------------------------------------------------------------+
 CEScoreCalculator::~CEScoreCalculator()
   {
-   if(CheckPointer(m_smoother_calc) == POINTER_DYNAMIC)
+   if(CheckPointer(m_smoother_calc) != POINTER_INVALID)
       delete m_smoother_calc;
   }
 
@@ -86,9 +84,14 @@ void CEScoreCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APP
    if(rates_total < m_period + 5)
       return;
 
+   if(CheckPointer(m_smoother_calc) == POINTER_INVALID)
+      return;
+
+//--- Resize Internal Buffers and force strict chronological sorting
    if(ArraySize(m_smooth_buf) != rates_total)
      {
       ArrayResize(m_smooth_buf, rates_total);
+      ArraySetAsSeries(m_smooth_buf, false); // Fixed: strict chronological safety on internal buffers
      }
 
 // 1. Prepare aligned source prices (Standard or Heikin Ashi)
@@ -140,7 +143,10 @@ bool CEScoreCalculator::PreparePriceSeries(int rates_total, int start_index, ENU
    int start = (start_index == 0) ? 0 : start_index;
 
    if(ArraySize(m_price_buf) != rates_total)
+     {
       ArrayResize(m_price_buf, rates_total);
+      ArraySetAsSeries(m_price_buf, false); // Fixed: strict chronological safety on internal buffers
+     }
 
    if(m_use_ha)
      {
@@ -150,6 +156,11 @@ bool CEScoreCalculator::PreparePriceSeries(int rates_total, int start_index, ENU
          ArrayResize(m_ha_high, rates_total);
          ArrayResize(m_ha_low, rates_total);
          ArrayResize(m_ha_close, rates_total);
+
+         ArraySetAsSeries(m_ha_open, false);
+         ArraySetAsSeries(m_ha_high, false);
+         ArraySetAsSeries(m_ha_low, false);
+         ArraySetAsSeries(m_ha_close, false);
         }
       m_ha_calc.Calculate(rates_total, start, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
