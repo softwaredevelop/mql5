@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                               ADX_Calculator.mqh |
-//|        Calculation engine for Standard and Heikin Ashi ADX.      |
-//|        VERSION 3.00: Refactored to use DMI_Engine.               |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // Upgraded with strict internal chronological sorting safeguards
+
+#ifndef ADX_CALCULATOR_MQH
+#define ADX_CALCULATOR_MQH
 
 #include <MyIncludes\DMI_Engine.mqh>
 
@@ -52,6 +54,8 @@ bool CADXCalculator::Init(int period)
   {
    m_adx_period = (period < 1) ? 1 : period;
    CreateEngine();
+   if(CheckPointer(m_dmi_engine) == POINTER_INVALID)
+      return false;
    return m_dmi_engine.Init(m_adx_period);
   }
 
@@ -64,8 +68,15 @@ void CADXCalculator::Calculate(int rates_total, int prev_calculated, const doubl
    if(rates_total < m_adx_period * 2)
       return;
 
+   if(CheckPointer(m_dmi_engine) == POINTER_INVALID)
+      return;
+
+// Resize internal buffer and force strict chronological sorting
    if(ArraySize(m_dx) != rates_total)
+     {
       ArrayResize(m_dx, rates_total);
+      ArraySetAsSeries(m_dx, false); // Fixed: strict chronological safety on internal buffers
+     }
 
 // 1. Calculate DI values using Engine
    m_dmi_engine.Calculate(rates_total, prev_calculated, open, high, low, close, pdi_buffer, ndi_buffer);
@@ -109,4 +120,5 @@ class CADXCalculator_HA : public CADXCalculator
 protected:
    virtual void      CreateEngine(void) override { m_dmi_engine = new CDMIEngine_HA(); }
   };
+#endif // ADX_CALCULATOR_MQH
 //+------------------------------------------------------------------+
