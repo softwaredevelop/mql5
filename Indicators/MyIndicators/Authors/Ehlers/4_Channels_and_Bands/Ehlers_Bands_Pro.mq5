@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                             Ehlers_Bands_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.20" // Upgraded with strict chronological sorting safeguards and pointer guards
 #property description "Ehlers Bands with a selectable smoother (SuperSmoother or UltimateSmoother)."
 
 #property indicator_chart_window
@@ -28,10 +28,11 @@
 #include <MyIncludes\Ehlers_Bands_Calculator.mqh>
 
 //--- Input Parameters ---
+input group                     "Smoother Settings"
 input ENUM_SMOOTHER_TYPE        InpCenterlineType = SUPERSMOOTHER; // Centerline smoother type
-input int                       InpPeriod         = 20;
-input double                    InpMultiplier     = 2.0; // Default to 2.0 like standard Bollinger Bands
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD;
+input int                       InpPeriod         = 20;              // Smoothing Period
+input double                    InpMultiplier     = 2.0;             // Deviation Multiplier
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD; // Price Source
 
 //--- Indicator Buffers ---
 double    BufferUpper[], BufferLower[], BufferMiddle[];
@@ -85,7 +86,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -95,19 +96,26 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
+   if(rates_total < InpPeriod)
+      return 0;
+
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferUpper, BufferLower, BufferMiddle);
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
