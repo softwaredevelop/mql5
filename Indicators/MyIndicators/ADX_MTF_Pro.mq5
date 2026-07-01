@@ -3,13 +3,18 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.12" // Fixed variable references and purged price type mapping for error-free MTF compiling
+#property version   "1.20" // Reverted to static hardcoded levels to simplify MTF input panel and preserve Wilder's classics
 #property description "Vertical Welles Wilder ADX & DMI (Multi-Timeframe)."
 #property description "Displays HTF ADX, +DI and -DI lines cleanly on current chart without live-bar warping."
 
 #property indicator_separate_window
 #property indicator_buffers 3
 #property indicator_plots   3
+
+//--- Levels (Wilder's Standard Constant Boundaries)
+#property indicator_level1 25.0
+#property indicator_level2 40.0
+#property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: ADX line (Main trend strength)
 #property indicator_label1  "ADX MTF"
@@ -32,12 +37,6 @@
 #property indicator_style3  STYLE_SOLID
 #property indicator_width3  1
 
-//--- Levels
-#property indicator_level1 25.0
-#property indicator_level2 40.0
-#property indicator_levelcolor clrSilver
-#property indicator_levelstyle STYLE_DOT
-
 #include <MyIncludes\ADX_Calculator.mqh>
 
 //--- Enum for selecting the candle source for calculation ---
@@ -54,12 +53,6 @@ input ENUM_TIMEFRAMES   InpTimeframe      = PERIOD_H1;       // Target Higher Ti
 input group "ADX Settings"
 input int               InpPeriodADX      = 14;              // Period for ADX calculations
 input ENUM_CANDLE_SOURCE InpCandleSource  = CANDLE_STANDARD; // Candle source
-
-input group                     "Indicator Levels"
-input double                    InpLevel1      = 25.0;            // Dynamic Trend Threshold
-input double                    InpLevel2      = 40.0;            // Dynamic Strong Trend Level
-input color                     InpLevelColor  = clrSilver;       // Levels Color
-input ENUM_LINE_STYLE           InpLevelStyle  = STYLE_DOT;       // Levels Style
 
 //--- Buffers
 double    BufferADX_MTF[];
@@ -78,10 +71,10 @@ CADXCalculator *g_calculator;
 
 bool            g_is_mtf_mode         = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool             g_data_ready          = false;
-bool             g_data_synced         = false;
-int               g_htf_count           = 0;
-datetime          g_last_htf_time       = 0;
+bool            g_data_ready          = false;
+bool            g_data_synced         = false;
+int             g_htf_count           = 0;
+datetime        g_last_htf_time       = 0;
 
 //+------------------------------------------------------------------+
 //| EnsureHTFDataReady                                               |
@@ -129,14 +122,7 @@ int OnInit()
    ArraySetAsSeries(BufferPDI_MTF, false);
    ArraySetAsSeries(BufferNDI_MTF, false);
 
-//--- 3. Dynamically configure horizontal levels to support custom input parameters
-   IndicatorSetInteger(INDICATOR_LEVELS, 2);
-   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevel1);
-   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevel2);
-   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
-   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
-
-//--- 4. Initialize Calculator (Factory Logic)
+//--- 3. Initialize Calculator (Factory Logic)
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
@@ -153,7 +139,7 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- 5. Set Shortname - Dynamic Heikin Ashi detection based on candle source input
+//--- 4. Set Shortname
    string type = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADX Pro%s%s(%d)", type, tf_str, InpPeriodADX));
