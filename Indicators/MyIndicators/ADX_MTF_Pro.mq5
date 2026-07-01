@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Dynamic Multi-Timeframe ADX with flat-force step-alignment
+#property version   "1.12" // Fixed variable references and purged price type mapping for error-free MTF compiling
 #property description "Vertical Welles Wilder ADX & DMI (Multi-Timeframe)."
 #property description "Displays HTF ADX, +DI and -DI lines cleanly on current chart without live-bar warping."
 
@@ -55,6 +55,12 @@ input group "ADX Settings"
 input int               InpPeriodADX      = 14;              // Period for ADX calculations
 input ENUM_CANDLE_SOURCE InpCandleSource  = CANDLE_STANDARD; // Candle source
 
+input group                     "Indicator Levels"
+input double                    InpLevel1      = 25.0;            // Dynamic Trend Threshold
+input double                    InpLevel2      = 40.0;            // Dynamic Strong Trend Level
+input color                     InpLevelColor  = clrSilver;       // Levels Color
+input ENUM_LINE_STYLE           InpLevelStyle  = STYLE_DOT;       // Levels Style
+
 //--- Buffers
 double    BufferADX_MTF[];
 double    BufferPDI_MTF[];
@@ -69,12 +75,13 @@ double    h_open[], h_high[], h_low[], h_close[]; // HTF Price Data
 
 //--- Global variables ---
 CADXCalculator *g_calculator;
+
 bool            g_is_mtf_mode         = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool             g_data_ready          = false;
+bool             g_data_synced         = false;
+int               g_htf_count           = 0;
+datetime          g_last_htf_time       = 0;
 
 //+------------------------------------------------------------------+
 //| EnsureHTFDataReady                                               |
@@ -122,7 +129,14 @@ int OnInit()
    ArraySetAsSeries(BufferPDI_MTF, false);
    ArraySetAsSeries(BufferNDI_MTF, false);
 
-//--- 3. Initialize Calculator (Factory Logic)
+//--- 3. Dynamically configure horizontal levels to support custom input parameters
+   IndicatorSetInteger(INDICATOR_LEVELS, 2);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevel1);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevel2);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
+
+//--- 4. Initialize Calculator (Factory Logic)
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
@@ -139,7 +153,7 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-//--- 4. Set Shortname
+//--- 5. Set Shortname - Dynamic Heikin Ashi detection based on candle source input
    string type = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADX Pro%s%s(%d)", type, tf_str, InpPeriodADX));
@@ -187,6 +201,16 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < 2)
       return(0);
+
+   if(CheckPointer(g_calculator) == POINTER_INVALID)
+      return(0);
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
 //================================================================
 // MODE 1: Current Timeframe (Standard)
@@ -237,6 +261,13 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_res_adx, g_htf_count);
       ArrayResize(h_res_pdi, g_htf_count);
       ArrayResize(h_res_ndi, g_htf_count);
+
+      // Force chronological array alignment on HTF caches after resize
+      ArraySetAsSeries(h_time,  false);
+      ArraySetAsSeries(h_open,  false);
+      ArraySetAsSeries(h_high,  false);
+      ArraySetAsSeries(h_low,   false);
+      ArraySetAsSeries(h_close, false);
 
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
          CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
@@ -344,5 +375,4 @@ void OnTimer()
         }
      }
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
