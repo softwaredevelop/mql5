@@ -1,11 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                                DMI_Engine.mqh    |
-//|      Core engine for Directional Movement Index calculations.    |
-//|      Calculates +DI, -DI, TR, +DM, -DM.                          |
-//|      VERSION 1.00                                                |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.10" // Upgraded with strict internal chronological sorting safeguards
+#property description "Core engine for Directional Movement Index calculations."
+
+#ifndef DMI_ENGINE_MQH
+#define DMI_ENGINE_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -59,7 +61,7 @@ void CDMIEngine::Calculate(int rates_total, int prev_calculated, const double &o
 
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
-// Resize Buffers
+// Resize Buffers and force strict chronological sorting
    if(ArraySize(m_pDM) != rates_total)
      {
       ArrayResize(m_pDM, rates_total);
@@ -72,6 +74,16 @@ void CDMIEngine::Calculate(int rates_total, int prev_calculated, const double &o
       ArrayResize(m_high, rates_total);
       ArrayResize(m_low, rates_total);
       ArrayResize(m_close, rates_total);
+
+      ArraySetAsSeries(m_pDM, false);
+      ArraySetAsSeries(m_nDM, false);
+      ArraySetAsSeries(m_TR, false);
+      ArraySetAsSeries(m_smoothed_pdm, false);
+      ArraySetAsSeries(m_smoothed_ndm, false);
+      ArraySetAsSeries(m_smoothed_tr, false);
+      ArraySetAsSeries(m_high, false);
+      ArraySetAsSeries(m_low, false);
+      ArraySetAsSeries(m_close, false);
      }
 
 // 1. Prepare Data (Standard or HA)
@@ -162,11 +174,14 @@ protected:
 void CDMIEngine_HA::PrepareData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
    if(ArraySize(m_ha_open) != rates_total)
+     {
       ArrayResize(m_ha_open, rates_total);
+      ArraySetAsSeries(m_ha_open, false);
+     }
 
 // Calculate HA and store directly into base class buffers (m_high, m_low, m_close)
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_high, m_low, m_close);
   }
-//+------------------------------------------------------------------+
+#endif // DMI_ENGINE_MQH
 //+------------------------------------------------------------------+
