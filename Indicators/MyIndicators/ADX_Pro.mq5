@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                       ADX_Pro.mq5|
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright   "Copyright 2025, xxxxxxxx"
-#property version     "2.02" // Optimized for incremental calculation
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "2.11" // Purged InpSourcePrice and price_type references for standard compile safety
 #property description "Professional ADX by Welles Wilder with selectable"
 #property description "candle source (Standard or Heikin Ashi)."
 
@@ -11,9 +11,6 @@
 #property indicator_separate_window
 #property indicator_buffers 3 // Only plotting buffers are needed here
 #property indicator_plots   3
-#property indicator_level1 25.0
-#property indicator_level2 40.0
-#property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: ADX line (Main trend strength)
 #property indicator_label1  "ADX"
@@ -47,8 +44,15 @@ enum ENUM_CANDLE_SOURCE
   };
 
 //--- Input Parameters ---
+input group                     "ADX Settings"
 input int                InpPeriodADX    = 14;              // Period for ADX calculations
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD; // Candle source
+
+input group                     "Indicator Levels"
+input double                    InpLevel1      = 25.0;            // Dynamic Trend Threshold
+input double                    InpLevel2      = 40.0;            // Dynamic Strong Trend Level
+input color                     InpLevelColor  = clrSilver;       // Levels Color
+input ENUM_LINE_STYLE           InpLevelStyle  = STYLE_DOT;       // Levels Style
 
 //--- Indicator Buffers ---
 double    BufferADX[];
@@ -73,16 +77,21 @@ int OnInit()
    ArraySetAsSeries(BufferPDI, false);
    ArraySetAsSeries(BufferNDI, false);
 
+//--- Dynamically configure horizontal levels to support custom input parameters
+   IndicatorSetInteger(INDICATOR_LEVELS, 2);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevel1);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevel2);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
+
 //--- Dynamically create the appropriate calculator instance
    switch(InpCandleSource)
      {
       case CANDLE_HEIKIN_ASHI:
          g_calculator = new CADXCalculator_HA();
-         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADX Pro HA(%d)", InpPeriodADX));
          break;
       default: // CANDLE_STANDARD
          g_calculator = new CADXCalculator();
-         IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADX Pro(%d)", InpPeriodADX));
          break;
      }
 
@@ -92,6 +101,10 @@ int OnInit()
       Print("Failed to create or initialize ADX Calculator object.");
       return(INIT_FAILED);
      }
+
+//--- Set Shortname - Dynamic Heikin Ashi detection based on candle source input
+   string type = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADX Pro%s(%d)", type, InpPeriodADX));
 
 //--- Set indicator properties
    int period = g_calculator.GetPeriod();
@@ -117,7 +130,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function.                           |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -127,8 +140,18 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
+   if(rates_total < InpPeriodADX * 2)
+      return 0;
+
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
 //--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close,
@@ -136,5 +159,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
