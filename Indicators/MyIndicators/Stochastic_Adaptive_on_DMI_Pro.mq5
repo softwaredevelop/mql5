@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.10" // Upgraded with strict chronological sorting safeguards and pointer guards
+#property version   "2.20" // Integrated dynamic volume routing to support volume-weighted (VWMA) adaptive smoothing
 #property description "Adaptive Stochastic applied to DMI Oscillator."
 #property description "Adapts lookback based on DMI's own volatility."
 
@@ -49,9 +49,9 @@ input int                       InpMaxStochPeriod= 30;   // Max Dynamic Period
 
 input group                     "Stochastic Settings"
 input int                       InpSlowingPeriod = 3;    // Slowing Period
-input ENUM_MA_TYPE              InpSlowingMAType = SMA;  // Slowing MA Type
+input ENUM_MA_TYPE              InpSlowingMAType = SMA;  // Slowing MA Type (Supports VWMA)
 input int                       InpDPeriod       = 3;    // Signal Line Period
-input ENUM_MA_TYPE              InpDMAType       = SMA;  // Signal Line MA Type
+input ENUM_MA_TYPE              InpDMAType       = SMA;  // Signal Line MA Type (Supports VWMA)
 
 input group                     "Price Source"
 input ENUM_CANDLE_SOURCE        InpCandleSource  = CANDLE_STANDARD; // Controls DMI Input
@@ -133,8 +133,18 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(low,   false);
    ArraySetAsSeries(close, false);
 
-// We pass standard OHLC, the HA calculator will convert internally if needed
-   g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK, BufferD);
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+//--- Route calculations dynamically to support volume-weighted types (VWMA) on Slowing/Signal
+   if(volume_limit > 0)
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, volume, BufferK, BufferD);
+     }
+   else
+     {
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, BufferK, BufferD);
+     }
 
    return(rates_total);
   }
