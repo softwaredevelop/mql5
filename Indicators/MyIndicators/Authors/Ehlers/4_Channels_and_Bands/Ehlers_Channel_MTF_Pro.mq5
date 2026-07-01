@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00"
+#property version   "1.20" // Refactored with state-safe caching and step-blocking Flat-Force mapping
 #property description "Ehlers Channel (Multi-Timeframe)."
-#property description "Displays HTF Smoother-based Channel on Current Chart."
+#property description "Displays HTF Smoother-based Channel cleanly directly on current chart without live-bar warping."
 
 #property indicator_chart_window
 #property indicator_buffers 3
@@ -35,7 +35,9 @@
 #include <MyIncludes\Ehlers_Channel_Calculator.mqh>
 
 //--- Input Parameters
+input group "Timeframe Settings"
 input ENUM_TIMEFRAMES           InpTimeframe      = PERIOD_H1;         // Target Timeframe
+
 input group                     "Smoother Settings"
 input ENUM_SMOOTHER_TYPE        InpSmootherType   = SUPERSMOOTHER;     // Filter Type
 input int                       InpPeriod         = 20;                // Filter Period
@@ -54,41 +56,102 @@ double BufUpper[];
 double BufLower[];
 double BufMiddle[];
 
-//--- Internal HTF Data
-double h_open[], h_high[], h_low[], h_close[];
+//--- Internal HTF Data Caches
+double h_res_mid[];   // HTF Middle results cached
+double h_res_up[];    // HTF Upper results cached
+double h_res_lo[];    // HTF Lower results cached
 datetime h_time[];
-double h_up[], h_lo[], h_mid[]; // Calculated HTF results
+double h_open[], h_high[], h_low[], h_close[];
 
-//--- Calculator
+//--- Global variables ---
 CEhlersChannelCalculator *g_calc;
+bool                       g_is_mtf_mode = false;
+ENUM_TIMEFRAMES            g_calc_timeframe;
+bool                       g_data_ready  = false;
+bool                       g_data_synced = false;
+int                        g_htf_count   = 0;
+datetime                   g_last_htf_time = 0;
+
+//+------------------------------------------------------------------+
+//| EnsureHTFDataReady                                               |
+//+------------------------------------------------------------------+
+bool EnsureHTFDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const int required_bars)
+  {
+   ResetLastError();
+   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
+     {
+      SymbolSelect(symbol, true);
+     }
+   datetime times[];
+   int copied = CopyTime(symbol, timeframe, 0, required_bars, times);
+   return (copied >= required_bars);
+  }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   if(InpTimeframe <= Period() && InpTimeframe != PERIOD_CURRENT)
+   g_data_ready = false;
+   g_data_synced = false;
+   g_htf_count = 0;
+   g_last_htf_time = 0;
+
+//--- 1. Resolve Timeframe
+   g_calc_timeframe = InpTimeframe;
+   if(g_calc_timeframe == PERIOD_CURRENT)
+      g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
+
+//--- 2. Validation
+   if(g_calc_timeframe < Period())
      {
-      Print("Warning: Target Timeframe should be > Current Timeframe.");
+      Print("Error: Target timeframe must be >= current timeframe.");
+      return(INIT_FAILED);
      }
+   g_is_mtf_mode = (g_calc_timeframe > Period());
 
-   SetIndexBuffer(0, BufUpper, INDICATOR_DATA);
-   SetIndexBuffer(1, BufLower, INDICATOR_DATA);
+//--- 3. Buffer Mapping
+   SetIndexBuffer(0, BufUpper,  INDICATOR_DATA);
+   SetIndexBuffer(1, BufLower,  INDICATOR_DATA);
    SetIndexBuffer(2, BufMiddle, INDICATOR_DATA);
+   ArraySetAsSeries(BufUpper,  false);
+   ArraySetAsSeries(BufLower,  false);
+   ArraySetAsSeries(BufMiddle, false);
 
-   string tf_name = StringSubstr(EnumToString(InpTimeframe), 7);
-   string smoothStr = (InpSmootherType == SUPERSMOOTHER) ? "SS" : "US";
-   string name = StringFormat("Ehlers Ch MTF %s(%s %d, ATR %d)", tf_name, smoothStr, InpPeriod, InpAtrPeriod);
-   IndicatorSetString(INDICATOR_SHORTNAME, name);
+   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-// Factory Logic for HA support
+//--- 4. Initialize Calculator
+   string name = (InpSmootherType == SUPERSMOOTHER) ? "SuperSmoother" : "UltimateSmoother";
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       g_calc = new CEhlersChannelCalculator_HA();
    else
       g_calc = new CEhlersChannelCalculator();
 
-   if(!g_calc.Init(InpPeriod, InpSmootherType, InpAtrPeriod, InpMultiplier, InpAtrSource))
-      return INIT_FAILED;
+   if(CheckPointer(g_calc) == POINTER_INVALID ||
+      !g_calc.Init(InpPeriod, InpSmootherType, InpAtrPeriod, InpMultiplier, InpAtrSource))
+     {
+      Print("Failed to initialize Ehlers Channel Calculator.");
+      return(INIT_FAILED);
+     }
+
+   string tf_name = StringSubstr(EnumToString(g_calc_timeframe), 7);
+   string smoothStr = (InpSmootherType == SUPERSMOOTHER) ? "SS" : "US";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("Ehlers Ch MTF %s(%s %d, ATR %d)", tf_name, smoothStr, InpPeriod, InpAtrPeriod));
+
+   int draw_begin = MathMax(InpPeriod, InpAtrPeriod);
+   if(g_is_mtf_mode)
+      draw_begin = 0;
+
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
+   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+
+//--- Initialize 1-second timer for weekend/async chart refreshes (Only if MTF mode is active)
+   if(g_is_mtf_mode)
+      EventSetTimer(1);
 
    return(INIT_SUCCEEDED);
   }
@@ -98,7 +161,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int r)
   {
-   if(CheckPointer(g_calc)==POINTER_DYNAMIC)
+   EventKillTimer();
+   if(CheckPointer(g_calc) != POINTER_INVALID)
       delete g_calc;
   }
 
@@ -116,63 +180,149 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-// 1. Fetch HTF Data
-   int htf_bars = iBars(_Symbol, InpTimeframe);
-   if(htf_bars < MathMax(InpPeriod, InpAtrPeriod) + 10)
+   if(rates_total < 2)
       return 0;
 
-   int count = MathMin(htf_bars, 3000);
-
-   ArraySetAsSeries(h_time, false);
-   ArraySetAsSeries(h_open, false);
-   ArraySetAsSeries(h_high, false);
-   ArraySetAsSeries(h_low, false);
-   ArraySetAsSeries(h_close, false);
-
-   if(CopyTime(_Symbol, InpTimeframe, 0, count, h_time) != count)
-      return 0;
-   if(CopyOpen(_Symbol, InpTimeframe, 0, count, h_open) != count)
-      return 0;
-   if(CopyHigh(_Symbol, InpTimeframe, 0, count, h_high) != count)
-      return 0;
-   if(CopyLow(_Symbol, InpTimeframe, 0, count, h_low) != count)
-      return 0;
-   if(CopyClose(_Symbol, InpTimeframe, 0, count, h_close) != count)
+   if(CheckPointer(g_calc) == POINTER_INVALID)
       return 0;
 
-// 2. Calc on HTF
-   if(ArraySize(h_up) != count)
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ? (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) : (ENUM_APPLIED_PRICE)InpSourcePrice;
+
+//================================================================
+// MODE 1: Current Timeframe (Standard)
+//================================================================
+   if(!g_is_mtf_mode)
      {
-      ArrayResize(h_up, count);
-      ArrayResize(h_lo, count);
-      ArrayResize(h_mid, count);
+      g_calc.Calculate(rates_total, prev_calculated, open, high, low, close, price_type, BufMiddle, BufUpper, BufLower);
+      return(rates_total);
      }
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+//================================================================
+// MODE 2: Multi-Timeframe (MTF Engine)
+//================================================================
 
-   g_calc.Calculate(count, 0, h_open, h_high, h_low, h_close, price_type, h_mid, h_up, h_lo);
+//--- Ensure target timeframe history is ready
+   int required_bars = MathMax(InpPeriod, InpAtrPeriod) + 10;
+   if(!EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+     {
+      g_data_synced = false;
+      return 0; // Wait for next tick to let history load
+     }
 
-// 3. Map to Current Chart
+   g_data_synced = true;
+
+//--- 1. Check if a new HTF bar has formed
+   datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
+   bool htf_updated = (htf_time_current != g_last_htf_time);
+
+   if(htf_updated || prev_calculated == 0)
+     {
+      g_last_htf_time = htf_time_current;
+
+      int htf_bars = iBars(_Symbol, g_calc_timeframe);
+      if(htf_bars < required_bars)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
+      g_htf_count = MathMin(htf_bars, 3000);
+
+      ArrayResize(h_time,       g_htf_count);
+      ArrayResize(h_open,       g_htf_count);
+      ArrayResize(h_high,       g_htf_count);
+      ArrayResize(h_low,        g_htf_count);
+      ArrayResize(h_close,      g_htf_count);
+
+      ArrayResize(h_res_mid,    g_htf_count);
+      ArrayResize(h_res_up,     g_htf_count);
+      ArrayResize(h_res_lo,     g_htf_count);
+
+      // Force chronological array alignment on HTF caches after resize
+      ArraySetAsSeries(h_time,  false);
+      ArraySetAsSeries(h_open,  false);
+      ArraySetAsSeries(h_high,  false);
+      ArraySetAsSeries(h_low,   false);
+      ArraySetAsSeries(h_close, false);
+
+      if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
+         CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
+         CopyHigh(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_high)  != g_htf_count ||
+         CopyLow(_Symbol,   g_calc_timeframe, 0, g_htf_count, h_low)   != g_htf_count ||
+         CopyClose(_Symbol, g_calc_timeframe, 0, g_htf_count, h_close) != g_htf_count)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
+      //--- Calculate Channel on HTF (Closed bars and forming bar initialized)
+      g_calc.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, price_type, h_res_mid, h_res_up, h_res_lo);
+
+      g_data_ready = true;
+     }
+
+   if(!g_data_ready)
+      return 0;
+
+//--- 2. Live Update for the Current Forming HTF Bar (Index: g_htf_count - 1) on every tick!
+   int live_idx = g_htf_count - 1;
+   if(live_idx >= MathMax(InpPeriod, InpAtrPeriod))
+     {
+      double o[1], h[1], l[1], c[1];
+      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
+      if(shift >= 0 &&
+         CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
+         CopyHigh(_Symbol,  g_calc_timeframe, shift, 1, h) == 1 &&
+         CopyLow(_Symbol,   g_calc_timeframe, shift, 1, l) == 1 &&
+         CopyClose(_Symbol, g_calc_timeframe, shift, 1, c) == 1)
+        {
+         h_open[live_idx]  = o[0];
+         h_high[live_idx]  = h[0];
+         h_low[live_idx]   = l[0];
+         h_close[live_idx] = c[0];
+
+         // Incremental recalculation on the live HTF index in O(1)
+         // Passed g_htf_count as prev_calculated to preserve state safety
+         g_calc.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, price_type, h_res_mid, h_res_up, h_res_lo);
+        }
+     }
+
+//--- 3. FIXED: Dynamically adjust 'start' to the beginning of the current forming HTF bar
+//--- This forces the entire forming LTF step block to remain perfectly flat, updating on every tick!
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
+   int first_bar_of_forming_htf = rates_total - 1;
+   while(first_bar_of_forming_htf > 0 &&
+         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
+     {
+      first_bar_of_forming_htf--;
+     }
+   first_bar_of_forming_htf++; // This is the start of the forming step on lower TF chart
+
+   if(start > first_bar_of_forming_htf)
+      start = first_bar_of_forming_htf;
+
+//--- 4. Incremental Mapping of HTF results to Current Chart Timeframe (O(1) per tick)
    for(int i = start; i < rates_total; i++)
      {
       datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, InpTimeframe, t, false);
+      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
 
       if(shift_htf >= 0)
         {
-         int idx_htf = count - 1 - shift_htf;
-
-         if(idx_htf >= 0 && idx_htf < count)
+         int idx_htf = g_htf_count - 1 - shift_htf;
+         if(idx_htf >= 0 && idx_htf < g_htf_count)
            {
-            BufUpper[i]  = h_up[idx_htf];
-            BufLower[i]  = h_lo[idx_htf];
-            BufMiddle[i] = h_mid[idx_htf];
+            BufUpper[i]  = h_res_up[idx_htf];
+            BufLower[i]  = h_res_lo[idx_htf];
+            BufMiddle[i] = h_res_mid[idx_htf];
            }
          else
            {
@@ -181,9 +331,31 @@ int OnCalculate(const int rates_total,
             BufMiddle[i] = EMPTY_VALUE;
            }
         }
+      else
+        {
+         BufUpper[i]  = EMPTY_VALUE;
+         BufLower[i]  = EMPTY_VALUE;
+         BufMiddle[i] = EMPTY_VALUE;
+        }
      }
 
    return(rates_total);
   }
+
 //+------------------------------------------------------------------+
+//| OnTimer                                                          |
+//| Handles loading checks and force-redraws                         |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   if(!g_data_synced)
+     {
+      int required_bars = MathMax(InpPeriod, InpAtrPeriod) + 5;
+      if(EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+        {
+         g_data_synced = true;
+         ChartRedraw(); // Force MT5 to invoke OnCalculate
+        }
+     }
+  }
 //+------------------------------------------------------------------+
