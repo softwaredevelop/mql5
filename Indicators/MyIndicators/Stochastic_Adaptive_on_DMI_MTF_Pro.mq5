@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Dynamic Multi-Timeframe Adaptive Stochastic on DMI with flat-force step-alignment
+#property version   "1.10" // Integrated dynamic volume routing to support volume-weighted (VWMA) adaptive MTF smoothing
 #property description "Multi-Timeframe (MTF) Adaptive Stochastic applied to DMI Oscillator."
 #property description "Displays HTF Adaptive Stochastic cleanly directly on current chart without live-bar warping."
 
@@ -52,9 +52,9 @@ input int                       InpMaxStochPeriod= 30;   // Max Dynamic Period
 
 input group                     "Stochastic Settings"
 input int                       InpSlowingPeriod = 3;    // Slowing Period
-input ENUM_MA_TYPE              InpSlowingMAType = SMA;  // Slowing MA Type
+input ENUM_MA_TYPE              InpSlowingMAType = SMA;  // Slowing MA Type (Supports VWMA)
 input int                       InpDPeriod       = 3;    // Signal Line Period
-input ENUM_MA_TYPE              InpDMAType       = SMA;  // Signal Line MA Type
+input ENUM_MA_TYPE              InpDMAType       = SMA;  // Signal Line MA Type (Supports VWMA)
 
 input group                     "Price Source"
 input ENUM_CANDLE_SOURCE        InpCandleSource  = CANDLE_STANDARD; // Controls DMI Input
@@ -68,6 +68,7 @@ double    h_res_k[];     // HTF Adaptive K Results cached
 double    h_res_d[];     // HTF Adaptive D Results cached
 datetime  h_time[];      // HTF Time index
 double    h_open[], h_high[], h_low[], h_close[]; // HTF Price Data
+long      h_vol[];       // HTF raw volume cache
 
 //--- Global variables ---
 CStochAdaptiveOnDMICalculator *g_calculator;
@@ -198,7 +199,13 @@ int OnCalculate(const int rates_total,
 //================================================================
    if(!g_is_mtf_mode)
      {
-      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferK_MTF, BufferD_MTF);
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+
+      if(volume_limit > 0)
+         g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, volume, BufferK_MTF, BufferD_MTF);
+      else
+         g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, BufferK_MTF, BufferD_MTF);
+
       return(rates_total);
      }
 
@@ -215,6 +222,9 @@ int OnCalculate(const int rates_total,
      }
 
    g_data_synced = true;
+
+//--- Determine best volume array (Use Real Volume if available, otherwise fallback to Tick Volume)
+   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
 
 //--- 1. Check if a new HTF bar has formed
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
@@ -238,6 +248,7 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_high,  g_htf_count);
       ArrayResize(h_low,   g_htf_count);
       ArrayResize(h_close, g_htf_count);
+      ArrayResize(h_vol,   g_htf_count);
 
       ArrayResize(h_res_k, g_htf_count);
       ArrayResize(h_res_d, g_htf_count);
@@ -248,6 +259,7 @@ int OnCalculate(const int rates_total,
       ArraySetAsSeries(h_high,  false);
       ArraySetAsSeries(h_low,   false);
       ArraySetAsSeries(h_close, false);
+      ArraySetAsSeries(h_vol,   false);
 
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
          CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
@@ -259,8 +271,21 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
+      // High-Performance dynamic volume routing on the HTF Timeline
+      int copied_vol = 0;
+      if(volume_limit > 0)
+         copied_vol = CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_vol);
+      else
+         copied_vol = CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_vol);
+
+      if(copied_vol != g_htf_count)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
       //--- Calculate HTF values (Closed bars and forming bar initialized)
-      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_k, h_res_d);
+      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_vol, h_res_k, h_res_d);
 
       g_data_ready = true;
      }
@@ -273,6 +298,7 @@ int OnCalculate(const int rates_total,
    if(live_idx >= InpDMIPeriod + InpErPeriod + InpMaxStochPeriod)
      {
       double o[1], h[1], l[1], c[1];
+      long vol[1];
       int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
       if(shift >= 0 &&
          CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
@@ -285,9 +311,21 @@ int OnCalculate(const int rates_total,
          h_low[live_idx]   = l[0];
          h_close[live_idx] = c[0];
 
+         // Copy live volume dynamically
+         int copied = 0;
+         if(volume_limit > 0)
+            copied = CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, vol);
+         else
+            copied = CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, vol);
+
+         if(copied == 1)
+           {
+            h_vol[live_idx] = vol[0];
+           }
+
          // Incremental recalculation on the live HTF index in O(1)
          // Passed g_htf_count as prev_calculated to preserve state safety (DMI Wilder's Smoothing)
-         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_k, h_res_d);
+         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_vol, h_res_k, h_res_d);
         }
      }
 
