@@ -1,9 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                   Ehlers_Smoother_Calculator.mqh |
-//|      VERSION 3.00: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // Upgraded with strict internal chronological sorting safeguards
+
+#ifndef EHLERS_SMOOTHER_CALCULATOR_MQH
+#define EHLERS_SMOOTHER_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -23,7 +26,6 @@ protected:
    //--- Persistent Buffer for Price
    double              m_price[];
 
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -32,7 +34,6 @@ public:
 
    bool              Init(int period, ENUM_SMOOTHER_TYPE type, ENUM_INPUT_SOURCE source_type);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
 
    int               GetPeriod(void) const { return m_period; }
@@ -57,15 +58,14 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
    if(rates_total < 4)
       return;
 
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-// Resize internal buffer
+// Resize and force strict chronological sorting
    if(ArraySize(m_price) != rates_total)
+     {
       ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false); // Fixed: strict chronological safety on internal buffers
+     }
 
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
@@ -78,7 +78,6 @@ void CEhlersSmootherCalculator::Calculate(int rates_total, int prev_calculated, 
    double c1 = (m_type == SUPERSMOOTHER) ? (1.0 - c2 - c3) : ((1.0 + c2 - c3) / 4.0);
 
 //--- Incremental Loop
-// We start at index 3 because we need i-1 and i-2 (and i-3 for safety/logic consistency)
    int loop_start = MathMax(3, start_index);
 
 // Initialization for the very first bars
@@ -134,7 +133,7 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(int rates_total, int start_in
                m_price[i] = (high[i]+low[i]+close[i])/3.0;
                break;
             case PRICE_WEIGHTED:
-               m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
+               m_price[i] = (high[i]+low[i]+2.0*close[i])/4.0;
                break;
             default:
                m_price[i] = close[i];
@@ -162,7 +161,7 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Prepare Price (Heikin Ashi)                                      |
 //+------------------------------------------------------------------+
 bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -172,6 +171,11 @@ bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
@@ -200,7 +204,7 @@ bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start
                m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
                break;
             case PRICE_WEIGHTED:
-               m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+               m_price[i] = (m_ha_high[i]+m_ha_low[i]+2.0*m_ha_close[i])/4.0;
                break;
             default:
                m_price[i] = m_ha_close[i];
@@ -214,4 +218,5 @@ bool CEhlersSmootherCalculator_HA::PreparePriceSeries(int rates_total, int start
      }
    return true;
   }
+#endif // EHLERS_SMOOTHER_CALCULATOR_MQH
 //+------------------------------------------------------------------+
