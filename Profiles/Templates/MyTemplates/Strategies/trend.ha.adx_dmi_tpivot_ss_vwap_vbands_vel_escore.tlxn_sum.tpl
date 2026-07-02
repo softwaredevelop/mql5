@@ -676,42 +676,13 @@ name=Smoother
 draw=1
 style=0
 width=1
-color=8388608
+color=7346457
 </graph>
 <inputs>
-InpSmootherType=0
-InpPeriod=13
-InpSourcePrice=1
-</inputs>
-</indicator>
-
-<indicator>
-name=Custom Indicator
-path=Indicators\MyIndicators\Authors\Ehlers\1_Smoothers\Ehlers_Smoother_Pro.ex5
-apply=0
-show_data=1
-scale_inherit=0
-scale_line=0
-scale_line_percent=50
-scale_line_value=0.000000
-scale_fix_min=0
-scale_fix_min_val=0.000000
-scale_fix_max=0
-scale_fix_max_val=0.000000
-expertmode=4
-fixed_height=-1
-
-<graph>
-name=Smoother
-draw=1
-style=0
-width=1
-color=17919
-</graph>
-<inputs>
+Smoother Settings=
 InpSmootherType=0
 InpPeriod=21
-InpSourcePrice=1
+InpSourcePrice=-1
 </inputs>
 </indicator>
 
@@ -895,7 +866,7 @@ descr=
 EScore Settings=
 InpSmootherType=0
 InpPeriod=21
-InpSourcePrice=1
+InpSourcePrice=-1
 Signal Line Settings=
 InpShowSignal=true
 InpSignalPeriod=5
