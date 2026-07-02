@@ -48,12 +48,12 @@ input int                       InpSignalPeriod= 5;           // Signal Line Per
 input ENUM_MA_TYPE              InpSignalType  = SMA;         // Signal Line MA Type
 
 input group "Indicator Levels"
-input double                    InpLevelFlowHigh   = 2.0;         // High Warning Level (Bullish Flow)
-input double                    InpLevelFlowLow    = -2.0;        // Low Warning Level (Bearish Flow)
-input double                    InpLevelClimaxHigh = 2.5;         // High Climax Level (Bullish Climax)
-input double                    InpLevelClimaxLow  = -2.5;        // Low Climax Level (Bearish Climax)
-input double                    InpLevelExtremeHigh= 3.0;         // High Exhaustion Level
-input double                    InpLevelExtremeLow = -3.0;        // Low Exhaustion Level
+input double                    InpLevelFlowHigh   = 1.5;         // High Warning Level (Bullish Flow)
+input double                    InpLevelFlowLow    = -1.5;        // Low Warning Level (Bearish Flow)
+input double                    InpLevelClimaxHigh = 2.0;         // High Climax Level (Bullish Climax)
+input double                    InpLevelClimaxLow  = -2.0;        // Low Climax Level (Bearish Climax)
+input double                    InpLevelExtremeHigh= 2.5;         // High Exhaustion Level
+input double                    InpLevelExtremeLow = -2.5;        // Low Exhaustion Level
 input color                     InpLevelColor      = clrSilver;   // Levels Color
 input ENUM_LINE_STYLE           InpLevelStyle      = STYLE_DOT;   // Levels Style
 
