@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.11" // Implemented ENUM_BUTTERWORTH_POLES definition with dynamic level guards
+#property version   "3.12" // Fixed missing GetPeriod public getter method
 
 #ifndef BUTTERWORTH_CALCULATOR_MQH
 #define BUTTERWORTH_CALCULATOR_MQH
@@ -44,6 +44,9 @@ public:
    bool              Init(int period, ENUM_BUTTERWORTH_POLES poles, ENUM_INPUT_SOURCE source_type);
 
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
+
+   //--- FIXED: Public getter method for the filter period
+   int               GetPeriod(void) const { return m_period; }
   };
 
 //+------------------------------------------------------------------+
@@ -77,6 +80,11 @@ void CButterworthCalculator::Calculate(int rates_total, int prev_calculated, ENU
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
+//--- Calculate Coefficients
+   double a = exp(-M_SQRT2 * M_PI / m_period);
+   double b = 2.0 * a * cos(M_SQRT2 * M_PI / m_period);
+   double c1 = (1.0 - b + a*a) / 4.0;
+
 //--- Incremental Loop
    int loop_start = MathMax(3, start_index);
 
@@ -90,9 +98,9 @@ void CButterworthCalculator::Calculate(int rates_total, int prev_calculated, ENU
 
    if(m_poles == POLES_TWO)
      {
-      double a = exp(-M_SQRT2 * M_PI / m_period);
-      double b = 2.0 * a * cos(M_SQRT2 * M_PI / m_period);
-      double c1 = (1.0 - b + a*a) / 4.0;
+      double a_coeff = exp(-M_SQRT2 * M_PI / m_period);
+      double b_coeff = 2.0 * a_coeff * cos(M_SQRT2 * M_PI / m_period);
+      double c1_coeff = (1.0 - b_coeff + a_coeff*a_coeff) / 4.0;
 
       for(int i = loop_start; i < rates_total; i++)
         {
@@ -100,15 +108,15 @@ void CButterworthCalculator::Calculate(int rates_total, int prev_calculated, ENU
          double f1 = filter_buffer[i-1];
          double f2 = filter_buffer[i-2];
 
-         filter_buffer[i] = b * f1 - a * a * f2 + c1 * (m_price[i] + 2.0 * m_price[i-1] + m_price[i-2]);
+         filter_buffer[i] = b_coeff * f1 - a_coeff * a_coeff * f2 + c1_coeff * (m_price[i] + 2.0 * m_price[i-1] + m_price[i-2]);
         }
      }
    else // POLES_THREE
      {
-      double a = exp(-M_PI / m_period);
-      double b = 2.0 * a * cos(1.738 * M_PI / m_period); // 1.738 is approx sqrt(3) * pi / 3
-      double c = a * a;
-      double c1 = (1.0 - b + c) * (1.0 - c) / 8.0;
+      double a_coeff = exp(-M_PI / m_period);
+      double b_coeff = 2.0 * a_coeff * cos(1.738 * M_PI / m_period); // 1.738 is approx sqrt(3) * pi / 3
+      double c_coeff = a_coeff * a_coeff;
+      double c1_coeff = (1.0 - b_coeff + c_coeff) * (1.0 - c_coeff) / 8.0;
 
       for(int i = loop_start; i < rates_total; i++)
         {
@@ -117,7 +125,7 @@ void CButterworthCalculator::Calculate(int rates_total, int prev_calculated, ENU
          double f2 = filter_buffer[i-2];
          double f3 = filter_buffer[i-3];
 
-         filter_buffer[i] = (b + c) * f1 - (c + b*c) * f2 + c*c * f3 + c1 * (m_price[i] + 3.0 * m_price[i-1] + 3.0 * m_price[i-2] + m_price[i-3]);
+         filter_buffer[i] = (b_coeff + c_coeff) * f1 - (c_coeff + b_coeff*c_coeff) * f2 + c_coeff*c_coeff * f3 + c1_coeff * (m_price[i] + 3.0 * m_price[i-1] + 3.0 * m_price[i-2] + m_price[i-3]);
         }
      }
   }
