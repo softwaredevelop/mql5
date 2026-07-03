@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                     Butterworth_Filter_Pro.mq5   |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "2.00" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.10" // Upgraded with strict chronological sorting safeguards and pointer guards
 #property description "John Ehlers' Higher-Order Butterworth Filter."
 
 #property indicator_chart_window
@@ -18,9 +18,10 @@
 #include <MyIncludes\Butterworth_Calculator.mqh>
 
 //--- Input Parameters ---
-input int                       InpPeriod       = 20;    // Critical Period for the filter
-input ENUM_BUTTERWORTH_POLES    InpPoles        = POLES_TWO; // Number of poles (2 or 3)
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input group                     "Butterworth Settings"
+input int                       InpPeriod       = 20;              // Critical Period
+input ENUM_BUTTERWORTH_POLES    InpPoles        = POLES_TWO;       // Number of poles (2 or 3)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
 
 //--- Indicator Buffers ---
 double    BufferFilter[];
@@ -65,6 +66,8 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
+//| Custom indicator calculation function                            |
+//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
                 const datetime &time[],
@@ -76,8 +79,18 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
+   if(rates_total < 4)
+      return 0;
+
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
 
    ENUM_APPLIED_PRICE price_type;
    if(InpSourcePrice <= PRICE_HA_CLOSE)
@@ -85,8 +98,9 @@ int OnCalculate(const int rates_total,
    else
       price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
 
+//--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferFilter);
+
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
