@@ -1,14 +1,25 @@
 //+------------------------------------------------------------------+
 //|                                     Butterworth_Calculator.mqh   |
-//|      Calculation engine for the John Ehlers' Butterworth Filter. |
-//|      VERSION 2.00: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.11" // Implemented ENUM_BUTTERWORTH_POLES definition with dynamic level guards
+
+#ifndef BUTTERWORTH_CALCULATOR_MQH
+#define BUTTERWORTH_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
-enum ENUM_BUTTERWORTH_POLES { POLES_TWO = 2, POLES_THREE = 3 };
+//--- Butterworth Poles Enum Definition
+#ifndef ENUM_BUTTERWORTH_POLES_DEFINED
+#define ENUM_BUTTERWORTH_POLES_DEFINED
+enum ENUM_BUTTERWORTH_POLES
+  {
+   POLES_TWO = 2,   // 2-Pole Filter
+   POLES_THREE = 3  // 3-Pole Filter
+  };
+#endif
+
 enum ENUM_INPUT_SOURCE { SOURCE_PRICE, SOURCE_MOMENTUM };
 
 //+==================================================================+
@@ -24,7 +35,6 @@ protected:
    //--- Persistent Buffer for Price
    double                  m_price[];
 
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -33,7 +43,6 @@ public:
 
    bool              Init(int period, ENUM_BUTTERWORTH_POLES poles, ENUM_INPUT_SOURCE source_type);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &filter_buffer[]);
   };
 
@@ -56,15 +65,14 @@ void CButterworthCalculator::Calculate(int rates_total, int prev_calculated, ENU
    if(rates_total < 4)
       return;
 
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-// Resize internal buffer
+// Resize and force strict chronological sorting
    if(ArraySize(m_price) != rates_total)
+     {
       ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false); // Fixed: strict chronological safety on internal buffers
+     }
 
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
@@ -98,7 +106,7 @@ void CButterworthCalculator::Calculate(int rates_total, int prev_calculated, ENU
    else // POLES_THREE
      {
       double a = exp(-M_PI / m_period);
-      double b = 2.0 * a * cos(1.738 * M_PI / m_period); // 1.738 is approx sqrt(3) * pi / 3? No, it's specific to 3-pole.
+      double b = 2.0 * a * cos(1.738 * M_PI / m_period); // 1.738 is approx sqrt(3) * pi / 3
       double c = a * a;
       double c1 = (1.0 - b + c) * (1.0 - c) / 8.0;
 
@@ -166,7 +174,7 @@ class CButterworthCalculator_HA : public CButterworthCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+   double             m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 protected:
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
   };
@@ -182,6 +190,11 @@ bool CButterworthCalculator_HA::PreparePriceSeries(int rates_total, int start_in
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
@@ -224,4 +237,5 @@ bool CButterworthCalculator_HA::PreparePriceSeries(int rates_total, int start_in
      }
    return true;
   }
+#endif // BUTTERWORTH_CALCULATOR_MQH
 //+------------------------------------------------------------------+
