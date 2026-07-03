@@ -55,7 +55,7 @@ Where $P_t$ represents the current input price coordinate, and $F_t$ is the fina
 
 The suite is engineered to meet the highest execution and stability standards:
 
-* **Szigorú Chronological Sorting Safeguards:**
+* **Strict Chronological Sorting Safeguards:**
   To prevent calculation corruption caused by reverse-chronological array states (often forced by custom templates or third-party indicators on the active chart), the suite enforces chronological sorting (`ArraySetAsSeries(..., false)`) on all price inputs inside `OnCalculate()`. This is also applied inside the dynamic buffer resizes (`m_price[]`, `m_ha_open[]`, etc.) within the calculator engine classes.
 
 * **Memory Safety Validation (Pointer Guards):**
