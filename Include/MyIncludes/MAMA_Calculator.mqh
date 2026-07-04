@@ -1,9 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                              MAMA_Calculator.mqh |
-//|      VERSION 1.30: Restored Incremental Calculation (Verified).  |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.41" // Verified complete scope alignment and chronological safeguards for all 16 dynamic arrays
+
+#ifndef MAMA_CALCULATOR_MQH
+#define MAMA_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -32,7 +35,6 @@ protected:
    double            m_mama_buf[];
    double            m_fama_buf[];
 
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -41,7 +43,6 @@ public:
 
    bool              Init(double fast_limit, double slow_limit);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &mama_buffer[], double &fama_buffer[]);
   };
@@ -66,13 +67,9 @@ void CMAMACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLI
       return;
 
 //--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Internal Buffers
+//--- 2. Resize Internal Buffers & force strict chronological indexing (false)
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
@@ -91,6 +88,23 @@ void CMAMACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLI
       ArrayResize(m_phase_buf, rates_total);
       ArrayResize(m_mama_buf, rates_total);
       ArrayResize(m_fama_buf, rates_total);
+
+      ArraySetAsSeries(m_price, false);
+      ArraySetAsSeries(m_smooth_buf, false);
+      ArraySetAsSeries(m_detrender_buf, false);
+      ArraySetAsSeries(m_I1_buf, false);
+      ArraySetAsSeries(m_Q1_buf, false);
+      ArraySetAsSeries(m_jI_buf, false);
+      ArraySetAsSeries(m_jQ_buf, false);
+      ArraySetAsSeries(m_I2_buf, false);
+      ArraySetAsSeries(m_Q2_buf, false);
+      ArraySetAsSeries(m_Re_buf, false);
+      ArraySetAsSeries(m_Im_buf, false);
+      ArraySetAsSeries(m_period_buf, false);
+      ArraySetAsSeries(m_smooth_period_buf, false);
+      ArraySetAsSeries(m_phase_buf, false);
+      ArraySetAsSeries(m_mama_buf, false);
+      ArraySetAsSeries(m_fama_buf, false);
      }
 
 //--- 3. Prepare Price (Optimized)
@@ -205,7 +219,6 @@ void CMAMACalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLI
 //+------------------------------------------------------------------+
 bool CMAMACalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -229,7 +242,7 @@ bool CMAMACalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+close[i]+close[i])/4.0;
+            m_price[i] = (high[i]+low[i]+2.0*close[i])/4.0;
             break;
          default:
             m_price[i] = close[i];
@@ -246,7 +259,6 @@ class CMAMACalculator_HA : public CMAMACalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
    double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
@@ -258,20 +270,23 @@ protected:
 //+------------------------------------------------------------------+
 bool CMAMACalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
+// Resize internal HA buffers and force chronological sorting
    if(ArraySize(m_ha_open) != rates_total)
      {
       ArrayResize(m_ha_open, rates_total);
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
-//--- Copy to m_price (Optimized loop)
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
@@ -295,7 +310,7 @@ bool CMAMACalculator_HA::PreparePriceSeries(int rates_total, int start_index, EN
             m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2.0*m_ha_close[i])/4.0;
             break;
          default:
             m_price[i] = m_ha_close[i];
@@ -304,4 +319,5 @@ bool CMAMACalculator_HA::PreparePriceSeries(int rates_total, int start_index, EN
      }
    return true;
   }
+#endif // MAMA_CALCULATOR_MQH
 //+------------------------------------------------------------------+
