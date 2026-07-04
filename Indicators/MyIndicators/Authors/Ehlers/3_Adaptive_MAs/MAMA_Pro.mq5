@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                      MAMA_Pro.mq5|
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.30" // Optimized for incremental calculation
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.40" // Upgraded with 3-digit Alpha limits, optional line toggles, pointer safety and chronological safeguards
 #property description "John Ehlers' MESA Adaptive Moving Average (MAMA) and FAMA."
 
 #property indicator_chart_window
@@ -27,9 +27,14 @@
 #include <MyIncludes\MAMA_Calculator.mqh>
 
 //--- Input Parameters ---
-input double                    InpFastLimit    = 0.5;   // Fast Limit for Alpha
-input double                    InpSlowLimit    = 0.05;  // Slow Limit for Alpha
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;
+input group                     "MAMA Settings"
+input double                    InpFastLimit    = 0.5;             // Fast Limit for Alpha
+input double                    InpSlowLimit    = 0.05;            // Slow Limit for Alpha
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD; // Price Source
+
+input group                     "Display Settings"
+input bool                      InpShowMAMA     = true;            // Show MAMA Line?
+input bool                      InpShowFAMA     = true;            // Show FAMA Line?
 
 //--- Indicator Buffers ---
 double    BufferMAMA[];
@@ -47,21 +52,43 @@ int OnInit()
    ArraySetAsSeries(BufferFAMA,  false);
 
    if(InpSourcePrice <= PRICE_HA_CLOSE)
-     {
       g_calculator = new CMAMACalculator_HA();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MAMA HA(%.2f,%.2f)", InpFastLimit, InpSlowLimit));
-     }
    else
-     {
       g_calculator = new CMAMACalculator();
-      IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MAMA(%.2f,%.2f)", InpFastLimit, InpSlowLimit));
-     }
 
    if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpFastLimit, InpSlowLimit))
      {
       Print("Failed to initialize MAMA Calculator.");
       return(INIT_FAILED);
      }
+
+//--- Configure Display Mode for MAMA Line
+   if(InpShowMAMA)
+     {
+      PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_LINE);
+      PlotIndexSetString(0, PLOT_LABEL, "MAMA");
+     }
+   else
+     {
+      PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_NONE);
+      PlotIndexSetString(0, PLOT_LABEL, NULL);
+     }
+
+//--- Configure Display Mode for FAMA Line
+   if(InpShowFAMA)
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
+      PlotIndexSetString(1, PLOT_LABEL, "FAMA");
+     }
+   else
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
+      PlotIndexSetString(1, PLOT_LABEL, NULL);
+     }
+
+//--- Shortname
+   string type = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("MAMA%s(%.2f,%.2f)", type, InpFastLimit, InpSlowLimit));
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 50);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, 50);
@@ -81,7 +108,7 @@ void OnDeinit(const int reason)
 //| Custom indicator calculation function                            |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
-                const int prev_calculated, // <--- Now used!
+                const int prev_calculated,
                 const datetime &time[],
                 const double &open[],
                 const double &high[],
@@ -91,19 +118,42 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
+   if(rates_total < 50)
+      return 0;
+
    if(CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
+   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
+                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
+                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //--- Delegate calculation with prev_calculated optimization
    g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferMAMA, BufferFAMA);
 
+//--- Hide MAMA line if not selected
+   if(!InpShowMAMA)
+     {
+      int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start_index; i < rates_total; i++)
+         BufferMAMA[i] = EMPTY_VALUE;
+     }
+
+//--- Hide FAMA line if not selected
+   if(!InpShowFAMA)
+     {
+      int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      for(int i = start_index; i < rates_total; i++)
+         BufferFAMA[i] = EMPTY_VALUE;
+     }
+
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
