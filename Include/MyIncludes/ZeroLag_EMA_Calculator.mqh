@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                     ZeroLag_EMA_Calculator.mqh   |
-//|      Calculation engine for the John Ehlers' Zero-Lag EMA.       |
-//|      VERSION 3.00: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // Upgraded with strict internal chronological sorting safeguards for recursive ZLEMA buffers
+
+#ifndef ZEROLAG_EMA_CALCULATOR_MQH
+#define ZEROLAG_EMA_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -29,7 +31,6 @@ protected:
    double            m_ema[];
    double            m_ec[];
 
-   //--- Updated: Accepts start_index
    virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -38,7 +39,6 @@ public:
 
    bool              Init(int period, bool optimize_gain, double gain_limit);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[], double &zlema_buffer[]);
   };
 
@@ -61,25 +61,27 @@ void CZeroLagEMACalculator::Calculate(int rates_total, int prev_calculated, ENUM
    if(rates_total < m_period * 2)
       return;
 
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-// Resize Buffers
+// Resize Buffers and force strict chronological sorting
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false);
+
       if(!m_optimize_gain)
         {
          ArrayResize(m_ema1, rates_total);
          ArrayResize(m_ema2, rates_total);
+         ArraySetAsSeries(m_ema1, false);
+         ArraySetAsSeries(m_ema2, false);
         }
       else
         {
          ArrayResize(m_ema, rates_total);
          ArrayResize(m_ec, rates_total);
+         ArraySetAsSeries(m_ema, false);
+         ArraySetAsSeries(m_ec, false);
         }
      }
 
@@ -187,7 +189,7 @@ bool CZeroLagEMACalculator::PreparePriceSeries(int rates_total, int start_index,
             m_price[i] = (high[i]+low[i]+close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
+            m_price[i] = (high[i]+low[i]+2.0*close[i])/4.0;
             break;
          default:
             m_price[i] = close[i];
@@ -210,7 +212,7 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Prepare Price (Heikin Ashi)                                      |
 //+------------------------------------------------------------------+
 bool CZeroLagEMACalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -220,6 +222,11 @@ bool CZeroLagEMACalculator_HA::PreparePriceSeries(int rates_total, int start_ind
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high, false);
+      ArraySetAsSeries(m_ha_low, false);
+      ArraySetAsSeries(m_ha_close, false);
      }
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
@@ -246,7 +253,7 @@ bool CZeroLagEMACalculator_HA::PreparePriceSeries(int rates_total, int start_ind
             m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
+            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2.0*m_ha_close[i])/4.0;
             break;
          default:
             m_price[i] = m_ha_close[i];
@@ -255,4 +262,5 @@ bool CZeroLagEMACalculator_HA::PreparePriceSeries(int rates_total, int start_ind
      }
    return true;
   }
+#endif // ZEROLAG_EMA_CALCULATOR_MQH
 //+------------------------------------------------------------------+
