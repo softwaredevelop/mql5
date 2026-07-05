@@ -60,7 +60,7 @@ $$\text{ZLEMA}_t = \alpha \times \left( \text{EMA}_t + \text{best\_gain} \times 
 
 The entire suite is optimized to conform with our strict quantitative design guidelines:
 
-* **Szigorú Chronological Sorting Safeguards:**
+* **Strict Chronological Sorting Safeguards:**
   Because both the Double EMA and the Ehlers Optimized Gain calculations rely on a highly state-sensitive recursive history ($t-1$), any reverse-chronological array indexing will completely corrupt the calculations. To prevent this, the suite enforces chronological sorting (`ArraySetAsSeries(..., false)`) on all price inputs inside `OnCalculate()`. This is also applied inside all internal resizes within the calculator classes.
 
 * **Memory Safety Validation (Pointer Guards):**
