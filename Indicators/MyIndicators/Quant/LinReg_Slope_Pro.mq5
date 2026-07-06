@@ -3,24 +3,24 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.01" // Increased decimal digits precision to show micro-pip fluctuations in Data Window
+#property version   "1.20" // Refactored with dynamic 5-Zone hybrid R2-based thermal color matrix (Standard aligned)
 #property description "Linear Regression Slope. Measures the exact direction and velocity of the trend."
-#property description "Features a zero-center colored histogram (Green = Bullish, Red = Bearish)."
+#property description "Features a clean separate window colored histogram with 5-zone trend integrity filtering."
 
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   1
 
-//--- Levels (Zero line gravity pivot)
-#property indicator_level1 0.0
-#property indicator_levelcolor clrSilver
-#property indicator_levelstyle STYLE_DOT
-
 //--- Plot 1: Slope Histogram (Swapped Bull/Bear Thermal Palette)
 #property indicator_label1  "Slope"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-// Colors: 0 = Neutral (Gray), 1 = Bullish (MediumSeaGreen), 2 = Bearish (Tomato)
-#property indicator_color1  clrGray, clrMediumSeaGreen, clrTomato
+// Colors:
+// 0 = Chop/Noise (Gray)
+// 1 = Bull Climax / Strong (MediumSeaGreen)
+// 2 = Bull Flow / Weak (PaleGreen)
+// 3 = Bear Climax / Strong (Crimson)
+// 4 = Bear Flow / Weak (LightCoral)
+#property indicator_color1  clrGray, clrMediumSeaGreen, clrPaleGreen, clrCrimson, clrLightCoral
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
@@ -36,7 +36,8 @@ enum ENUM_CANDLE_SOURCE
 input group                     "Slope Settings"
 input int                InpPeriod       = 20;              // Regression Period (N)
 input ENUM_CANDLE_SOURCE InpSource       = SOURCE_STANDARD;  // Candle Source
-input ENUM_APPLIED_PRICE InpPrice        = PRICE_CLOSE;     // Applied Price (Standard Mode)
+input ENUM_APPLIED_PRICE InpPrice        = PRICE_CLOSE;     // Applied Price (Standard)
+input double             InpTrendLevel   = 0.7;             // Strong Trend Level (R2 Threshold)
 
 //--- Buffers
 double    BufSlope[];
@@ -75,7 +76,7 @@ int OnInit()
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, InpPeriod);
 
-//--- FIXED: Set dynamic decimal digits to match symbol precision + 2 (EURUSD = 7 digits) to show micro-pip details
+//--- Set dynamic decimal digits to match symbol precision + 2 (EURUSD = 7 digits) to show micro-pip details
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits + 2);
 
    return(INIT_SUCCEEDED);
@@ -129,17 +130,35 @@ int OnCalculate(const int rates_total,
 
    for(int i = start; i < rates_total; i++)
      {
+      double r  = r2[i];
       double sl = s[i];
       BufSlope[i] = sl;
 
-      // Color Logic based on slope direction:
-      if(sl > 0.0)
-         BufColors[i] = 1.0;
+      // Hybrid 5-Zone Color Matrix:
+      // R2 <= 0.30 -> Index 0: Gray (Neutral Chop)
+      // Slope >= 0 and R2 >= InpTrendLevel -> Index 1: MediumSeaGreen (Strong Bullish)
+      // Slope >= 0 and 0.30 < R2 < InpTrendLevel -> Index 2: PaleGreen (Weak Bullish)
+      // Slope < 0 and R2 >= InpTrendLevel -> Index 3: Crimson (Strong Bearish)
+      // Slope < 0 and 0.30 < R2 < InpTrendLevel -> Index 4: LightCoral (Weak Bearish)
+      if(r <= 0.3)
+        {
+         BufColors[i] = 0.0; // Gray
+        }
       else
-         if(sl < 0.0)
-            BufColors[i] = 2.0;
-         else
-            BufColors[i] = 0.0;
+         if(sl >= 0.0)
+           {
+            if(r >= InpTrendLevel)
+               BufColors[i] = 1.0; // Strong Bullish
+            else
+               BufColors[i] = 2.0; // Weak Bullish
+           }
+         else // sl < 0.0
+           {
+            if(r >= InpTrendLevel)
+               BufColors[i] = 3.0; // Strong Bearish
+            else
+               BufColors[i] = 4.0; // Weak Bearish
+           }
      }
 
    return(rates_total);
