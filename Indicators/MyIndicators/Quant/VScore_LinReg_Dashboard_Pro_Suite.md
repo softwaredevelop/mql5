@@ -2,52 +2,57 @@
 
 ## 1. Summary (Introduction)
 
-The **Unified V-Score & Linear Regression R2/Slope Scanner Pro Suite** is an institutional-grade, multi-asset quantitative market scanner designed as the ultimate dashboard companion:
+The **Unified V-Score & Linear Regression R2/Slope Scanner Pro Suite** is an institutional-grade, high-performance quantitative market scanning and chart-HUD suite comprising two advanced indicators:
 
-* `VScore_LinReg_Dashboard_Pro`
+* `VScore_LinReg_Dashboard_Pro` (Multi-Asset Scanner Dashboard)
+* `VScore_LinReg_Widget_Pro` (Minimalist Single-Asset Chart HUD Widget)
 
-In modern algorithmic trading, relying on a single indicator class generates significant blind spots. Trend-following indicators fail during range consolidations, while mean-reversion oscillators suffer heavy losses during strong trend expansions. This dashboard resolves this fundamental conflict by fusing **statistical volatility boundaries** with **least-squares trend integrity** in a highly optimized, space-saving real-time hőtérkép matrix.
+In modern algorithmic trading, relying on a single indicator class generates significant blind spots. Trend-following indicators fail during range consolidations, while mean-reversion oscillators suffer heavy losses during strong trend expansions. This suite resolves this fundamental conflict by fusing **statistical volatility boundaries** with **least-squares trend integrity** in a highly optimized, space-saving real-time separate or chart-overlay matrix.
 
-By monitoring up to dozens of assets simultaneously across three compact columns, the scanner gives quantitative traders an instant bird's-eye view of both volatility expansions and structural trend quality.
+Traders can deploy two distinct configurations depending on their workflow:
 
----
-
-## 2. The Quantitative Synergy Concept (Volatility vs. Trend Integrity)
-
-The scanner represents a multi-dimensional approach to market analysis, mapping volatility and trend structure into a cohesive decision matrix:
-
-### A. Volatility Mapping (The V-Score)
-
-The V-Score measures how far the price has stretched relative to its volume-weighted average price (VWAP), expressed in standard deviations (Sigma units). It identifies absolute liquidity pools, institutional imbalances, and overbought/oversold exhaustion zones.
-
-### B. Trend Quality Mapping (The Linear Regression $R^2$ & Slope)
-
-Linear Regression mathematically measures the speed of price change per bar (Slope) and quantifies how closely price action fits the regression line (R-Squared). $R^2$ filters out random noise and identifies whether a movement is a volatile tüske or a highly structured, institutional trend.
-
-### C. The Volatility-Trend Synergy Matrix
-
-Combining these two independent metrics unlocks highly precise directional filters:
-
-| Market Scenario | V-Score State | R-Squared ($R^2$) State | Slope Bias | Quantitative Interpretation & Tactical Action |
-| :--- | :--- | :--- | :---: | :--- |
-| **Liquidity Exhaustion (Mean Reversion)** | Extreme High/Low ($\ge \pm 2.0$) | Low / Chop ($\le 0.30$) | Any | **High-Probability Pivot Zone.** Price is extremely overextended, but the trend has no structural backing. High probability of rapid mean reversion back to VWAP. Prepare to trade reversals. |
-| **Trend Acceleration (Breakout Run)** | Neutral / Expanding ($[0.0, 1.5]$) | Strong ($\ge 0.70$) | Positive (`▲`) / Negative (`▼`) | **Clean Trend Continuation.** Price is stably breaking out. The trend is highly structured and supported by institutional volume. Join the trend on pullbacks. |
-| **Institutional Squeeze (Trend Climax)** | Extreme High/Low ($\ge \pm 2.0$) | Strong ($\ge 0.70$) | Positive (`▲`) / Negative (`▼`) | **Trend Climax / Short Squeeze.** Price is highly overextended but the trend is exceptionally structured. **Do not short against a strong bull climax!** Wait for the $R^2$ to contract first. |
-| **Sideways Chop (Range Consolidation)** | Neutral / Zero Axis | Low / Chop ($\le 0.30$) | Flat (`■`) | **Equilibrium / Random Noise.** Volatility is low, and price is mean-reverting randomly inside a tight range. Avoid trend entries. Scalp range boundaries using minor support/resistance. |
+1. **The Multi-Asset Scanner (`VScore_LinReg_Dashboard_Pro`):** Displays a comprehensive hőtérkép grid of up to dozens of assets simultaneously, enabling traders to identify opportunities across the entire market from a single chart.
+2. **The Single-Asset Chart HUD Widget (`VScore_LinReg_Widget_Pro`):** Positioned discretely in the bottom-left corner of the chart, this minimalist 2-row, 3-column widget automatically tracks whichever symbol is currently active, providing high-resolution higher-timeframe (MTF) trend and volatility status without cluttering price action.
 
 ---
 
-## 3. Interactive User Interface Details
+## 2. Mathematical Foundations
 
-The scanner is mapped to a high-contrast, minimalist separate subwindow grid:
+The calculation pipeline consists of five cascading mathematical steps executed on every bar to translate raw price action into dynamic, volume-weighted adaptive coordinates:
 
-### A. Column 1: Symbol Switcher
+### A. Dynamic Volatility Mean-Reversion (V-Score - $V_t$)
 
-Displays the asset ticker (e.g. `EURUSD`, `DE40`). Each symbol acts as an **interactive, clickable button**. Clicking on a symbol button instantly switches the main MT5 chart symbol to that asset while preserving the current timeframe, enabling rapid execution.
+The V-Score is calculated recursively by normalising the distance of price ($P$) from its volume-weighted moving average (VWAP) using the rolling standard deviation ($\sigma_{\text{VWAP}}$) calculated over the lookback period $N_{\text{VS}}$ (`InpVScorePeriod`):
 
-### B. Column 2: V-Score Volatility Heatmap
+$$\text{V-Score}_t = \frac{P_t - \text{VWAP}_t(\text{Reset})}{\sigma_{\text{VWAP}, t}}$$
 
-Displays the real-time V-Score value. It uses the institutional **Swapped Thermal Palette** to signify statistical extremities:
+Where the VWAP anchor reset is governed by `InpVWAPReset` (typically `PERIOD_SESSION`).
+
+### B. Linear Regression Slope ($m_t$ - Trend Velocity) and Intercept ($a_t$)
+
+Linear Regression mathematically calculates the rate of price change per bar ($m_t$) and the starting coordinate ($a_t$) over a rolling observation window $N_{\text{LR}}$ (`InpLinRegPeriod` or `InpPeriod`) by minimizing the sum of squared errors:
+
+$$m_t = \frac{N_{\text{LR}} \sum_{k=0}^{N_{\text{LR}}-1} (k \times P_{t-N_{\text{LR}}+1+k}) - \sum_{k=0}^{N_{\text{LR}}-1} k \sum_{k=0}^{N_{\text{LR}}-1} P_{t-N_{\text{LR}}+1+k}}{N_{\text{LR}} \sum_{k=0}^{N_{\text{LR}}-1} k^2 - \left(\sum_{k=0}^{N_{\text{LR}}-1} k\right)^2}$$
+
+$$a_t = \frac{\sum_{k=0}^{N_{\text{LR}}-1} P_{t-N_{\text{LR}}+1+k} - m_t \sum_{k=0}^{N_{\text{LR}}-1} k}{N_{\text{LR}}}$$
+
+### C. Coefficient of Determination (R-Squared - $R^2_t$)
+
+R-Squared quantifies how closely price action fits the computed regression line, bounded strictly between $0.0$ and $1.0$:
+
+$$R^2_t = \frac{\text{SSR}_t}{\text{SST}_t} \quad \left(0.0 \le R^2_t \le 1.0\right)$$
+
+Where $\text{SSR}_t$ is the regression sum of squares and $\text{SST}_t$ is the total sum of squares.
+
+---
+
+## 3. Volatility-Trend Matrix (Swapped Thermal Palette)
+
+To represent the progressive build-up of market momentum, both the scanner and the widget utilize unified, standardized thermal coloring systems:
+
+### A. V-Score Volatility Heatmap Colors
+
+Displays the raw V-Score value. It uses the institutional **Swapped Thermal Palette** (Blue for Bullish, Red/Coral for Bearish, aligned with Heikin Ashi candle colors) to signify statistical extremities:
 
 * **$\ge 2.0$:** `clrOrangeRed` (Bullish Extreme / Liquidity Exhaustion)
 * **$\ge 1.5$:** `clrCoral` (Bullish Flow / Volatility Expansion)
@@ -55,9 +60,9 @@ Displays the real-time V-Score value. It uses the institutional **Swapped Therma
 * **$\le -1.5$:** `clrLightSkyBlue` (Bearish Flow / Volatility Expansion)
 * **Otherwise:** `clrWhite` with `clrDarkGray` text (Equilibrium / Noise)
 
-### C. Column 3: R2 Trend Integrity & Slope Direction
+### B. LinReg R2 Trend Quality & Slope Direction
 
-Displays the $R^2$ coefficient mapped directly to a directional trend arrow based on the Slope:
+Displays the $R^2$ trend integrity, accompanied by a directional trend arrow based on the Slope:
 
 * **`▲` (Bullish Bias):** Slope is positive ($m \ge 0$).
 * **`▼` (Bearish Bias):** Slope is negative ($m < 0$).
@@ -69,69 +74,138 @@ The cell background color adapts dynamically to the $R^2$ trend-strength levels:
 
 ---
 
-## 4. Performance & Memory Safety (Institutional Standard)
+## 4. Multi-Asset Dashboards vs. Chart HUD Widgets
 
-Running multi-asset scanners in MT5 can often degrade terminal performance. The Pro Suite resolves this through advanced optimization:
+The suite offers two distinct layouts optimized for different stages of the quantitative trading workflow:
+
+```text
+
+               [MULTI-ASSET SCANNER DASHBOARD]
+           Positioned at InpTableY (e.g. top-left)
++---------------+---------------+---------------+
+| Symbol (M15)  |    V-Score    |   R2 & Slope  |
++---------------+---------------+---------------+
+|    EURUSD     |     1.165     |    ▲ 0.235    |
+|    GBPUSD     |    -1.123     |    ▼ 0.343    |  <-- Switch chart on click
+|    USDJPY     |     1.082     |    ▲ 0.797    |
++---------------+---------------+---------------+
+
+                                 ||
+                                 || Switch Chart
+                                 \/
+
+                  [SINGLE-ASSET CHART HUD WIDGET]
+             Positioned at bottom-left (CORNER_LEFT_LOWER)
++-----------------------------------------------+
+| Symbol (H1)   |    V-Score    |   R2 & Slope  |  Y = InpTableY + row_h + 2
++---------------+---------------+---------------+
+|    EURUSD     |     1.165     |    ▲ 0.235    |  Y = InpTableY (e.g. 20px)
++---------------+---------------+---------------+
+
+```
+
+### A. The Multi-Asset Scanner Dashboard (`VScore_LinReg_Dashboard_Pro`)
+
+* **Purpose:** Multi-market scanning and filtration.
+* **Layout:** Displays multiple rows, each corresponding to a different asset selected from the Market Watch or a custom comma-separated string list.
+* **Interaction:** Clicking any symbol's button dynamically changes the active chart's symbol to that asset, acting as an interactive trading portal.
+
+### B. The Single-Asset Chart HUD Widget (`VScore_LinReg_Widget_Pro`)
+
+* **Purpose:** Focused execution and higher-timeframe trend/volatility status monitoring.
+* **Layout:** Displays a minimalist 2-row, 3-column table positioned discreetly in the bottom-left corner (`CORNER_LEFT_LOWER`).
+* **Symbol Coupling:** No symbol list input is required. The widget automatically and dynamically reads the active chart's symbol (`_Symbol`). If the user switches symbols, the widget instantly updates.
+* **Y-Coordinate Inversion:** Because the bottom-left corner measuring grows **upwards** from the bottom edge of the chart:
+  * The **Data Row** is positioned closer to the bottom at `InpTableY` (e.g., 20 pixels).
+  * The **Header Row** is positioned above the data row at `InpTableY + row_h + 2` (e.g., 44 pixels).
+  This keeps the layout perfectly structured, compact, and aligned.
+
+---
+
+## 5. Performance-Safe Engineering (Zero-Copy & Throttling)
+
+Running multi-asset scans across dozens of currency pairs can easily crash a standard terminal. The Pro Suite resolves this by utilizing professional performance safety layers:
 
 * **Real-Time Tick Throttling:**
   The `OnCalculate` event restricts refresh operations to a minimum interval of 200 milliseconds (maximum 5 updates per second), filtering out high-frequency tick noise and keeping CPU utilization near 0%. A background timer (`OnTimer`) refreshes the grid every `InpRefreshSeconds` (default: 3 seconds) during low-volatility periods.
 * **Zero-Leak Stack Allocation:**
   All calculator classes (`CVScoreCalculator` and `CLinearRegressionCalculator`) are instantiated directly on the stack inside retrieval functions. This avoids heap allocations (`new`/`delete` operators), completely eliminating memory fragmentation and leak vulnerabilities.
-* **Limited History Copy Depth:**
-  To optimize memory footprint, the scanner copy routines only request a minimal history buffer (300 bars) necessary to stabilize the indicators, bypassing heavy full-history arrays.
+* **Asynchronous History Loading (`EnsureDataReady`):**
+  Prevents thread blocking while history is loading. If an asset is not yet synchronized, the scanner prints `Sync...` and moves on to the next asset, preventing frozen charts on startup.
 
 ---
 
-## 5. Parameters
+## 6. Parameters
 
-### A. Scanner Asset Settings
+### A. Scanner / Widget Settings
 
-* **Custom Symbols (`InpCustomSymbols`):** Comma-separated list of symbols to scan (e.g. `EURUSD,GBPUSD,USDJPY`). If left blank, the scanner automatically imports all active symbols from the Market Watch window.
-* **Maximum Symbols (`InpMaxSymbols`):** The maximum number of symbols displayed in the rács (Default: `15`).
-* **Target Timeframe (`InpTimeframe`):** The target timeframe to calculate all scanner values on (Default: `PERIOD_M15`).
+* **Custom Symbols (`InpCustomSymbols` - Dashboard Only):** Comma-separated list of symbols to scan. If left blank, the scanner automatically imports all active symbols from the Market Watch window.
+* **Maximum Symbols (`InpMaxSymbols` - Dashboard Only):** The maximum number of symbols displayed in the scanner (Default: `15`).
+* **Target Timeframe (`InpTimeframe`):** The target timeframe to calculate all values on (Default: `PERIOD_M15`).
+* **Background Timer Refresh (`InpRefreshSeconds`):** Background timer fallback update interval (Default: `3`).
 
 ### B. V-Score Settings
 
-* **V-Score Period (`InpVScorePeriod`):** The lookback period ($N$) for the volatility calculations (Default: `21`).
+* **V-Score Period (`InpVScorePeriod`):** The lookback period ($N_{\text{VS}}$) for the volatility calculations (Default: `21`).
 * **VWAP Anchor Reset (`InpVWAPReset`):** The anchor reset cycle for the VWAP centerline (Default: `PERIOD_SESSION`).
 
 ### C. Linear Regression Settings
 
-* **Regression Period (`InpLinRegPeriod`):** The lookback window ($N$) for the linear regression calculations (Default: `20`).
+* **Regression Period (`InpLinRegPeriod`):** The lookback window ($N_{\text{LR}}$) for the linear regression calculations (Default: `20`).
 * **Strong Trend Level (`InpTrendLevel`):** The $R^2$ threshold marking the boundary of a strong trend (Default: `0.70`).
 
-### D. Display Settings
+### D. Placement Settings
 
 * **Table X Offset (`InpTableX`):** Horizontal positioning offset in pixels (Default: `20`).
-* **Table Y Offset (`InpTableY`):** Vertical positioning offset in pixels (Default: `60`).
+* **Table Y Offset (`InpTableY`):** Vertical positioning offset in pixels (Default: `60` for Dashboard, `30` for Widget).
 * **UI Font Size (`InpFontSize`):** Font size used inside button objects (Default: `9`).
 
 ---
 
-## 6. Advanced Scanner Core Trading Strategies
+## 7. Advanced Trading Strategies
 
-### Strategy A: The Liquidity Reversal Setup (Extreme V-Score + Low R2)
+### A. The Institutional Top-Down Quantitative Workflow
 
-Designed to catch institutional reversals at major support/resistance levels.
+By combining the Multi-Asset Scanner Dashboard on a secondary screen with the Chart HUD Widget on your execution charts, you establish a seamless, highly professional top-down trading routine:
 
-1. **The Scanner Setup:** Run `VScore_LinReg_Dashboard_Pro` set to `PERIOD_M15`.
-2. **The Scanner Signal:** Monitor the table for assets that exhibit:
-   * **V-Score Column:** Stretched into extreme zones (either `clrOrangeRed` $\ge 2.0$ or `clrDeepSkyBlue` $\le -2.0$).
-   * **R2 Column:** Colored `clrSlateGray` ($\le 0.30$), indicating that the price extension has no structured trending backing (Pure Liquidity Run).
+```text
+
++-------------------------------------------------------------+
+|               [STEP 1: MULTI-ASSET SCANNING]                |
+|  Run VScore_LinReg_Dashboard_Pro on separate M15/H1 chart   |
+|                                                             |
+|  *Scan for: V-Score at Extreme (-2.135 Blue)                |
+|* Filter: R2 at Chop (Gray / 0.070)                          |
+|  *Signal: Perfect Liquidity Reversal Setup!                 |
++-------------------------------------------------------------+
+                              ||
+                              || Click Symbol Button
+                              \/
++-------------------------------------------------------------+
+|                 [STEP 2: CHART TRANSITION]                  |
+|  Active chart switches automatically (e.g. to AUDUSD, M1)   |
++-------------------------------------------------------------+
+                              ||
+                              || Verify Local Setup
+                              \/
++-------------------------------------------------------------+
+|                [STEP 3: EXECUTION & HUD TRADING]            |
+|* Execute Long entry on local M1.                            |
+|  *Keep eyes on the bottom-left VScore_LinReg_Widget_Pro     |
+|    which displays the H1/M15 macro-state.                   |
+|* Maintain position as long as macro R2 stays Gray/Orange,   |
+|    confirming mean reversion back to H1 VWAP.               |
++-------------------------------------------------------------+
+
+```
+
+### B. Scalping on Lower Timeframes with Macro Volatility Anchors
+
+Trading short-term chart configurations (M1/M3) without macro context often leads to taking trades directly into large-scale institutional walls.
+
+1. **The Setup:** Open an M1 or M3 chart for execution. Apply `VScore_LinReg_Widget_Pro` set strictly to **`PERIOD_M15`** or **`PERIOD_H1`**.
+2. **The Volatility Anchor:** Monitor the V-Score column inside the bottom-left widget. If the macro H1 V-Score is trading at `1.850` (Bullish Extreme - Coral/Red), the price has reached its macro statistical expansion boundary.
 3. **Execution:**
-   * Click the symbol button to switch the chart.
-   * Enter a mean-reversion trade (Short if V-Score is high, Long if V-Score is low) once the local M15 candle closes.
-   * **Stop-Loss:** Place the protective stop strictly beyond the trigger candle's high/low. Target the VWAP centerline.
-
-### Strategy B: The Trend Continuation Run (Extreme V-Score + Strong R2)
-
-During an explosive breakout, trading against the momentum leads to heavy losses. This strategy uses the scanner to identify strong, structured trends and trade continuations on pullbacks.
-
-1. **The Scanner Setup:** Run the scanner set to `PERIOD_M15` or `PERIOD_H1`.
-2. **The Scanner Signal:** Look for assets exhibiting:
-   * **V-Score Column:** Stretched into flow/extreme zones ($\ge \pm 1.5$ to $\pm 2.0$).
-   * **R2 Column:** Colored strictly **`clrMediumSeaGreen`** ($\ge 0.70$), with the directional arrow pointing in the direction of the V-Score (positive arrow `▲` for positive V-Score, negative arrow `▼` for negative V-Score).
-3. **Execution:**
-   * Click the symbol button.
-   * **Do not short against a strong bull climax!** Instead, wait for the price to pull back and test the local 20 EMA or VWAP line.
-   * Enter continuation trades strictly in the direction of the macro trend once a rejection candle closes back in the trend direction.
+   * On your local M1 chart, strictly look for **short entry setups** (reversals).
+   * Even if local indicators suggest buying, the macro widget confirms that the asset has hit a major volatility resistance zone, giving your short trades an exceptionally high win-rate.
+   * Place your stop-loss strictly beyond the high of the M1 setup candle, targeting the local VWAP centerline.
