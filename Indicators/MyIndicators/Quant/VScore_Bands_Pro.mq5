@@ -53,52 +53,52 @@
 //--- Plot 7 & 8: Upper Extreme Band (Odd / Even) - Unified Bluish (Bullish) Palette
 #property indicator_label7  "Bull Extreme" // Dynamically updated in OnInit
 #property indicator_type7   DRAW_LINE
-#property indicator_color7  clrDeepSkyBlue
+#property indicator_color7  clrLightSkyBlue
 #property indicator_style7  STYLE_SOLID
 #property indicator_width7  1
 
 #property indicator_label8  ""
 #property indicator_type8   DRAW_LINE
-#property indicator_color8  clrDeepSkyBlue
+#property indicator_color8  clrLightSkyBlue
 #property indicator_style8  STYLE_SOLID
 #property indicator_width8  1
 
 //--- Plot 9 & 10: Lower Extreme Band (Odd / Even) - Unified Reddish (Bearish) Palette
 #property indicator_label9  "Bear Extreme" // Dynamically updated in OnInit
 #property indicator_type9   DRAW_LINE
-#property indicator_color9  clrOrangeRed
+#property indicator_color9  clrCoral
 #property indicator_style9  STYLE_SOLID
 #property indicator_width9  1
 
 #property indicator_label10 ""
 #property indicator_type10  DRAW_LINE
-#property indicator_color10 clrOrangeRed
+#property indicator_color10 clrCoral
 #property indicator_style10 STYLE_SOLID
 #property indicator_width10 1
 
 //--- Plot 11 & 12: Upper Wall Band (Odd / Even) - Unified Bluish (Bullish) Palette
 #property indicator_label11 "Bull Wall" // Dynamically updated in OnInit
 #property indicator_type11  DRAW_LINE
-#property indicator_color11 clrDodgerBlue
+#property indicator_color11 clrDeepSkyBlue
 #property indicator_style11 STYLE_SOLID
 #property indicator_width11 1
 
 #property indicator_label12 ""
 #property indicator_type12  DRAW_LINE
-#property indicator_color12 clrDodgerBlue
+#property indicator_color12 clrDeepSkyBlue
 #property indicator_style12 STYLE_SOLID
 #property indicator_width12 1
 
 //--- Plot 13 & 14: Lower Wall Band (Odd / Even) - Unified Reddish (Bearish) Palette
 #property indicator_label13 "Bear Wall" // Dynamically updated in OnInit
 #property indicator_type13  DRAW_LINE
-#property indicator_color13 clrCrimson
+#property indicator_color13 clrOrangeRed
 #property indicator_style13 STYLE_SOLID
 #property indicator_width13 1
 
 #property indicator_label14 ""
 #property indicator_type14  DRAW_LINE
-#property indicator_color14 clrCrimson
+#property indicator_color14 clrOrangeRed
 #property indicator_style14 STYLE_SOLID
 #property indicator_width14 1
 
