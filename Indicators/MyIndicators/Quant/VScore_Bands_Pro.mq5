@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.10" // Refactored with Dynamic Input Levels
+#property version   "2.20" // Upgraded with corrected color polarity, strict chronological sorting safeguards and pointer guards
 #property description "V-Score Projected Bands on Main Chart."
 #property description "Rolling standard deviation (Bollinger style) around VWAP."
 
@@ -24,81 +24,81 @@
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
 
-//--- Plot 3 & 4: Upper Flow Band (Odd / Even)
+//--- Plot 3 & 4: Upper Flow Band (Odd / Even) - Unified Bluish (Bullish) Palette
 #property indicator_label3  "Bull Flow" // Dynamically updated in OnInit
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrCoral
+#property indicator_color3  clrLightSkyBlue
 #property indicator_style3  STYLE_SOLID
 #property indicator_width3  1
 
 #property indicator_label4  ""
 #property indicator_type4   DRAW_LINE
-#property indicator_color4  clrCoral
+#property indicator_color4  clrLightSkyBlue
 #property indicator_style4  STYLE_SOLID
 #property indicator_width4  1
 
-//--- Plot 5 & 6: Lower Flow Band (Odd / Even)
+//--- Plot 5 & 6: Lower Flow Band (Odd / Even) - Unified Reddish (Bearish) Palette
 #property indicator_label5  "Bear Flow" // Dynamically updated in OnInit
 #property indicator_type5   DRAW_LINE
-#property indicator_color5  clrLightSkyBlue
+#property indicator_color5  clrCoral
 #property indicator_style5  STYLE_SOLID
 #property indicator_width5  1
 
 #property indicator_label6  ""
 #property indicator_type6   DRAW_LINE
-#property indicator_color6  clrLightSkyBlue
+#property indicator_color6  clrCoral
 #property indicator_style6  STYLE_SOLID
 #property indicator_width6  1
 
-//--- Plot 7 & 8: Upper Extreme Band (Odd / Even)
+//--- Plot 7 & 8: Upper Extreme Band (Odd / Even) - Unified Bluish (Bullish) Palette
 #property indicator_label7  "Bull Extreme" // Dynamically updated in OnInit
 #property indicator_type7   DRAW_LINE
-#property indicator_color7  clrCoral
+#property indicator_color7  clrDeepSkyBlue
 #property indicator_style7  STYLE_SOLID
 #property indicator_width7  1
 
 #property indicator_label8  ""
 #property indicator_type8   DRAW_LINE
-#property indicator_color8  clrCoral
+#property indicator_color8  clrDeepSkyBlue
 #property indicator_style8  STYLE_SOLID
 #property indicator_width8  1
 
-//--- Plot 9 & 10: Lower Extreme Band (Odd / Even)
+//--- Plot 9 & 10: Lower Extreme Band (Odd / Even) - Unified Reddish (Bearish) Palette
 #property indicator_label9  "Bear Extreme" // Dynamically updated in OnInit
 #property indicator_type9   DRAW_LINE
-#property indicator_color9  clrLightSkyBlue
+#property indicator_color9  clrOrangeRed
 #property indicator_style9  STYLE_SOLID
 #property indicator_width9  1
 
 #property indicator_label10 ""
 #property indicator_type10  DRAW_LINE
-#property indicator_color10 clrLightSkyBlue
+#property indicator_color10 clrOrangeRed
 #property indicator_style10 STYLE_SOLID
 #property indicator_width10 1
 
-//--- Plot 11 & 12: Upper Wall Band (Odd / Even)
+//--- Plot 11 & 12: Upper Wall Band (Odd / Even) - Unified Bluish (Bullish) Palette
 #property indicator_label11 "Bull Wall" // Dynamically updated in OnInit
 #property indicator_type11  DRAW_LINE
-#property indicator_color11 clrOrangeRed
+#property indicator_color11 clrDodgerBlue
 #property indicator_style11 STYLE_SOLID
 #property indicator_width11 1
 
 #property indicator_label12 ""
 #property indicator_type12  DRAW_LINE
-#property indicator_color12 clrOrangeRed
+#property indicator_color12 clrDodgerBlue
 #property indicator_style12 STYLE_SOLID
 #property indicator_width12 1
 
-//--- Plot 13 & 14: Lower Wall Band (Odd / Even)
+//--- Plot 13 & 14: Lower Wall Band (Odd / Even) - Unified Reddish (Bearish) Palette
 #property indicator_label13 "Bear Wall" // Dynamically updated in OnInit
 #property indicator_type13  DRAW_LINE
-#property indicator_color13 clrDeepSkyBlue
+#property indicator_color13 clrCrimson
 #property indicator_style13 STYLE_SOLID
 #property indicator_width13 1
 
 #property indicator_label14 ""
 #property indicator_type14  DRAW_LINE
-#property indicator_color14 clrDeepSkyBlue
+#property indicator_color14 clrCrimson
 #property indicator_style14 STYLE_SOLID
 #property indicator_width14 1
 
@@ -193,7 +193,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(CheckPointer(g_vwap) == POINTER_DYNAMIC)
+   if(CheckPointer(g_vwap) != POINTER_INVALID)
       delete g_vwap;
   }
 
@@ -214,12 +214,26 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpPeriod)
       return 0;
 
-// 1. Resize internal arrays
+   if(CheckPointer(g_vwap) == POINTER_INVALID)
+      return 0;
+
+//--- Force strict chronological indexing for state-safety on input price arrays
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(open,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
+// 1. Resize internal arrays & force strict chronological sorting on them
    if(ArraySize(m_vwap_odd) != rates_total)
      {
       ArrayResize(m_vwap_odd, rates_total);
       ArrayResize(m_vwap_even, rates_total);
       ArrayResize(m_merged_vwap, rates_total);
+
+      ArraySetAsSeries(m_vwap_odd, false);
+      ArraySetAsSeries(m_vwap_even, false);
+      ArraySetAsSeries(m_merged_vwap, false);
      }
 
 // 2. Calculate Base VWAP Incrementally
@@ -324,5 +338,4 @@ int OnCalculate(const int rates_total,
 
    return(rates_total);
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
