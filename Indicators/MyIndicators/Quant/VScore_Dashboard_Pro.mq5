@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.20" // Fully optimized with real-time throttling
+#property version   "2.30" // Fixed color polarity to perfectly align with VScore_Pro and VScore_MTF_Pro
 #property description "Minimalist and Live-Updating V-Score Multi-Asset Thermal Scanner."
 #property indicator_chart_window
 #property indicator_buffers 0
@@ -186,28 +186,30 @@ void RenderCell(string symbol, double val, int x, int y, int w, int h)
      {
       text = DoubleToString(val, 3);
 
-      //--- 5-Zone Thermal Palette
+      //--- Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
+      // Positive/Bullish -> Bluish / Cold
+      // Negative/Bearish -> Reddish / Hot
       if(val >= 2.0)
         {
-         bg_color = clrOrangeRed; // Bull Extreme
+         bg_color = clrDeepSkyBlue; // Bull Extreme (Deep Blue)
          text_color = clrWhite;
         }
       else
          if(val >= 1.5)
            {
-            bg_color = clrCoral;     // Bull Flow
+            bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
             text_color = clrBlack;
            }
          else
             if(val <= -2.0)
               {
-               bg_color = clrDeepSkyBlue; // Bear Extreme
+               bg_color = clrOrangeRed;  // Bear Extreme (Dark Red)
                text_color = clrWhite;
               }
             else
                if(val <= -1.5)
                  {
-                  bg_color = clrLightSkyBlue; // Bear Flow
+                  bg_color = clrCoral;      // Bear Flow (Coral)
                   text_color = clrBlack;
                  }
                else
@@ -338,5 +340,4 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
         }
      }
   }
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
