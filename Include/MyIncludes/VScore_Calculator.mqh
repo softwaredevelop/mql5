@@ -1,12 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                          VScore_Calculator.mqh   |
-//|      Engine for V-Score (VWAP Z-Score).                          |
-//|      Measures statistical deviation from VWAP.                   |
-//|      VERSION 2.12: Restored classic signature with auto-volume   |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.12" // Restored Init signature for maximum compatibility across indicators
+#property version   "2.20" // Upgraded with strict internal chronological sorting safeguards for all VWAP and pricing buffers
 
 #ifndef VSCORE_CALCULATOR_MQH
 #define VSCORE_CALCULATOR_MQH
@@ -31,7 +28,6 @@ public:
                      CVScoreCalculator();
    virtual          ~CVScoreCalculator();
 
-   //--- RESTORED: Classic Init signature
    bool              Init(int period, ENUM_VWAP_PERIOD vwap_reset);
 
    void              Calculate(int rates_total, int prev_calculated,
@@ -89,12 +85,19 @@ void CVScoreCalculator::Calculate(int rates_total, int prev_calculated,
    if(rates_total < m_period)
       return;
 
-// 1. Manage Internal Buffers
+   if(CheckPointer(m_vwap_calc) == POINTER_INVALID)
+      return;
+
+// 1. Manage Internal Buffers and force strict chronological sorting
    if(ArraySize(m_vwap_buf) != rates_total)
      {
       ArrayResize(m_vwap_buf, rates_total);
       ArrayResize(m_vwap_odd, rates_total);
       ArrayResize(m_vwap_even, rates_total);
+
+      ArraySetAsSeries(m_vwap_buf, false);
+      ArraySetAsSeries(m_vwap_odd, false);
+      ArraySetAsSeries(m_vwap_even, false);
      }
 
 // 2. Calculate VWAP Incrementally
