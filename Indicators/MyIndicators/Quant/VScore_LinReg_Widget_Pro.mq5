@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Minimalist 1-row, 3-column Heads-Up Display (HUD) chart widget
+#property version   "1.10" // Upgraded V-Score cell color polarity to perfectly align with corrected Swapped Thermal Palette standards
 #property description "Unified Volatility & Trend-Integrity Chart HUD Widget."
 #property description "Displays V-Score and LinReg R2/Slope for the current symbol in the bottom-left corner."
 #property indicator_chart_window
@@ -197,28 +197,30 @@ void RenderVScoreCell(string symbol, double val, int x, int y, int w, int h)
      {
       text = DoubleToString(val, 3);
 
-      //--- 5-Zone Thermal Palette (Swapped standard: Blue = Bullish, Red/Coral = Bearish)
+      //--- Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
+      // Positive/Bullish -> Bluish / Cold
+      // Negative/Bearish -> Reddish / Hot
       if(val >= 2.0)
         {
-         bg_color = clrOrangeRed; // Bull Extreme
+         bg_color = clrDeepSkyBlue; // Bull Extreme (Deep Blue)
          text_color = clrWhite;
         }
       else
          if(val >= 1.5)
            {
-            bg_color = clrCoral;     // Bull Flow
+            bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
             text_color = clrBlack;
            }
          else
             if(val <= -2.0)
               {
-               bg_color = clrDeepSkyBlue; // Bear Extreme
+               bg_color = clrOrangeRed;  // Bear Extreme (Dark Red)
                text_color = clrWhite;
               }
             else
                if(val <= -1.5)
                  {
-                  bg_color = clrLightSkyBlue; // Bear Flow
+                  bg_color = clrCoral;      // Bear Flow (Coral)
                   text_color = clrBlack;
                  }
                else
