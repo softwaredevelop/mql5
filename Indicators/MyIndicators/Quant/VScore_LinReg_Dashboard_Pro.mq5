@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Fully unified high-performance V-Score and Linear Regression R2/Slope Dashboard Scanner
+#property version   "1.10" // Upgraded V-Score cell color polarity to perfectly align with corrected Swapped Thermal Palette standards
 #property description "Unified Volatility & Trend-Integrity Multi-Asset Heatmap Scanner."
 #property description "Combines V-Score (VWAP Volatility) and Linear Regression R2/Slope into a single matrix."
 #property indicator_chart_window
@@ -17,12 +17,12 @@
 input group                     "Scanner Asset Settings"
 input string                    InpCustomSymbols  = "";              // Custom Symbols (Comma separated, empty for Market Watch)
 input int                       InpMaxSymbols     = 15;              // Maximum Symbols to display
-input ENUM_TIMEFRAMES   InpTimeframe      = PERIOD_M15;      // Target Timeframe
+input ENUM_TIMEFRAMES           InpTimeframe      = PERIOD_M15;      // Target Timeframe
 input int                       InpRefreshSeconds = 3;               // Background Timer Fallback (Seconds)
 
 input group                     "V-Score Settings"
 input int                       InpVScorePeriod   = 21;              // V-Score Period
-input ENUM_VWAP_PERIOD  InpVWAPReset      = PERIOD_SESSION;  // VWAP Anchor Reset
+input ENUM_VWAP_PERIOD          InpVWAPReset      = PERIOD_SESSION;  // VWAP Anchor Reset
 
 input group                     "Linear Regression Settings"
 input int                       InpLinRegPeriod   = 20;              // Regression Period (N)
@@ -247,28 +247,30 @@ void RenderVScoreCell(string symbol, double val, int x, int y, int w, int h)
      {
       text = DoubleToString(val, 3);
 
-      //--- 5-Zone Thermal Palette (Swapped standard: Blue = Bullish, Red/Coral = Bearish)
+      //--- Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
+      // Positive/Bullish -> Bluish / Cold
+      // Negative/Bearish -> Reddish / Hot
       if(val >= 2.0)
         {
-         bg_color = clrOrangeRed; // Bull Extreme
+         bg_color = clrDeepSkyBlue; // Bull Extreme (Deep Blue)
          text_color = clrWhite;
         }
       else
          if(val >= 1.5)
            {
-            bg_color = clrCoral;     // Bull Flow
+            bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
             text_color = clrBlack;
            }
          else
             if(val <= -2.0)
               {
-               bg_color = clrDeepSkyBlue; // Bear Extreme
+               bg_color = clrOrangeRed;  // Bear Extreme (Dark Red)
                text_color = clrWhite;
               }
             else
                if(val <= -1.5)
                  {
-                  bg_color = clrLightSkyBlue; // Bear Flow
+                  bg_color = clrCoral;      // Bear Flow (Coral)
                   text_color = clrBlack;
                  }
                else
