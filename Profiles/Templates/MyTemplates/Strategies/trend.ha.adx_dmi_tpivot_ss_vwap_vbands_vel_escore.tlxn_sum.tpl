@@ -682,7 +682,7 @@ color=7346457
 Smoother Settings=
 InpSmootherType=0
 InpPeriod=21
-InpSourcePrice=-1
+InpSourcePrice=1
 </inputs>
 </indicator>
 
@@ -777,6 +777,46 @@ InpBand3Mult=3.0
 </inputs>
 </indicator>
 
+<indicator>
+name=Custom Indicator
+path=Indicators\MyIndicators\Quant\VScore_LinReg_Widget_Pro.ex5
+apply=0
+show_data=1
+scale_inherit=0
+scale_line=0
+scale_line_percent=50
+scale_line_value=0.000000
+scale_fix_min=0
+scale_fix_min_val=0.000000
+scale_fix_max=0
+scale_fix_max_val=0.000000
+expertmode=4
+fixed_height=-1
+
+<graph>
+name=
+draw=0
+style=0
+width=1
+color=
+</graph>
+<inputs>
+Heads-Up Display Settings=
+InpTimeframe=15
+InpRefreshSeconds=3
+V-Score Settings=
+InpVScorePeriod=21
+InpVWAPReset=0
+Linear Regression Settings=
+InpLinRegPeriod=21
+InpTrendLevel=0.7
+Widget Placement (Pixels)=
+InpTableX=20
+InpTableY=30
+InpFontSize=9
+</inputs>
+</indicator>
+
 </window>
 
 <window>
@@ -866,7 +906,7 @@ descr=
 EScore Settings=
 InpSmootherType=0
 InpPeriod=21
-InpSourcePrice=-1
+InpSourcePrice=1
 Signal Line Settings=
 InpShowSignal=true
 InpSignalPeriod=5
@@ -1132,7 +1172,7 @@ InpMinStochPeriod=5
 InpMaxStochPeriod=34
 Stochastic Settings=
 InpSlowingPeriod=3
-InpSlowingMAType=4
+InpSlowingMAType=3
 InpDPeriod=3
 InpDMAType=4
 Price Source=
