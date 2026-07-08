@@ -117,7 +117,7 @@ name=Bull Flow (+1.50)
 draw=1
 style=0
 width=1
-color=5275647
+color=16436871
 </graph>
 
 <graph>
@@ -125,7 +125,7 @@ name=
 draw=1
 style=0
 width=1
-color=5275647
+color=16436871
 </graph>
 
 <graph>
@@ -133,7 +133,7 @@ name=Bear Flow (-1.50)
 draw=1
 style=0
 width=1
-color=16436871
+color=5275647
 </graph>
 
 <graph>
@@ -141,7 +141,7 @@ name=
 draw=1
 style=0
 width=1
-color=16436871
+color=5275647
 </graph>
 
 <graph>
@@ -149,7 +149,7 @@ name=Bull Extr (+2.00)
 draw=1
 style=0
 width=1
-color=5275647
+color=16436871
 </graph>
 
 <graph>
@@ -157,7 +157,7 @@ name=
 draw=1
 style=0
 width=1
-color=5275647
+color=16436871
 </graph>
 
 <graph>
@@ -165,7 +165,7 @@ name=Bear Extr (-2.00)
 draw=1
 style=0
 width=1
-color=16436871
+color=5275647
 </graph>
 
 <graph>
@@ -173,7 +173,7 @@ name=
 draw=1
 style=0
 width=1
-color=16436871
+color=5275647
 </graph>
 
 <graph>
@@ -181,7 +181,7 @@ name=Bull Wall (+2.50)
 draw=1
 style=0
 width=1
-color=17919
+color=16760576
 </graph>
 
 <graph>
@@ -189,7 +189,7 @@ name=
 draw=1
 style=0
 width=1
-color=17919
+color=16760576
 </graph>
 
 <graph>
@@ -197,7 +197,7 @@ name=Bear Wall (-2.50)
 draw=1
 style=0
 width=1
-color=16760576
+color=17919
 </graph>
 
 <graph>
@@ -205,61 +205,17 @@ name=
 draw=1
 style=0
 width=1
-color=16760576
+color=17919
 </graph>
 <inputs>
-<unnamed>=
+V-Score Core Settings=
 InpPeriod=21
 InpVWAPReset=0
 InpVolumeType=0
-<unnamed>=
+V-Score Z-Levels (Standard Deviations)=
 InpLevelFlow=1.5
 InpLevelExtreme=2.0
 InpLevelWall=2.5
-</inputs>
-</indicator>
-
-<indicator>
-name=Custom Indicator
-path=Indicators\MyIndicators\VWAP_Pro.ex5
-apply=0
-show_data=1
-scale_inherit=0
-scale_line=0
-scale_line_percent=50
-scale_line_value=0.000000
-scale_fix_min=0
-scale_fix_min_val=0.000000
-scale_fix_max=0
-scale_fix_max_val=0.000000
-expertmode=4
-fixed_height=-1
-
-<graph>
-name=VWAP
-draw=1
-style=0
-width=1
-color=11829830
-</graph>
-
-<graph>
-name=VWAP (Segment)
-draw=1
-style=0
-width=1
-color=11829830
-</graph>
-<inputs>
-<unnamed>=
-InpResetPeriod=1
-InpSessionTimezoneShift=0
-<unnamed>=
-InpCustomSessionStart=09:30
-InpCustomSessionEnd=16:00
-<unnamed>=
-InpVolumeType=0
-InpCandleSource=0
 </inputs>
 </indicator>
 
