@@ -657,6 +657,97 @@ WideMode=1
 
 <indicator>
 name=Custom Indicator
+path=Indicators\MyIndicators\VWAP_Bands_Pro.ex5
+apply=0
+show_data=1
+scale_inherit=0
+scale_line=0
+scale_line_percent=50
+scale_line_value=0.000000
+scale_fix_min=0
+scale_fix_min_val=0.000000
+scale_fix_max=0
+scale_fix_max_val=0.000000
+expertmode=4
+fixed_height=-1
+
+<graph>
+name=VWAP
+draw=1
+style=0
+width=1
+color=42495
+</graph>
+
+<graph>
+name=VWAP (Segment)
+draw=1
+style=0
+width=1
+color=42495
+</graph>
+
+<graph>
+name=Upper Band 1
+draw=1
+style=0
+width=1
+color=16748574
+</graph>
+
+<graph>
+name=Lower Band 1
+draw=1
+style=0
+width=1
+color=16748574
+</graph>
+
+<graph>
+name=Upper Band 2
+draw=1
+style=0
+width=1
+color=5275647
+</graph>
+
+<graph>
+name=Lower Band 2
+draw=1
+style=0
+width=1
+color=5275647
+</graph>
+
+<graph>
+name=Upper Band 3
+draw=1
+style=0
+width=1
+color=255
+</graph>
+
+<graph>
+name=Lower Band 3
+draw=1
+style=0
+width=1
+color=255
+</graph>
+<inputs>
+VWAP Settings=
+InpResetPeriod=0
+InpVolumeType=0
+InpTzShift=0
+Bands Settings=
+InpBand1Mult=1.0
+InpBand2Mult=2.0
+InpBand3Mult=3.0
+</inputs>
+</indicator>
+
+<indicator>
+name=Custom Indicator
 path=Indicators\MyIndicators\Authors\Ehlers\1_Smoothers\Laguerre_Filter_Pro.ex5
 apply=0
 show_data=1
