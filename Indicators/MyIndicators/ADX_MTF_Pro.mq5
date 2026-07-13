@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Reverted to static hardcoded levels to simplify MTF input panel and preserve Wilder's classics
+#property version   "1.30" // Refactored to utilize centralized CDataSync helper class and clean OnTimerUpdate daemon
 #property description "Vertical Welles Wilder ADX & DMI (Multi-Timeframe)."
 #property description "Displays HTF ADX, +DI and -DI lines cleanly on current chart without live-bar warping."
 
@@ -14,6 +14,7 @@
 //--- Levels (Wilder's Standard Constant Boundaries)
 #property indicator_level1 25.0
 #property indicator_level2 40.0
+#property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
 //--- Plot 1: ADX line (Main trend strength)
@@ -38,6 +39,7 @@
 #property indicator_width3  1
 
 #include <MyIncludes\ADX_Calculator.mqh>
+#include <MyIncludes\DataSync_Tools.mqh> // Integrated dynamic central data synchronization tools
 
 //--- Enum for selecting the candle source for calculation ---
 enum ENUM_CANDLE_SOURCE
@@ -75,21 +77,6 @@ bool            g_data_ready          = false;
 bool            g_data_synced         = false;
 int             g_htf_count           = 0;
 datetime        g_last_htf_time       = 0;
-
-//+------------------------------------------------------------------+
-//| EnsureHTFDataReady                                               |
-//+------------------------------------------------------------------+
-bool EnsureHTFDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const int required_bars)
-  {
-   ResetLastError();
-   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
-     {
-      SymbolSelect(symbol, true);
-     }
-   datetime times[];
-   int copied = CopyTime(symbol, timeframe, 0, required_bars, times);
-   return (copied >= required_bars);
-  }
 
 //+------------------------------------------------------------------+
 //| OnInit                                                           |
@@ -211,9 +198,9 @@ int OnCalculate(const int rates_total,
 // MODE 2: Multi-Timeframe (MTF Engine)
 //================================================================
 
-//--- Ensure target timeframe history is ready
+//--- Ensure target timeframe history is ready (Polymorphically calling CDataSync helper)
    int required_bars = InpPeriodADX * 2 + 10;
-   if(!EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
       g_data_synced = false;
       return 0; // Wait for next tick to let history load
@@ -351,14 +338,8 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   if(!g_data_synced)
-     {
-      int required_bars = InpPeriodADX * 2 + 5;
-      if(EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
-        {
-         g_data_synced = true;
-         ChartRedraw(); // Force MT5 to invoke OnCalculate
-        }
-     }
+//--- Centralized high performance OnTimer updates via CDataSync daemon
+   int required_bars = InpPeriodADX * 2 + 5;
+   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
   }
 //+------------------------------------------------------------------+
