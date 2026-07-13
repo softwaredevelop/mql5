@@ -23,7 +23,7 @@
 #property indicator_label2  "Signal MA"
 #property indicator_type2   DRAW_LINE
 #property indicator_style2  STYLE_SOLID
-#property indicator_width2  2
+#property indicator_width2  1
 #property indicator_color2  clrMaroon
 
 //--- Included Engines & Central Tools
