@@ -26,11 +26,6 @@
 #property indicator_width2  1
 #property indicator_color2  clrMaroon
 
-//--- Constant levels
-//#property indicator_level1  0.0
-//#property indicator_levelcolor clrSilver
-//#property indicator_levelstyle STYLE_DOT
-
 //--- Included Engines & Core Tools
 #include <MyIncludes\Butterworth_Slope_Calculator.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
