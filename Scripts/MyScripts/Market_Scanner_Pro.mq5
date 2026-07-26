@@ -4,7 +4,7 @@
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "10.38" // Restored live Symbol BID pricing and dynamic live/historical Murrey price routing
+#property version   "10.38" // Reorganized Weekly V-Score (v_score_week) strictly under the H1 Context Layer
 #property description "Exports 'QuantScan' dataset for LLM Analysis."
 #property description "Features High-Performance Object Caching and precise Historical Audits."
 #property script_show_inputs
@@ -76,18 +76,22 @@ input int      InpSqueezeMom     = 12;
 input group "Output Settings"
 input int      InpPrecision      = 3; // Decimal places for CSV Output
 
-//--- QuantData Struct
+//--- QuantData Struct (Updated Layout)
 struct QuantData
   {
    string            timestamp;
    string            symbol;
    double            price;
+
+   // H1 Context (Layer 1)
    string            alpha_str;
    string            beta_str;
    double            vhf;
    double            r2;
    string            zone;
-   double            v_score_week;
+   double            v_score_week;     // MOVED HERE (Since it calculates strictly on H1)
+
+   // M15 Flow (Layer 2)
    double            v_score_day;
    double            autocorr;
    double            vol_regime;
@@ -97,13 +101,19 @@ struct QuantData
    double            m15_r2;
    double            dist_pdh;
    double            dist_pdl;
+
+   // M5 Trigger (Layer 3)
    double            velocity;
    double            v_pressure;
    double            vol_thrust;
    double            cost_atr;
+
+   // Composites
    string            absorption;
    string            mtf_align;
    string            vwap_align;
+
+   // TSI Hist Caches
    double            h1_tsi_hist;
    double            m15_tsi_hist;
    double            m5_tsi_hist;
@@ -314,7 +324,13 @@ bool CMarketScanner::RunAnalysis(string sym, QuantData &data)
    else
       data.zone = "N/A";
 
-// 5. TSI H1 Metrics (H1)
+// 5. V-Score Week (Using H1 data with correct h1_total parameter and idx_l1 index)
+// MOVED HERE: Since this is evaluated strictly on the H1 Context Layer!
+   ArrayResize(m_temp_buf3, h1_total);
+   m_vscore_week.Calculate(h1_total, 0, slow_t, slow_o, slow_h, slow_l, slow_c, slow_v, slow_v, m_temp_buf3);
+   data.v_score_week = m_temp_buf3[idx_l1];
+
+// 6. TSI H1 Metrics (H1)
    ArrayResize(m_temp_buf1, h1_total);
    ArrayResize(m_temp_buf2, h1_total);
    ArrayResize(m_temp_buf3, h1_total);
@@ -344,17 +360,12 @@ bool CMarketScanner::RunAnalysis(string sym, QuantData &data)
    m_vscore_day.Calculate(m15_total, 0, mid_t, mid_o, mid_h, mid_l, mid_c, mid_v, mid_v, m_temp_buf2);
    data.v_score_day = m_temp_buf2[idx_l2];
 
-// 3. V-Score Week (Using H1 data with correct h1_total parameter and idx_l1 index)
-   ArrayResize(m_temp_buf3, h1_total);
-   m_vscore_week.Calculate(h1_total, 0, slow_t, slow_o, slow_h, slow_l, slow_c, slow_v, slow_v, m_temp_buf3);
-   data.v_score_week = m_temp_buf3[idx_l1];
-
-// 4. Autocorrelation Lag-1 (M15)
+// 3. Autocorrelation Lag-1 (M15)
    ArrayResize(m_temp_buf2, m15_total);
    m_autocorr.Calculate(m15_total, 0, PRICE_CLOSE, mid_o, mid_h, mid_l, mid_c, m_temp_buf2);
    data.autocorr = m_temp_buf2[idx_l2];
 
-// 5. Volatility Regime (M15)
+// 4. Volatility Regime (M15)
    CATRCalculator atr_reg_calc;
    double atr_fast_buf[], atr_slow_buf[];
    atr_reg_calc.Init(5, ATR_POINTS);
@@ -363,7 +374,7 @@ bool CMarketScanner::RunAnalysis(string sym, QuantData &data)
    atr_reg_calc.Calculate(m15_total, 0, mid_o, mid_h, mid_l, mid_c, atr_slow_buf);
    data.vol_regime = (atr_slow_buf[idx_l2] != 0.0) ? (atr_fast_buf[idx_l2] / atr_slow_buf[idx_l2]) : 1.0;
 
-// 6. Squeeze (M15)
+// 5. Squeeze (M15)
    double sqz_mom[], sqz_val[], sqz_col[];
    ArrayResize(sqz_mom, m15_total);
    ArrayResize(sqz_val, m15_total);
@@ -372,7 +383,7 @@ bool CMarketScanner::RunAnalysis(string sym, QuantData &data)
    data.sqz     = (sqz_col[idx_l2] == 1.0) ? "ON" : "OFF";
    data.sqz_mom = sqz_mom[idx_l2];
 
-// 7. VHF & R2 (M15)
+// 6. VHF & R2 (M15)
    ArrayResize(m_temp_buf1, m15_total);
    m_vhf.Calculate(m15_total, 0, PRICE_CLOSE, mid_o, mid_h, mid_l, mid_c, m_temp_buf1);
    data.m15_vhf = m_temp_buf1[idx_l2];
@@ -383,7 +394,7 @@ bool CMarketScanner::RunAnalysis(string sym, QuantData &data)
    m_linreg.CalculateState(m15_total, 0, mid_o, mid_h, mid_l, mid_c, PRICE_CLOSE, m_temp_buf1, m_temp_buf2, m_temp_buf3);
    data.m15_r2 = m_temp_buf2[idx_l2];
 
-// 8. Dist PDH / PDL (M15)
+// 7. Dist PDH / PDL (M15)
    SessionLevels sl;
    if(m_sess.GetLevels(sym, mid_t[idx_l2], sl))
      {
@@ -396,14 +407,14 @@ bool CMarketScanner::RunAnalysis(string sym, QuantData &data)
       data.dist_pdl = 0.0;
      }
 
-// 9. TSI M15 (M15)
+// 8. TSI M15 (M15)
    ArrayResize(m_temp_buf1, m15_total);
    ArrayResize(m_temp_buf2, m15_total);
    ArrayResize(m_temp_buf3, m15_total);
    m_tsi.Calculate(m15_total, 0, PRICE_CLOSE, mid_o, mid_h, mid_l, mid_c, m_temp_buf1, m_temp_buf2, m_temp_buf3);
    data.m15_tsi_hist = m_temp_buf1[idx_l2] - m_temp_buf2[idx_l2];
 
-// 10. RVOL M15 for Thrust
+// 9. RVOL M15 for Thrust
    double rvol_m15 = m_rvol.CalculateSingle(m15_total, mid_v, idx_l2);
 
 //----------------------------------------------------------------
@@ -697,8 +708,8 @@ void OnStart()
    StringReplace(str_fast, "PERIOD_", "");
 
    string header = "TIME (" + InpBrokerTimeZone + ");SYMBOL;PRICE;";
-   header += StringFormat("ALPHA_%s;BETA_%s;VHF_%s;R2_%s;ZONE_%s;", str_slow, str_slow, str_slow, str_slow, str_slow);
-   header += StringFormat("V_SCORE_W1_%s;V_SCORE_D1_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;SQZ_MOM_%s;VHF_%s;R2_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
+   header += StringFormat("ALPHA_%s;BETA_%s;VHF_%s;R2_%s;ZONE_%s;V_SCORE_W1_%s;", str_slow, str_slow, str_slow, str_slow, str_slow, str_slow); // MOVED V_SCORE_W1 to H1 Context!
+   header += StringFormat("V_SCORE_D1_%s;AUTOCORR_%s;VOL_REGIME_%s;SQZ_%s;SQZ_MOM_%s;VHF_%s;R2_%s;DIST_PDH;DIST_PDL;", str_mid, str_mid, str_mid, str_mid, str_mid, str_mid, str_mid);
    header += StringFormat("VEL_%s;V_PRES_%s;VOL_THRUST;COST_ATR_%s;", str_fast, str_fast, str_fast);
    header += "ABSORPTION;MTF_ALIGN;VWAP_ALIGN";
 
@@ -716,7 +727,7 @@ void OnStart()
                 DoubleToString(results[i].vhf, InpPrecision),
                 DoubleToString(results[i].r2, InpPrecision),
                 results[i].zone,
-                DoubleToString(results[i].v_score_week, InpPrecision),
+                DoubleToString(results[i].v_score_week, InpPrecision), // MOVED: Now writes directly after zone under H1
                 DoubleToString(results[i].v_score_day, InpPrecision),
                 DoubleToString(results[i].autocorr, InpPrecision),
                 DoubleToString(results[i].vol_regime, InpPrecision),
