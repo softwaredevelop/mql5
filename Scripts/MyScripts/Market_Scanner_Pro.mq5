@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           Market_Scanner_Pro.mq5 |
-//|                    QuantScan 10.38 - Historical Audit Master     |
+//|                    QuantScan 10.39 - Historical Audit Master     |
 //|                    Copyright 2026, xxxxxxxx                      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "10.38" // Reorganized Weekly V-Score (v_score_week) strictly under the H1 Context Layer
+#property version   "10.39" // Implemented strict Temporal Validation Guard to prevent future target time corruption
 #property description "Exports 'QuantScan' dataset for LLM Analysis."
 #property description "Features High-Performance Object Caching and precise Historical Audits."
 #property script_show_inputs
@@ -57,7 +57,7 @@ input int      InpAutoCorrPeriod = 20;   // Autocorrelation Window
 input int      InpMurreyPeriod   = 64;
 input int      InpATRPeriod      = 14;
 input int      InpRSBars         = 24;
-input int      InpRVOLPeriod     = 20;
+input int      InpResSettle      = 20;
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -76,22 +76,18 @@ input int      InpSqueezeMom     = 12;
 input group "Output Settings"
 input int      InpPrecision      = 3; // Decimal places for CSV Output
 
-//--- QuantData Struct (Updated Layout)
+//--- QuantData Struct
 struct QuantData
   {
    string            timestamp;
    string            symbol;
    double            price;
-
-   // H1 Context (Layer 1)
    string            alpha_str;
    string            beta_str;
    double            vhf;
    double            r2;
    string            zone;
-   double            v_score_week;     // MOVED HERE (Since it calculates strictly on H1)
-
-   // M15 Flow (Layer 2)
+   double            v_score_week;
    double            v_score_day;
    double            autocorr;
    double            vol_regime;
@@ -101,19 +97,13 @@ struct QuantData
    double            m15_r2;
    double            dist_pdh;
    double            dist_pdl;
-
-   // M5 Trigger (Layer 3)
    double            velocity;
    double            v_pressure;
    double            vol_thrust;
    double            cost_atr;
-
-   // Composites
    string            absorption;
    string            mtf_align;
    string            vwap_align;
-
-   // TSI Hist Caches
    double            h1_tsi_hist;
    double            m15_tsi_hist;
    double            m5_tsi_hist;
@@ -165,7 +155,7 @@ bool CMarketScanner::Init(void)
   {
    if(!m_atr.Init(InpATRPeriod, ATR_POINTS))
       return false;
-   if(!m_rvol.Init(InpRVOLPeriod))
+   if(!m_rvol.Init(InpResSettle))
       return false;
    if(!m_squeeze.Init(InpSqueezeLength, InpBBMult, InpKCMult, InpSqueezeMom))
       return false;
@@ -627,6 +617,19 @@ void OnStart()
       total_symbols = StringSplit(InpSymbolList, u_sep, symbols);
      }
 
+// Temporary safeguard for future target time
+   if(InpUseTargetTime && InpTargetTime > TimeCurrent())
+     {
+      string msg = StringFormat("Critical Error: Specified Target Time (%s) is in the future!\n"
+                                "Current Broker Time is %s.\n"
+                                "Execution aborted to prevent dataset corruption.",
+                                TimeToString(InpTargetTime), TimeToString(TimeCurrent()));
+
+      MessageBox(msg, "QuantScan Target Time Error", MB_OK|MB_ICONERROR);
+      Print("QuantScan Error: " + msg);
+      return; // Abort gracefully
+     }
+
 // Initialize the high-performance global scanner
    if(!g_scanner.Init())
      {
@@ -727,7 +730,7 @@ void OnStart()
                 DoubleToString(results[i].vhf, InpPrecision),
                 DoubleToString(results[i].r2, InpPrecision),
                 results[i].zone,
-                DoubleToString(results[i].v_score_week, InpPrecision), // MOVED: Now writes directly after zone under H1
+                DoubleToString(results[i].v_score_week, InpPrecision),
                 DoubleToString(results[i].v_score_day, InpPrecision),
                 DoubleToString(results[i].autocorr, InpPrecision),
                 DoubleToString(results[i].vol_regime, InpPrecision),
