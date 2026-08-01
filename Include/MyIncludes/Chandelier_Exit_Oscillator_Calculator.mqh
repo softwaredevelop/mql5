@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.01" // Patched Heikin Ashi close pricing bug by passing real high/low arrays
+#property version   "1.10" // Simplified to return raw normalized values for custom wrapper coloring
 #property description "Stateful calculator implementing normalized distance between Price and Trailing Stop."
 
 #ifndef CHANDELIER_EXIT_OSCILLATOR_CALCULATOR_MQH
@@ -32,7 +32,6 @@ private:
    double                     m_atr_buffer[];
    double                     m_price_close[];
 
-   // FIXED: Accepts full high[] and low[] arrays for pristine Heikin Ashi close calculation
    bool                       PrepareCloseSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -42,7 +41,7 @@ public:
    bool                       Init(int period, double multiplier, bool is_ha);
    void                       Calculate(int rates_total, int prev_calculated,
                                         const double &open[], const double &high[], const double &low[], const double &close[],
-                                        double &osc_buffer[], double &color_buffer[]);
+                                        double &osc_buffer[]);
   };
 
 //+------------------------------------------------------------------+
@@ -110,7 +109,7 @@ bool CChandelierExitOscillatorCalculator::Init(int period, double multiplier, bo
 //+------------------------------------------------------------------+
 void CChandelierExitOscillatorCalculator::Calculate(int rates_total, int prev_calculated,
       const double &open[], const double &high[], const double &low[], const double &close[],
-      double &osc_buffer[], double &color_buffer[])
+      double &osc_buffer[])
   {
    if(rates_total < m_period + 5)
       return;
@@ -131,24 +130,18 @@ void CChandelierExitOscillatorCalculator::Calculate(int rates_total, int prev_ca
 
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
-// FIXED: Passing full OHLC context to prevent pricing collapse
    if(!PrepareCloseSeries(rates_total, start_index, open, high, low, close))
       return;
 
-//--- Run underlying Chandelier Exit Stop calculation
+//--- Run underlying Stop Line and raw ATR values
    m_exit_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_stop_line, m_color_dummy);
-
-//--- Run underlying ATR calculation
    m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
 
    int loop_start = MathMax(m_period, start_index);
    if(loop_start == m_period)
      {
       for(int i = 0; i < m_period; i++)
-        {
-         osc_buffer[i]   = 0.0;
-         color_buffer[i] = 0.0;
-        }
+         osc_buffer[i] = 0.0;
      }
 
 //--- Compute Normalized Distance: (Price - Stop) / ATR
@@ -163,11 +156,6 @@ void CChandelierExitOscillatorCalculator::Calculate(int rates_total, int prev_ca
         {
          osc_buffer[i] = 0.0;
         }
-
-      // Color mapping aligned with the trend flip
-      // If above 0.0 -> DodgerBlue (Bullish)
-      // If below 0.0 -> Tomato (Bearish)
-      color_buffer[i] = (osc_buffer[i] >= 0.0) ? 0.0 : 1.0;
      }
   }
 
@@ -193,7 +181,6 @@ bool CChandelierExitOscillatorCalculator::PrepareCloseSeries(int rates_total, in
          ArraySetAsSeries(ha_close, false);
         }
 
-      // FIXED: Real high[] and low[] arrays passed to the HA toolkit to obtain correct prices
       ha_calc.Calculate(rates_total, start_index, open, high, low, close, ha_open, ha_high, ha_low, ha_close);
 
       for(int i = start_index; i < rates_total; i++)
