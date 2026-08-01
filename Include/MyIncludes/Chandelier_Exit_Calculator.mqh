@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Performance optimized Chandelier Exit engine wrapping ATR v3.00
+#property version   "1.20" // Integrated strict Directional Safety Filter to eliminate sawtooth death-loops
 #property description "Stateful calculator implementing Charles LeBeau Chandelier Exit (ATR Trailing Stop)."
 
 #ifndef CHANDELIER_EXIT_CALCULATOR_MQH
@@ -45,8 +45,8 @@ public:
 
    bool              Init(int period, double multiplier, bool is_ha);
    void              Calculate(int rates_total, int prev_calculated,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &stop_line[], double &color_buffer[]);
+                             const double &open[], const double &high[], const double &low[], const double &close[],
+                             double &stop_line[], double &color_buffer[]);
   };
 
 //+------------------------------------------------------------------+
@@ -84,7 +84,6 @@ bool CChandelierExitCalculator::Init(int period, double multiplier, bool is_ha)
       m_atr_calc = NULL;
      }
 
-// Dynamic polymorphic instantiation of the underlying refactored ATR engine
    if(m_is_ha)
       m_atr_calc = new CATRCalculator_HA();
    else
@@ -156,35 +155,50 @@ void CChandelierExitCalculator::Calculate(int rates_total, int prev_calculated,
       m_short_stop[i] = Lowest(m_price_low, m_period, i) + m_multiplier * m_atr_buffer[i];
      }
 
-//--- 5. Trailing Stop Ratchet & Trend Logic
+//--- 5. Trailing Stop Ratchet & Trend Logic (FIXED: Strict Directional Safety Filter applied)
    for(int i = loop_start; i < rates_total; i++)
      {
-      // Trend flip conditions
-      if(m_price_close[i] > m_short_stop[i - 1])
-         m_trend[i] = 1.0; // Bullish
-      else
-         if(m_price_close[i] < m_long_stop[i - 1])
-            m_trend[i] = -1.0; // Bearish
-         else
-            m_trend[i] = m_trend[i - 1];
+      double prev_stop  = stop_line[i - 1];
+      double prev_trend = m_trend[i - 1];
 
-      // Ratchet assignment (stop can only move in favor of the trend or stay flat)
+      if(prev_trend == 1.0) // Trend was Bullish (stop is below price)
+        {
+         // Flip to bearish ONLY if price closes BELOW active stop AND the new bearish stop is safely ABOVE price
+         if(m_price_close[i] < prev_stop && m_short_stop[i] > m_price_close[i])
+           {
+            m_trend[i]   = -1.0;
+            stop_line[i] = m_short_stop[i]; // Reset to ShortStop
+           }
+         else
+           {
+            m_trend[i]   = 1.0;
+            // Ratchet trailing: stop can only go up
+            stop_line[i] = MathMax(m_long_stop[i], prev_stop);
+           }
+        }
+      else // Trend was Bearish (prev_trend == -1.0, stop is above price)
+        {
+         // Flip to bullish ONLY if price closes ABOVE active stop AND the new bullish stop is safely BELOW price
+         if(m_price_close[i] > prev_stop && m_long_stop[i] < m_price_close[i])
+           {
+            m_trend[i]   = 1.0;
+            stop_line[i] = m_long_stop[i]; // Reset to LongStop
+           }
+         else
+           {
+            m_trend[i]   = -1.0;
+            // Ratchet trailing: stop can only go down
+            stop_line[i] = MathMin(m_short_stop[i], prev_stop);
+           }
+        }
+
+      // Assign visual color indexes cleanly
       if(m_trend[i] == 1.0)
         {
-         if(m_long_stop[i] > stop_line[i - 1] || m_trend[i - 1] == -1.0)
-            stop_line[i] = m_long_stop[i];
-         else
-            stop_line[i] = stop_line[i - 1];
-
          color_buffer[i] = 0.0; // Index 0: Bullish (clrDodgerBlue)
         }
-      else // Bearish
+      else
         {
-         if(m_short_stop[i] < stop_line[i - 1] || stop_line[i - 1] == 0.0 || m_trend[i - 1] == 1.0)
-            stop_line[i] = m_short_stop[i];
-         else
-            stop_line[i] = stop_line[i - 1];
-
          color_buffer[i] = 1.0; // Index 1: Bearish (clrTomato)
         }
 
