@@ -3,24 +3,37 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // First unified Standard & MTF Chandelier Distance Oscillator release
+#property version   "1.10" // Upgraded with 5-zone dynamic thermal coloring and Signal MA line
 #property description "Charles LeBeau Chandelier Exit Distance (Volatility Momentum) Oscillator."
 #property description "Measures the distance between Price and Stop Line in ATR (Sigma) units."
 
 #property indicator_separate_window
-#property indicator_buffers 2
-#property indicator_plots   1
+#property indicator_buffers 3
+#property indicator_plots   2
 
 //--- Plot 1: Chandelier Distance (Color Histogram)
 #property indicator_label1  "Chandelier Distance"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
-// Index 0: Bullish (clrDodgerBlue), Index 1: Bearish (clrTomato)
-#property indicator_color1  clrDodgerBlue, clrTomato
+// Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
+// Index 0: Neutral (Gray), 1: Bull Flow (LightSkyBlue), 2: Bull Climax (DeepSkyBlue), 3: Bear Flow (Coral), 4: Bear Climax (OrangeRed)
+#property indicator_color1  clrGray, clrLightSkyBlue, clrDeepSkyBlue, clrCoral, clrOrangeRed
+
+//--- Plot 2: Dynamic Signal Line
+#property indicator_label2  "Signal"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrFireBrick
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  1
+
+//--- Constant Levels (Set up on dynamic init)
+#property indicator_minimum -5.0
+#property indicator_maximum 5.0
 
 //--- Included Engines & Core Tools
 #include <MyIncludes\Chandelier_Exit_Oscillator_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\DataSync_Tools.mqh> // Centralized MTF synchronization daemon
 
 //--- Input Parameters ---
@@ -29,20 +42,40 @@ input ENUM_TIMEFRAMES           InpTimeframe      = PERIOD_CURRENT;       // Tar
 
 input group "--- Chandelier Settings ---"
 input int                       InpAtrPeriod      = 22;                  // ATR & Extreme Lookback Period
-input double                    InpMultiplier     = 3.0;                 // ATR Multiplier
+input double                    InpMultiplier     = 3.0;                 // ATR Multiplier (Bands Ceiling)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice     = PRICE_CLOSE_STD;     // Price Source (Supports HA)
+
+input group "--- Signal Line Settings ---"
+input bool                      InpShowSignal     = true;                // Show Signal Line?
+input int                       InpSignalPeriod   = 5;                   // Signal Period
+input ENUM_MA_TYPE              InpSignalType     = EMA;                 // Signal MA Type (Supports VWMA)
+
+input group "--- Indicator Levels ---"
+input double                    InpLevelFlowHigh   = 1.5;         // High Warning Level (Bullish Flow)
+input double                    InpLevelFlowLow    = -1.5;        // Low Warning Level (Bearish Flow)
+input double                    InpLevelClimaxHigh = 2.0;         // High Climax Level (Bullish Climax)
+input double                    InpLevelClimaxLow  = -2.0;        // Low Climax Level (Bearish Climax)
+input double                    InpLevelExtremeHigh= 2.5;         // High Exhaustion Level
+input double                    InpLevelExtremeLow = -2.5;        // Low Exhaustion Level
+input color                     InpLevelColor      = clrSilver;   // Levels Color
+input ENUM_LINE_STYLE           InpLevelStyle      = STYLE_DOT;   // Levels Style
 
 //--- Visual Indicator Buffers ---
 double    BufferOsc[];
 double    BufferColor[];
+double    BufferSignal[];
+
+//--- Volume Cache (Used on Current Timeframe Mode)
+double    g_double_volume[];
 
 //--- Internal HTF Data Caches
-double    h_open[], h_high[], h_low[], h_close[];
-double    h_res_osc[], h_res_color[];
+double    h_open[], h_high[], h_low[], h_close[], h_volume[];
+double    h_res_osc[], h_res_color[], h_res_signal[];
 datetime  h_time[];
 
 //--- Global Objects & Synchronizer State
 CChandelierExitOscillatorCalculator *g_calculator;
+CMovingAverageCalculator            *g_signal_calculator;
 
 bool            g_is_mtf_mode         = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
@@ -75,47 +108,88 @@ int OnInit()
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
 //--- 2. Bind buffers to index mapping
-   SetIndexBuffer(0, BufferOsc,   INDICATOR_DATA);
-   SetIndexBuffer(1, BufferColor, INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(0, BufferOsc,    INDICATOR_DATA);
+   SetIndexBuffer(1, BufferColor,  INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(2, BufferSignal, INDICATOR_DATA);
 
 //--- Force strict chronological alignment (false = old to new)
-   ArraySetAsSeries(BufferOsc,   false);
-   ArraySetAsSeries(BufferColor, false);
+   ArraySetAsSeries(BufferOsc,    false);
+   ArraySetAsSeries(BufferColor,  false);
+   ArraySetAsSeries(BufferSignal, false);
+
+//--- Setup EMPTY_VALUE fallback for signal line
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
+//--- 3. Dynamically configure horizontal levels to support custom inputs
+   IndicatorSetInteger(INDICATOR_LEVELS, 6);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelFlowHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelFlowLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, InpLevelClimaxHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 3, InpLevelClimaxLow);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 4, InpLevelExtremeHigh);
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 5, InpLevelExtremeLow);
+
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, InpLevelStyle);
+
+// Adjust separate window boundaries dynamically to match the configured Multiplier
+   IndicatorSetDouble(INDICATOR_MINIMUM, -InpMultiplier - 0.5);
+   IndicatorSetDouble(INDICATOR_MAXIMUM, InpMultiplier + 0.5);
 
    bool is_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
 
-//--- 3. Initialize Physical Chandelier Oscillator Calculator
+//--- 4. Initialize Physical Chandelier Oscillator Calculator
    g_calculator = new CChandelierExitOscillatorCalculator();
-   if(CheckPointer(g_calculator) == POINTER_INVALID)
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpAtrPeriod, InpMultiplier, is_ha))
      {
-      Print("Critical Error: Failed to allocate Chandelier Oscillator Calculator memory.");
+      Print("Critical Error: Failed to create or initialize Chandelier Oscillator Calculator.");
       return(INIT_FAILED);
      }
 
-   if(!g_calculator.Init(InpAtrPeriod, InpMultiplier, is_ha))
+//--- 5. Initialize Physical Signal MA Calculator
+   if(InpShowSignal)
      {
-      Print("Critical Error: Failed to initialize Chandelier Oscillator Calculator.");
-      return(INIT_FAILED);
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
+      g_signal_calculator = new CMovingAverageCalculator();
+      if(CheckPointer(g_signal_calculator) == POINTER_INVALID || !g_signal_calculator.Init(InpSignalPeriod, InpSignalType))
+        {
+         Print("Critical Error: Failed to initialize Signal Line Calculator.");
+         return(INIT_FAILED);
+        }
+     }
+   else
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
      }
 
-//--- 4. Dynamic Setup of Indicator Shortname
+//--- 6. Dynamic Setup of Indicator Shortname
+   string sig_str = "";
+   if(InpShowSignal)
+     {
+      string sig_name = EnumToString(InpSignalType);
+      StringToUpper(sig_name);
+      sig_str = StringFormat(" | %s(%d)", sig_name, InpSignalPeriod);
+     }
+
    string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
-   string short_name = StringFormat("Chandelier Osc%s%s(%d, %.1f)",
+   string short_name = StringFormat("Chandelier Osc%s%s(%d, %.1f)%s",
                                     is_ha ? " HA" : "",
                                     tf_str,
                                     InpAtrPeriod,
-                                    InpMultiplier);
+                                    InpMultiplier,
+                                    sig_str);
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
+   IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
 //--- Drawing offset configuration
-   int draw_begin = InpAtrPeriod + 5;
+   int draw_begin = InpAtrPeriod + InpSignalPeriod + 5;
    if(g_is_mtf_mode)
       draw_begin = 0; // Handled dynamically in mapped buffers
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
-   IndicatorSetInteger(INDICATOR_DIGITS, 2);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
 
-//--- 5. Initialize Background Synchronization Timer Daemon (Only if MTF is active)
+//--- 7. Initialize Background Synchronization Timer Daemon (Only if MTF is active)
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
@@ -130,6 +204,8 @@ void OnDeinit(const int reason)
    EventKillTimer();
    if(CheckPointer(g_calculator) != POINTER_INVALID)
       delete g_calculator;
+   if(CheckPointer(g_signal_calculator) != POINTER_INVALID)
+      delete g_signal_calculator;
   }
 
 //+------------------------------------------------------------------+
@@ -146,7 +222,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   int required_bars = InpAtrPeriod + 15;
+   int required_bars = InpAtrPeriod + InpSignalPeriod + 10;
    if(rates_total < required_bars)
       return 0;
 
@@ -160,17 +236,66 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(low,   false);
    ArraySetAsSeries(close, false);
 
-   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
-                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
-                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
-
 //===================================================================
 // MODE 1: Current Timeframe calculation (Standard ultra-high speed)
 //===================================================================
    if(!g_is_mtf_mode)
      {
-      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close,
-                             BufferOsc, BufferColor);
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(ArraySize(g_double_volume) != rates_total)
+        {
+         ArrayResize(g_double_volume, rates_total);
+         ArraySetAsSeries(g_double_volume, false);
+        }
+
+      int start_sync = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      if(volume_limit > 0)
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)volume[i];
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)tick_volume[i];
+        }
+
+      // 1. Calculate Chandelier Oscillator values
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferOsc);
+
+      // 2. Calculate Signal MA on top of Oscillator
+      if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+        {
+         if(InpSignalType == VWMA)
+            g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufferOsc, g_double_volume, BufferSignal, InpAtrPeriod);
+         else
+            g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufferOsc, BufferSignal, InpAtrPeriod);
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            BufferSignal[i] = EMPTY_VALUE;
+        }
+
+      // 3. Dynamic 5-Zone Swapped Thermal Color Classification
+      for(int i = start_sync; i < rates_total; i++)
+        {
+         double osc_val = BufferOsc[i];
+         if(osc_val > InpLevelClimaxHigh)
+            BufferColor[i] = 2.0; // Bull Climax (DeepSkyBlue)
+         else
+            if(osc_val > InpLevelFlowHigh)
+               BufferColor[i] = 1.0; // Bull Flow (LightSkyBlue)
+            else
+               if(osc_val < InpLevelClimaxLow)
+                  BufferColor[i] = 4.0; // Bear Climax (OrangeRed)
+               else
+                  if(osc_val < InpLevelFlowLow)
+                     BufferColor[i] = 3.0; // Bear Flow (Coral)
+                  else
+                     BufferColor[i] = 0.0; // Neutral (Gray)
+        }
+
       return(rates_total);
      }
 
@@ -203,22 +328,26 @@ int OnCalculate(const int rates_total,
       g_htf_count = MathMin(htf_bars, 3000); // Guard rails to prevent memory overload
 
       // Resize all HTF caching arrays
-      ArrayResize(h_time,      g_htf_count);
-      ArrayResize(h_open,      g_htf_count);
-      ArrayResize(h_high,      g_htf_count);
-      ArrayResize(h_low,       g_htf_count);
-      ArrayResize(h_close,     g_htf_count);
-      ArrayResize(h_res_osc,   g_htf_count);
-      ArrayResize(h_res_color, g_htf_count);
+      ArrayResize(h_time,       g_htf_count);
+      ArrayResize(h_open,       g_htf_count);
+      ArrayResize(h_high,       g_htf_count);
+      ArrayResize(h_low,        g_htf_count);
+      ArrayResize(h_close,      g_htf_count);
+      ArrayResize(h_volume,     g_htf_count);
+      ArrayResize(h_res_osc,    g_htf_count);
+      ArrayResize(h_res_color,  g_htf_count);
+      ArrayResize(h_res_signal, g_htf_count);
 
       // Force chronological structure on high-level arrays
-      ArraySetAsSeries(h_time,      false);
-      ArraySetAsSeries(h_open,      false);
-      ArraySetAsSeries(h_high,      false);
-      ArraySetAsSeries(h_low,       false);
-      ArraySetAsSeries(h_close,     false);
-      ArraySetAsSeries(h_res_osc,   false);
-      ArraySetAsSeries(h_res_color, false);
+      ArraySetAsSeries(h_time,       false);
+      ArraySetAsSeries(h_open,       false);
+      ArraySetAsSeries(h_high,       false);
+      ArraySetAsSeries(h_low,        false);
+      ArraySetAsSeries(h_close,      false);
+      ArraySetAsSeries(h_volume,     false);
+      ArraySetAsSeries(h_res_osc,    false);
+      ArraySetAsSeries(h_res_color,  false);
+      ArraySetAsSeries(h_res_signal, false);
 
       // Copy basic pricing data
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
@@ -231,8 +360,57 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      //--- Calculate core indicators directly on high timeframe (Initial setup)
-      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_osc, h_res_color);
+      // Copy and extract proper volume types
+      long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(vol_limit > 0)
+        {
+         long temp_vol[];
+         if(CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
+           {
+            for(int i = 0; i < g_htf_count; i++)
+               h_volume[i] = (double)temp_vol[i];
+           }
+        }
+      else
+        {
+         long temp_vol[];
+         if(CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
+           {
+            for(int i = 0; i < g_htf_count; i++)
+               h_volume[i] = (double)temp_vol[i];
+           }
+        }
+
+      //--- Calculate HTF core Chandelier Oscillator
+      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_osc);
+
+      //--- Calculate HTF Signal MA
+      if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+        {
+         if(InpSignalType == VWMA)
+            g_signal_calculator.CalculateOnArray(g_htf_count, 0, h_res_osc, h_volume, h_res_signal, InpAtrPeriod);
+         else
+            g_signal_calculator.CalculateOnArray(g_htf_count, 0, h_res_osc, h_res_signal, InpAtrPeriod);
+        }
+
+      //--- Calculate HTF dynamic coloring
+      for(int i = 0; i < g_htf_count; i++)
+        {
+         double osc_val = h_res_osc[i];
+         if(osc_val > InpLevelClimaxHigh)
+            h_res_color[i] = 2.0;
+         else
+            if(osc_val > InpLevelFlowHigh)
+               h_res_color[i] = 1.0;
+            else
+               if(osc_val < InpLevelClimaxLow)
+                  h_res_color[i] = 4.0;
+               else
+                  if(osc_val < InpLevelFlowLow)
+                     h_res_color[i] = 3.0;
+                  else
+                     h_res_color[i] = 0.0;
+        }
 
       g_data_ready = true;
      }
@@ -245,6 +423,7 @@ int OnCalculate(const int rates_total,
    if(live_idx >= required_bars)
      {
       double o[1], h[1], l[1], c[1];
+      long v[1];
       int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
       if(shift >= 0 &&
          CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
@@ -257,8 +436,43 @@ int OnCalculate(const int rates_total,
          h_low[live_idx]   = l[0];
          h_close[live_idx] = c[0];
 
-         // Stateful, O(1) mock update for the live bar
-         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_osc, h_res_color);
+         long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+         if(vol_limit > 0)
+           {
+            if(CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
+               h_volume[live_idx] = (double)v[0];
+           }
+         else
+           {
+            if(CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
+               h_volume[live_idx] = (double)v[0];
+           }
+
+         // Stateful, O(1) mock update for the live HTF bar
+         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_osc);
+
+         if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+           {
+            if(InpSignalType == VWMA)
+               g_signal_calculator.CalculateOnArray(g_htf_count, g_htf_count, h_res_osc, h_volume, h_res_signal, InpAtrPeriod);
+            else
+               g_signal_calculator.CalculateOnArray(g_htf_count, g_htf_count, h_res_osc, h_res_signal, InpAtrPeriod);
+           }
+
+         double osc_val = h_res_osc[live_idx];
+         if(osc_val > InpLevelClimaxHigh)
+            h_res_color[live_idx] = 2.0;
+         else
+            if(osc_val > InpLevelFlowHigh)
+               h_res_color[live_idx] = 1.0;
+            else
+               if(osc_val < InpLevelClimaxLow)
+                  h_res_color[live_idx] = 4.0;
+               else
+                  if(osc_val < InpLevelFlowLow)
+                     h_res_color[live_idx] = 3.0;
+                  else
+                     h_res_color[live_idx] = 0.0;
         }
      }
 
@@ -287,19 +501,22 @@ int OnCalculate(const int rates_total,
          int idx_htf = g_htf_count - 1 - shift_htf;
          if(idx_htf >= 0 && idx_htf < g_htf_count)
            {
-            BufferOsc[i]   = h_res_osc[idx_htf];
-            BufferColor[i] = h_res_color[idx_htf];
+            BufferOsc[i]    = h_res_osc[idx_htf];
+            BufferColor[i]  = h_res_color[idx_htf];
+            BufferSignal[i] = InpShowSignal ? h_res_signal[idx_htf] : EMPTY_VALUE;
            }
          else
            {
-            BufferOsc[i]   = EMPTY_VALUE;
-            BufferColor[i] = 0.0;
+            BufferOsc[i]    = EMPTY_VALUE;
+            BufferColor[i]  = 0.0;
+            BufferSignal[i] = EMPTY_VALUE;
            }
         }
       else
         {
-         BufferOsc[i]   = EMPTY_VALUE;
+         BufferOsc[i]    = EMPTY_VALUE;
          BufferColor[i] = 0.0;
+         BufferSignal[i] = EMPTY_VALUE;
         }
      }
 
