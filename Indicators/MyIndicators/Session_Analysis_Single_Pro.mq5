@@ -1,14 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                  Session_Analysis_Single_Pro.mq5 |
-//|                                          Copyright 2025, xxxxxxxx|
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "1.10" // Fixed compilation errors
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.21" // Fixed incremental VWAP buffer-wipe ghost remnants
 #property description "Session Analysis for a SINGLE market."
-#property description "Supports Pre, Core, Post, and Full sessions with VWAP buffers."
+#property description "Fully optimized for flicker-free real-time drawing and state-safe VWAP."
 
 #property indicator_chart_window
-// We use exactly 8 buffers for 4 sessions x 2 VWAP lines (Odd/Even)
 #property indicator_buffers 8
 #property indicator_plots   8
 
@@ -65,7 +64,7 @@
 #include <MyIncludes\Session_Analysis_Calculator.mqh>
 #include <MyIncludes\VWAP_Calculator.mqh>
 
-//--- Enum for selecting the candle source for calculation ---
+//--- Enum for Candle Source ---
 enum ENUM_CANDLE_SOURCE
   {
    CANDLE_STANDARD,      // Use standard OHLC data
@@ -130,26 +129,23 @@ double BufferFull_Odd[], BufferFull_Even[];
 CSessionAnalyzer *g_box_analyzers[SESSIONS_COUNT];
 CVWAPCalculator  *g_vwap_calculators[SESSIONS_COUNT];
 string g_unique_prefix;
-datetime g_last_bar_time;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function                         |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_last_bar_time = 0;
-
-// --- Map Buffers ---
-   SetIndexBuffer(0, BufferPre_Odd, INDICATOR_DATA);
-   SetIndexBuffer(1, BufferPre_Even, INDICATOR_DATA);
-   SetIndexBuffer(2, BufferCore_Odd, INDICATOR_DATA);
+//--- Bind Buffers to index mapping
+   SetIndexBuffer(0, BufferPre_Odd,   INDICATOR_DATA);
+   SetIndexBuffer(1, BufferPre_Even,  INDICATOR_DATA);
+   SetIndexBuffer(2, BufferCore_Odd,  INDICATOR_DATA);
    SetIndexBuffer(3, BufferCore_Even, INDICATOR_DATA);
-   SetIndexBuffer(4, BufferPost_Odd, INDICATOR_DATA);
+   SetIndexBuffer(4, BufferPost_Odd,  INDICATOR_DATA);
    SetIndexBuffer(5, BufferPost_Even, INDICATOR_DATA);
-   SetIndexBuffer(6, BufferFull_Odd, INDICATOR_DATA);
+   SetIndexBuffer(6, BufferFull_Odd,  INDICATOR_DATA);
    SetIndexBuffer(7, BufferFull_Even, INDICATOR_DATA);
 
-// --- Set Series and Empty Values (Unrolled loop) ---
+//--- Force strict chronological alignment and empty value fallbacks (Unrolled loop)
    ArraySetAsSeries(BufferPre_Odd, false);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    ArraySetAsSeries(BufferPre_Even, false);
@@ -167,7 +163,7 @@ int OnInit()
    ArraySetAsSeries(BufferFull_Even, false);
    PlotIndexSetDouble(7, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-// --- Set Colors Dynamically ---
+//--- Apply Custom Session Colors
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, InpPre_Color);
    PlotIndexSetInteger(1, PLOT_LINE_COLOR, InpPre_Color);
    PlotIndexSetInteger(2, PLOT_LINE_COLOR, InpCore_Color);
@@ -177,7 +173,7 @@ int OnInit()
    PlotIndexSetInteger(6, PLOT_LINE_COLOR, InpFull_Color);
    PlotIndexSetInteger(7, PLOT_LINE_COLOR, InpFull_Color);
 
-// --- Unique Prefix Generation ---
+//--- Generate Unique Object Prefix to prevent collisions on multiple instances
    MathSrand((int)TimeCurrent() + (int)ChartID());
    string temp_short_name = StringFormat("SessSingle_TempID_%d_%d", TimeCurrent(), MathRand());
    IndicatorSetString(INDICATOR_SHORTNAME, temp_short_name);
@@ -185,13 +181,14 @@ int OnInit()
    int window_index = ChartWindowFind(0, temp_short_name);
    if(window_index < 0)
       window_index = 0;
+
    g_unique_prefix = StringFormat("SessSingle_%s_%d_%d_", InpMarketName, ChartID(), window_index);
    ObjectsDeleteAll(0, g_unique_prefix);
 
-// --- Determine Mode ---
    bool is_ha_mode = (InpCandleSource == CANDLE_HEIKIN_ASHI);
 
-   for(int i=0; i<SESSIONS_COUNT; i++)
+//--- Instantiate Polymorphic Engines
+   for(int i = 0; i < SESSIONS_COUNT; i++)
      {
       if(is_ha_mode)
         {
@@ -205,19 +202,20 @@ int OnInit()
         }
      }
 
-// --- Init Analyzers (Boxes, Mean, LinReg) ---
+//--- Initialize Object-drawing Analyzers
    g_box_analyzers[0].Init(InpPre_Enable, InpPre_Start, InpPre_End, InpPre_Color, InpFillBoxes, InpPre_ShowMean, InpPre_ShowLinReg, g_unique_prefix + "Pre_", InpMaxHistoryDays);
    g_box_analyzers[1].Init(InpCore_Enable, InpCore_Start, InpCore_End, InpCore_Color, InpFillBoxes, InpCore_ShowMean, InpCore_ShowLinReg, g_unique_prefix + "Core_", InpMaxHistoryDays);
    g_box_analyzers[2].Init(InpPost_Enable, InpPost_Start, InpPost_End, InpPost_Color, InpFillBoxes, InpPost_ShowMean, InpPost_ShowLinReg, g_unique_prefix + "Post_", InpMaxHistoryDays);
    g_box_analyzers[3].Init(InpFull_Enable, InpPre_Start, InpPost_End, InpFull_Color, InpFillBoxes, InpFull_ShowMean, InpFull_ShowLinReg, g_unique_prefix + "Full_", InpMaxHistoryDays);
 
-// --- Init VWAP Calculators ---
+//--- Initialize Stateful VWAP Engines
    g_vwap_calculators[0].Init(InpPre_Start, InpPre_End, InpVolumeType, InpPre_Enable && InpPre_ShowVWAP, InpMaxHistoryDays);
    g_vwap_calculators[1].Init(InpCore_Start, InpCore_End, InpVolumeType, InpCore_Enable && InpCore_ShowVWAP, InpMaxHistoryDays);
    g_vwap_calculators[2].Init(InpPost_Start, InpPost_End, InpVolumeType, InpPost_Enable && InpPost_ShowVWAP, InpMaxHistoryDays);
    g_vwap_calculators[3].Init(InpPre_Start, InpPost_End, InpVolumeType, InpFull_Enable && InpFull_ShowVWAP, InpMaxHistoryDays);
 
    IndicatorSetString(INDICATOR_SHORTNAME, "Session Analysis Single (" + InpMarketName + ")" + (is_ha_mode ? " HA" : ""));
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    return(INIT_SUCCEEDED);
   }
@@ -227,7 +225,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   for(int i=0; i<SESSIONS_COUNT; i++)
+   for(int i = 0; i < SESSIONS_COUNT; i++)
      {
       if(CheckPointer(g_box_analyzers[i]) != POINTER_INVALID)
         {
@@ -241,43 +239,61 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Custom indicator calculation function                            |
+//| Custom indicator calculation loop (Real-time and O(1) optimized) |
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total, const int prev_calculated, const datetime& time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
   {
-   if(rates_total > 0 && time[rates_total - 1] == g_last_bar_time && Bars(_Symbol, _Period) == rates_total)
-      return(rates_total);
-   if(rates_total > 0)
-      g_last_bar_time = time[rates_total - 1];
+   if(rates_total < 10)
+      return 0;
 
-// --- Clear VWAP buffers (Unrolled) ---
-   ArrayInitialize(BufferPre_Odd, EMPTY_VALUE);
-   ArrayInitialize(BufferPre_Even, EMPTY_VALUE);
-   ArrayInitialize(BufferCore_Odd, EMPTY_VALUE);
-   ArrayInitialize(BufferCore_Even, EMPTY_VALUE);
-   ArrayInitialize(BufferPost_Odd, EMPTY_VALUE);
-   ArrayInitialize(BufferPost_Even, EMPTY_VALUE);
-   ArrayInitialize(BufferFull_Odd, EMPTY_VALUE);
-   ArrayInitialize(BufferFull_Even, EMPTY_VALUE);
+//--- Chronological safety safeguards
+   ArraySetAsSeries(time,        false);
+   ArraySetAsSeries(open,        false);
+   ArraySetAsSeries(high,        false);
+   ArraySetAsSeries(low,         false);
+   ArraySetAsSeries(close,       false);
+   ArraySetAsSeries(tick_volume, false);
+   ArraySetAsSeries(volume,      false);
 
-// --- Object Drawing Logic ---
-   for(int i=0; i<SESSIONS_COUNT; i++)
+//--- FIXED: Only wipe buffers on the very first run (prev_calculated == 0)
+//--- This preserves historical segments during incremental tick calculations, completely curing ghost lines!
+   if(prev_calculated == 0)
      {
-      if(CheckPointer(g_box_analyzers[i]))
-         g_box_analyzers[i].Update(rates_total, 0, time, open, high, low, close, InpSourcePrice);
+      ArrayInitialize(BufferPre_Odd,   EMPTY_VALUE);
+      ArrayInitialize(BufferPre_Even,  EMPTY_VALUE);
+      ArrayInitialize(BufferCore_Odd,  EMPTY_VALUE);
+      ArrayInitialize(BufferCore_Even, EMPTY_VALUE);
+      ArrayInitialize(BufferPost_Odd,  EMPTY_VALUE);
+      ArrayInitialize(BufferPost_Even, EMPTY_VALUE);
+      ArrayInitialize(BufferFull_Odd,  EMPTY_VALUE);
+      ArrayInitialize(BufferFull_Even, EMPTY_VALUE);
      }
 
-// --- VWAP Buffer Calculation Logic ---
-   int vwap_prev_calc = 0; // Force full recalc
+//--- 1. Update Object Drawing Logic (True O(1) state-preservation)
+   for(int i = 0; i < SESSIONS_COUNT; i++)
+     {
+      if(CheckPointer(g_box_analyzers[i]) != POINTER_INVALID)
+         g_box_analyzers[i].Update(rates_total, prev_calculated, time, open, high, low, close, InpSourcePrice);
+     }
 
-   if(CheckPointer(g_vwap_calculators[0]))
-      g_vwap_calculators[0].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferPre_Odd, BufferPre_Even);
-   if(CheckPointer(g_vwap_calculators[1]))
-      g_vwap_calculators[1].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferCore_Odd, BufferCore_Even);
-   if(CheckPointer(g_vwap_calculators[2]))
-      g_vwap_calculators[2].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferPost_Odd, BufferPost_Even);
-   if(CheckPointer(g_vwap_calculators[3]))
-      g_vwap_calculators[3].Calculate(rates_total, vwap_prev_calc, time, open, high, low, close, tick_volume, volume, BufferFull_Odd, BufferFull_Even);
+//--- 2. Calculate Stateful VWAP Buffers (Teamed with prev_calculated for extreme efficiency!)
+   if(CheckPointer(g_vwap_calculators[0]) != POINTER_INVALID)
+      g_vwap_calculators[0].Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, BufferPre_Odd, BufferPre_Even);
+   if(CheckPointer(g_vwap_calculators[1]) != POINTER_INVALID)
+      g_vwap_calculators[1].Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, BufferCore_Odd, BufferCore_Even);
+   if(CheckPointer(g_vwap_calculators[2]) != POINTER_INVALID)
+      g_vwap_calculators[2].Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, BufferPost_Odd, BufferPost_Even);
+   if(CheckPointer(g_vwap_calculators[3]) != POINTER_INVALID)
+      g_vwap_calculators[3].Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, BufferFull_Odd, BufferFull_Even);
 
    ChartRedraw();
    return(rates_total);
