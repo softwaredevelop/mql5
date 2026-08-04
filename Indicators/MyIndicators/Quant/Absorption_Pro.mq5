@@ -1,9 +1,9 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                                               Absorption_Pro.mq5 |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.22" // Upgraded with subtle pastel watermark MQL5 colors for multi-template support
+#property version   "1.30" // Upgraded with decoupled optional arrow visuals (InpShowArrows) and native DRAW_NONE platform toggles
 #property description "Institutional Absorption Detector."
 #property description "Draws Supply/Demand zones & Outputs State Buffer with soft pastel styling."
 
@@ -32,6 +32,7 @@ input int      InpATRPeriod      = 14;   // ATR Period
 input int      InpRVOLPeriod     = 20;   // RVOL Period (Relative Volume)
 input int      InpHistoryBars    = 500;  // Limit object creation history (Bars)
 input bool     InpShowObjects    = true; // Toggle zone and rectangle visuals
+input bool     InpShowArrows     = true; // Toggle signal arrow visuals
 
 //--- Buffers
 double BufBull[];
@@ -62,9 +63,19 @@ int OnInit()
    ArraySetAsSeries(BufRVOL,  false);
    ArraySetAsSeries(BufState, false);
 
-//--- Arrow Styles (Wingdings wing arrows)
-   PlotIndexSetInteger(0, PLOT_ARROW, 233);
-   PlotIndexSetInteger(1, PLOT_ARROW, 234);
+//--- Dynamic Plot Visibility: Disable drawing at platform level if requested
+   if(!InpShowArrows)
+     {
+      PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_NONE);
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
+     }
+   else
+     {
+      PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_ARROW);
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_ARROW);
+      PlotIndexSetInteger(0, PLOT_ARROW, 233); // Wingdings style
+      PlotIndexSetInteger(1, PLOT_ARROW, 234); // Wingdings style
+     }
 
 //--- Instantiate Calculators
    g_atr = new CATRCalculator();
@@ -187,15 +198,18 @@ int OnCalculate(const int rates_total,
       //--- Render Visuals & Graphical Objects
       if(is_bull || is_bear || is_climax)
         {
-         if(InpShowObjects)
+         // 1. Render Arrows (Decoupled & strictly controlled by InpShowArrows)
+         if(InpShowArrows)
            {
-            // Arrows Setup
             if(is_bull)
                BufBull[i] = low[i] - atr * 0.3;
             if(is_bear)
                BufBear[i] = high[i] + atr * 0.3;
+           }
 
-            // ZONES (Rectangles) using soft, transparent-like native MQL5 pastel colors
+         // 2. Render Zones (Rectangles) (Decoupled & strictly controlled by InpShowObjects)
+         if(InpShowObjects)
+           {
             string name = "AbsZone_" + TimeToString(time[i]);
             color zone_col = is_bull ? clrLightSteelBlue : (is_bear ? clrMistyRose : clrWheat);
 
