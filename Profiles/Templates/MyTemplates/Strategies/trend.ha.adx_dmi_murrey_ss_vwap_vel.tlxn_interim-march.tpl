@@ -807,14 +807,6 @@ color=4678655
 </graph>
 
 <level>
-level=20.000000
-style=2
-color=12632256
-width=1
-descr=
-</level>
-
-<level>
 level=25.000000
 style=2
 color=12632256
@@ -823,13 +815,14 @@ descr=
 </level>
 
 <level>
-level=50.000000
+level=40.000000
 style=2
 color=12632256
 width=1
 descr=
 </level>
 <inputs>
+ADX Settings=
 InpPeriodADX=13
 InpCandleSource=0
 </inputs>
@@ -919,7 +912,7 @@ InpFastKPeriod=13
 InpSlowKPeriod=3
 InpStochMethod=0
 InpSmoothPeriod=3
-InpSignalMethod=0
+InpSignalMethod=4
 </inputs>
 </indicator>
 </window>
@@ -938,9 +931,9 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=0.000000
+scale_fix_min_val=-1.187560
 scale_fix_max=0
-scale_fix_max_val=0.000000
+scale_fix_max_val=1.187560
 expertmode=4
 fixed_height=-1
 
@@ -949,12 +942,12 @@ name=Velocity
 draw=11
 style=0
 width=2
-color=8421504,65280,255
+color=8421504,16436871,16760576,5275647,17919
 </graph>
 
 <graph>
 name=Speed (+)
-draw=1
+draw=0
 style=0
 width=1
 color=36095
@@ -962,10 +955,18 @@ color=36095
 
 <graph>
 name=Speed (-)
-draw=1
+draw=0
 style=0
 width=1
 color=36095
+</graph>
+
+<graph>
+name=Signal
+draw=1
+style=0
+width=1
+color=2237106
 </graph>
 
 <level>
@@ -983,11 +984,31 @@ color=12632256
 width=1
 descr=
 </level>
+
+<level>
+level=0.300000
+style=2
+color=12632256
+width=1
+descr=
+</level>
+
+<level>
+level=-0.300000
+style=2
+color=12632256
+width=1
+descr=
+</level>
 <inputs>
 InpVelPeriod=5
 InpATRPeriod=13
-InpThreshold=1.0
-InpShowSpeed=true
+InpThresholdLow=0.3
+InpThresholdHigh=1.0
+InpShowSpeed=false
+InpShowSignal=true
+InpSignalPeriod=5
+InpSignalType=3
 </inputs>
 </indicator>
 </window>
