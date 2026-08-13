@@ -1,0 +1,37 @@
+; Global Settings
+InpMarketName=NYSE-short
+InpFillBoxes=false
+InpMaxHistoryDays=5
+InpVolumeType=0
+InpCandleSource=0
+InpSourcePrice=5
+; Pre-Market Session
+InpPre_Enable=false
+InpPre_Start=00:00
+InpPre_End=00:00
+InpPre_Color=13458026
+InpPre_ShowVWAP=true
+InpPre_ShowMean=true
+InpPre_ShowLinReg=true
+; Core Trading Session
+InpCore_Enable=true
+InpCore_Start=16:30
+InpCore_End=22:50
+InpCore_Color=13458026
+InpCore_ShowVWAP=true
+InpCore_ShowMean=true
+InpCore_ShowLinReg=true
+; Post-Market Session
+InpPost_Enable=false
+InpPost_Start=00:00
+InpPost_End=00:00
+InpPost_Color=13458026
+InpPost_ShowVWAP=true
+InpPost_ShowMean=true
+InpPost_ShowLinReg=true
+; Full Day Analysis
+InpFull_Enable=false
+InpFull_Color=8421504
+InpFull_ShowVWAP=false
+InpFull_ShowMean=false
+InpFull_ShowLinReg=false
