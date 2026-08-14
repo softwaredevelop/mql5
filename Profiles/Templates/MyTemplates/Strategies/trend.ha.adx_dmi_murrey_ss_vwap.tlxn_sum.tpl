@@ -134,6 +134,7 @@ name=Pre VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -142,6 +143,7 @@ name=Pre VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -150,6 +152,7 @@ name=Core VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -158,6 +161,7 @@ name=Core VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -166,6 +170,7 @@ name=Post VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -174,6 +179,7 @@ name=Post VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -182,6 +188,7 @@ name=Full VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=8421504
 </graph>
 
@@ -190,6 +197,7 @@ name=Full VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=8421504
 </graph>
 <inputs>
@@ -314,7 +322,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=LSE-summer
+InpMarketName=LSE
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
@@ -434,7 +442,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=XETRA-summer
+InpMarketName=XETRA
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
@@ -554,7 +562,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=NYSE-summer
+InpMarketName=NYSE
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
