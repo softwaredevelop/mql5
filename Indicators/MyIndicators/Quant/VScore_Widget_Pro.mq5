@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Focused single-metric V-Score HUD Widget release
+#property version   "1.10" // Upgraded with dynamic input-based Indicator Levels and 7-zone super-thermal coloring
 #property description "Volatility Deviation Chart HUD Widget."
-#property description "Displays V-Score (VWAP Z-Score) for the current symbol in the bottom-left corner."
+#property description "Displays V-Score (VWAP Z-Score) for the current symbol in the bottom-left corner with Extreme warnings."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -20,6 +20,14 @@ input int               InpRefreshSeconds = 3;               // Background Timer
 input group "V-Score Settings"
 input int                       InpVScorePeriod   = 21;              // V-Score Period
 input ENUM_VWAP_PERIOD  InpVWAPReset      = PERIOD_SESSION;  // VWAP Anchor Reset
+
+input group "--- Indicator Levels ---"
+input double            InpLevelFlowHigh   = 1.5;         // High Warning Level (Bullish Flow)
+input double            InpLevelFlowLow    = -1.5;        // Low Warning Level (Bearish Flow)
+input double            InpLevelClimaxHigh = 2.0;         // High Climax Level (Bullish Climax)
+input double            InpLevelClimaxLow  = -2.0;        // Low Climax Level (Bearish Climax)
+input double            InpLevelExtremeHigh= 2.5;         // High Extreme Level (Bullish Exhaustion)
+input double            InpLevelExtremeLow = -2.5;        // Low Extreme Level (Bearish Exhaustion)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -123,7 +131,7 @@ void CreateButton(string name, string text, int x, int y, int w, int h, color bg
   }
 
 //+------------------------------------------------------------------+
-//| RenderVScoreCell                                                 |
+//| RenderVScoreCell (Dynamic 7-Zone Super-Thermal Coloring)        |
 //+------------------------------------------------------------------+
 void RenderVScoreCell(string symbol, double val, int x, int y, int w, int h)
   {
@@ -142,37 +150,47 @@ void RenderVScoreCell(string symbol, double val, int x, int y, int w, int h)
      {
       text = DoubleToString(val, 3);
 
-      //--- Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
-      // Positive/Bullish -> Bluish (Cold)
-      // Negative/Bearish -> Reddish (Hot)
-      if(val >= 2.0)
+      //--- Symmetrical 7-Zone Super-Thermal Color Palette
+      if(val >= InpLevelExtremeHigh)
         {
-         bg_color = clrDeepSkyBlue; // Bull Extreme (Deep Blue)
+         bg_color = clrMidnightBlue; // Bull Extreme (Deep Midnight Blue) -> EXTREME EXHAUSTION
          text_color = clrWhite;
         }
       else
-         if(val >= 1.5)
+         if(val >= InpLevelClimaxHigh)
            {
-            bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
-            text_color = clrBlack;
+            bg_color = clrDeepSkyBlue;  // Bull Climax (Deep Sky Blue)
+            text_color = clrWhite;
            }
          else
-            if(val <= -2.0)
+            if(val >= InpLevelFlowHigh)
               {
-               bg_color = clrOrangeRed;  // Bear Extreme (Dark Red)
-               text_color = clrWhite;
+               bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
+               text_color = clrBlack;
               }
             else
-               if(val <= -1.5)
+               if(val <= InpLevelExtremeLow)
                  {
-                  bg_color = clrCoral;      // Bear Flow (Coral)
-                  text_color = clrBlack;
+                  bg_color = clrDarkRed;      // Bear Extreme (Dark Crimson Red) -> EXTREME EXHAUSTION
+                  text_color = clrWhite;
                  }
                else
-                 {
-                  bg_color = clrWhite;      // Neutral
-                  text_color = clrDarkGray;
-                 }
+                  if(val <= InpLevelClimaxLow)
+                    {
+                     bg_color = clrOrangeRed;    // Bear Climax (Orange Red)
+                     text_color = clrWhite;
+                    }
+                  else
+                     if(val <= InpLevelFlowLow)
+                       {
+                        bg_color = clrCoral;        // Bear Flow (Coral Pink)
+                        text_color = clrBlack;
+                       }
+                     else
+                       {
+                        bg_color = clrWhite;        // Neutral
+                        text_color = clrDarkGray;
+                       }
      }
    CreateButton(name, text, x, y, w, h, bg_color, text_color);
   }
@@ -208,7 +226,7 @@ void RenderDashboard()
 // Get V-Score Value
    double vs_val = GetVScoreValue(sym, InpTimeframe, InpVWAPReset, InpVScorePeriod);
 
-// Render V-Score cell with corrected thermal palette
+// Render V-Score cell with 7-zone dynamic thermal palette
    RenderVScoreCell(sym, vs_val, InpTableX + col_w_sym + 2, row_y, col_w_vs, row_h);
 
    ChartRedraw();
