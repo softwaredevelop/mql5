@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Unified Daily & Weekly V-Score MTF HUD Widget release
+#property version   "1.20" // Integrated 7-zone super-thermal palette supporting all 3 level-pairs (Flow, Climax, Extreme)
 #property description "Dual-Timeframe Volatility Deviation Chart HUD Widget."
-#property description "Displays Daily V-Score (M15) and Weekly V-Score (H1) side-by-side."
+#property description "Displays Daily V-Score (M15) and Weekly V-Score (H1) side-by-side with Extreme warnings."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -29,6 +29,14 @@ input int               InpDailyPeriod    = 20;              // Daily Lookback P
 input group "Weekly V-Score Settings (H1)"
 input ENUM_TIMEFRAMES   InpWeeklyTF       = PERIOD_H1;       // Weekly Context Timeframe
 input int               InpWeeklyPeriod   = 20;              // Weekly Lookback Period
+
+input group "--- Indicator Levels ---"
+input double            InpLevelFlowHigh   = 1.5;         // High Warning Level (Bullish Flow)
+input double            InpLevelFlowLow    = -1.5;        // Low Warning Level (Bearish Flow)
+input double            InpLevelClimaxHigh = 2.0;         // High Climax Level (Bullish Climax)
+input double            InpLevelClimaxLow  = -2.0;        // Low Climax Level (Bearish Climax)
+input double            InpLevelExtremeHigh= 2.5;         // High Extreme Level (Bullish Exhaustion)
+input double            InpLevelExtremeLow = -2.5;        // Low Extreme Level (Bearish Exhaustion)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -132,7 +140,7 @@ void CreateButton(string name, string text, int x, int y, int w, int h, color bg
   }
 
 //+------------------------------------------------------------------+
-//| RenderVScoreCell (Collision Free via Type Label)                 |
+//| RenderVScoreCell (Dynamic 7-Zone Super-Thermal Coloring)        |
 //+------------------------------------------------------------------+
 void RenderVScoreCell(string symbol, double val, string type_label, int x, int y, int w, int h)
   {
@@ -151,37 +159,47 @@ void RenderVScoreCell(string symbol, double val, string type_label, int x, int y
      {
       text = DoubleToString(val, 3);
 
-      //--- Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
-      // Positive/Bullish -> Bluish (Cold)
-      // Negative/Bearish -> Reddish (Hot)
-      if(val >= 2.0)
+      //--- Symmetrical 7-Zone Super-Thermal Color Palette
+      if(val >= InpLevelExtremeHigh)
         {
-         bg_color = clrDeepSkyBlue; // Bull Extreme (Deep Blue)
+         bg_color = clrMidnightBlue; // Bull Extreme (Deep Midnight Blue) -> EXTREME DANGER
          text_color = clrWhite;
         }
       else
-         if(val >= 1.5)
+         if(val >= InpLevelClimaxHigh)
            {
-            bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
-            text_color = clrBlack;
+            bg_color = clrDeepSkyBlue;  // Bull Climax (Deep Sky Blue)
+            text_color = clrWhite;
            }
          else
-            if(val <= -2.0)
+            if(val >= InpLevelFlowHigh)
               {
-               bg_color = clrOrangeRed;  // Bear Extreme (Dark Red)
-               text_color = clrWhite;
+               bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
+               text_color = clrBlack;
               }
             else
-               if(val <= -1.5)
+               if(val <= InpLevelExtremeLow)
                  {
-                  bg_color = clrCoral;      // Bear Flow (Coral)
-                  text_color = clrBlack;
+                  bg_color = clrDarkRed;      // Bear Extreme (Dark Crimson Red) -> EXTREME DANGER
+                  text_color = clrWhite;
                  }
                else
-                 {
-                  bg_color = clrWhite;      // Neutral
-                  text_color = clrDarkGray;
-                 }
+                  if(val <= InpLevelClimaxLow)
+                    {
+                     bg_color = clrOrangeRed;    // Bear Climax (Orange Red)
+                     text_color = clrWhite;
+                    }
+                  else
+                     if(val <= InpLevelFlowLow)
+                       {
+                        bg_color = clrCoral;        // Bear Flow (Coral Pink)
+                        text_color = clrBlack;
+                       }
+                     else
+                       {
+                        bg_color = clrWhite;        // Neutral
+                        text_color = clrDarkGray;
+                       }
      }
    CreateButton(name, text, x, y, w, h, bg_color, text_color);
   }
