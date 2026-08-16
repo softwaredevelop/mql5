@@ -789,6 +789,7 @@ width=1
 descr=
 </level>
 <inputs>
+ADX Settings=
 InpPeriodADX=13
 InpCandleSource=0
 </inputs>
@@ -878,7 +879,7 @@ InpFastKPeriod=13
 InpSlowKPeriod=3
 InpStochMethod=0
 InpSmoothPeriod=3
-InpSignalMethod=0
+InpSignalMethod=4
 </inputs>
 </indicator>
 </window>
