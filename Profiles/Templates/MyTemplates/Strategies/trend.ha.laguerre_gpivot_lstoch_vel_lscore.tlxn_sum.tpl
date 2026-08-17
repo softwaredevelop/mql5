@@ -134,6 +134,7 @@ name=Pre VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -142,6 +143,7 @@ name=Pre VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -150,6 +152,7 @@ name=Core VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -158,6 +161,7 @@ name=Core VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -166,6 +170,7 @@ name=Post VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -174,6 +179,7 @@ name=Post VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=755384
 </graph>
 
@@ -182,6 +188,7 @@ name=Full VWAP
 draw=1
 style=0
 width=1
+arrow=251
 color=8421504
 </graph>
 
@@ -190,6 +197,7 @@ name=Full VWAP (Seg)
 draw=1
 style=0
 width=1
+arrow=251
 color=8421504
 </graph>
 <inputs>
@@ -205,7 +213,7 @@ InpPre_Enable=true
 InpPre_Start=02:00
 InpPre_End=03:00
 InpPre_Color=755384
-InpPre_ShowVWAP=false
+InpPre_ShowVWAP=true
 InpPre_ShowMean=true
 InpPre_ShowLinReg=true
 =
@@ -213,7 +221,7 @@ InpCore_Enable=true
 InpCore_Start=03:00
 InpCore_End=05:30
 InpCore_Color=755384
-InpCore_ShowVWAP=false
+InpCore_ShowVWAP=true
 InpCore_ShowMean=true
 InpCore_ShowLinReg=true
 =
@@ -221,7 +229,7 @@ InpPost_Enable=true
 InpPost_Start=06:30
 InpPost_End=09:30
 InpPost_Color=755384
-InpPost_ShowVWAP=false
+InpPost_ShowVWAP=true
 InpPost_ShowMean=true
 InpPost_ShowLinReg=true
 =
@@ -314,7 +322,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=LSE-summer
+InpMarketName=LSE
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
@@ -325,7 +333,7 @@ InpPre_Enable=true
 InpPre_Start=07:00
 InpPre_End=10:00
 InpPre_Color=6053069
-InpPre_ShowVWAP=false
+InpPre_ShowVWAP=true
 InpPre_ShowMean=true
 InpPre_ShowLinReg=true
 =
@@ -333,7 +341,7 @@ InpCore_Enable=true
 InpCore_Start=10:00
 InpCore_End=18:30
 InpCore_Color=6053069
-InpCore_ShowVWAP=false
+InpCore_ShowVWAP=true
 InpCore_ShowMean=true
 InpCore_ShowLinReg=true
 =
@@ -341,7 +349,7 @@ InpPost_Enable=true
 InpPost_Start=18:30
 InpPost_End=19:15
 InpPost_Color=6053069
-InpPost_ShowVWAP=false
+InpPost_ShowVWAP=true
 InpPost_ShowMean=true
 InpPost_ShowLinReg=true
 =
@@ -434,7 +442,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=XETRA-summer
+InpMarketName=XETRA
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
@@ -445,7 +453,7 @@ InpPre_Enable=true
 InpPre_Start=09:00
 InpPre_End=10:00
 InpPre_Color=5737262
-InpPre_ShowVWAP=false
+InpPre_ShowVWAP=true
 InpPre_ShowMean=true
 InpPre_ShowLinReg=true
 =
@@ -453,7 +461,7 @@ InpCore_Enable=false
 InpCore_Start=10:00
 InpCore_End=18:30
 InpCore_Color=5737262
-InpCore_ShowVWAP=false
+InpCore_ShowVWAP=true
 InpCore_ShowMean=true
 InpCore_ShowLinReg=true
 =
@@ -461,7 +469,7 @@ InpPost_Enable=true
 InpPost_Start=18:30
 InpPost_End=21:00
 InpPost_Color=5737262
-InpPost_ShowVWAP=false
+InpPost_ShowVWAP=true
 InpPost_ShowMean=true
 InpPost_ShowLinReg=true
 =
@@ -554,7 +562,7 @@ color=8421504
 </graph>
 <inputs>
 =
-InpMarketName=NYSE-summer
+InpMarketName=NYSE
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
@@ -565,7 +573,7 @@ InpPre_Enable=true
 InpPre_Start=13:30
 InpPre_End=16:30
 InpPre_Color=13458026
-InpPre_ShowVWAP=false
+InpPre_ShowVWAP=true
 InpPre_ShowMean=true
 InpPre_ShowLinReg=true
 =
@@ -573,7 +581,7 @@ InpCore_Enable=true
 InpCore_Start=16:30
 InpCore_End=23:00
 InpCore_Color=13458026
-InpCore_ShowVWAP=false
+InpCore_ShowVWAP=true
 InpCore_ShowMean=true
 InpCore_ShowLinReg=true
 =
@@ -581,7 +589,7 @@ InpPost_Enable=true
 InpPost_Start=23:00
 InpPost_End=03:00
 InpPost_Color=13458026
-InpPost_ShowVWAP=false
+InpPost_ShowVWAP=true
 InpPost_ShowMean=true
 InpPost_ShowLinReg=true
 =
@@ -786,7 +794,7 @@ InpShowFIR=false
 
 <indicator>
 name=Custom Indicator
-path=Indicators\MyIndicators\Quant\VScore_LinReg_Widget_Pro.ex5
+path=Indicators\MyIndicators\Quant\VScore_Dual_Widget_Pro.ex5
 apply=0
 show_data=1
 scale_inherit=0
@@ -809,21 +817,26 @@ color=
 </graph>
 <inputs>
 Heads-Up Display Settings=
-InpTimeframe=15
 InpRefreshSeconds=3
-V-Score Settings=
-InpVScorePeriod=21
-InpVWAPReset=0
-Linear Regression Settings=
-InpLinRegPeriod=21
-InpTrendLevel=0.7
+Daily V-Score Settings (M15)=
+InpDailyTF=15
+InpDailyPeriod=21
+Weekly V-Score Settings (H1)=
+InpWeeklyTF=16385
+InpWeeklyPeriod=21
+--- Indicator Levels ---=
+InpLevelFlowHigh=1.5
+InpLevelFlowLow=-1.5
+InpLevelClimaxHigh=2.0
+InpLevelClimaxLow=-2.0
+InpLevelExtremeHigh=2.5
+InpLevelExtremeLow=-2.5
 Widget Placement (Pixels)=
 InpTableX=20
 InpTableY=30
 InpFontSize=9
 </inputs>
 </indicator>
-
 </window>
 
 <window>
@@ -946,9 +959,9 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=0.000000
+scale_fix_min_val=-1.149060
 scale_fix_max=0
-scale_fix_max_val=0.000000
+scale_fix_max_val=1.149060
 expertmode=4
 fixed_height=-1
 
@@ -1016,7 +1029,7 @@ width=1
 descr=
 </level>
 <inputs>
-InpVelPeriod=3
+InpVelPeriod=5
 InpATRPeriod=13
 InpThresholdLow=0.3
 InpThresholdHigh=1.0
@@ -1109,7 +1122,7 @@ InpGamma=0.5
 InpSourcePrice=1
 Stochastic Settings=
 InpSlowingPeriod=3
-InpSlowingMethod=3
+InpSlowingMethod=0
 InpSignalPeriod=3
 InpSignalMethod=4
 </inputs>
