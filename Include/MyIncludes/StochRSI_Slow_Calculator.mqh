@@ -1,9 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                      StochRSI_Slow_Calculator.mqh|
-//|  VERSION 3.00: Refactored to use RSI_Engine.                     |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                     VERSION 3.10: Added strict chronological bounds |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // Implemented chronological safety on internal buffers
+
+#ifndef STOCHRSI_SLOW_CALCULATOR_MQH
+#define STOCHRSI_SLOW_CALCULATOR_MQH
 
 #include <MyIncludes\RSI_Engine.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
@@ -91,7 +95,7 @@ bool CStochRSI_Slow_Calculator::Init(int rsi_p, int k_p, int slow_p, ENUM_MA_TYP
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Main Calculation (Stateful & Chronologically Safe)               |
 //+------------------------------------------------------------------+
 void CStochRSI_Slow_Calculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type,
       double &k_buffer[], double &d_buffer[])
@@ -102,10 +106,26 @@ void CStochRSI_Slow_Calculator::Calculate(int rates_total, int prev_calculated, 
 
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
+//--- Resize state buffers and enforce chronological safety
    if(ArraySize(m_rsi_buffer) != rates_total)
      {
       ArrayResize(m_rsi_buffer, rates_total);
       ArrayResize(m_raw_k, rates_total);
+
+      ArraySetAsSeries(m_rsi_buffer, false);
+      ArraySetAsSeries(m_raw_k, false);
+     }
+
+//--- Enforce chronological safety on output arrays
+   if(ArraySize(k_buffer) != rates_total)
+     {
+      ArrayResize(k_buffer, rates_total);
+      ArraySetAsSeries(k_buffer, false);
+     }
+   if(ArraySize(d_buffer) != rates_total)
+     {
+      ArrayResize(d_buffer, rates_total);
+      ArraySetAsSeries(d_buffer, false);
      }
 
 //--- 1. Calculate RSI (Using Engine)
@@ -186,4 +206,4 @@ void CStochRSI_Slow_Calculator_HA::CreateRSIEngine(void)
    m_rsi_engine = new CRSIEngine_HA();
   }
 //+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
+#endif // STOCHRSI_SLOW_CALCULATOR_MQH
