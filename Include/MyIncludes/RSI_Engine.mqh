@@ -1,10 +1,14 @@
 //+------------------------------------------------------------------+
 //|                                                RSI_Engine.mqh    |
 //|      Core engine for Wilder's RSI calculation.                   |
-//|      VERSION 1.00                                                |
+//|      VERSION 1.10: Added strict chronological safety safeguards  |
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
+#property version   "1.10"
+
+#ifndef RSI_ENGINE_MQH
+#define RSI_ENGINE_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -46,7 +50,7 @@ bool CRSIEngine::Init(int period)
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Main Calculation (Chronologically Safe)                          |
 //+------------------------------------------------------------------+
 void CRSIEngine::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[],
                            double &rsi_buffer[])
@@ -56,12 +60,23 @@ void CRSIEngine::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PR
 
    int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
-// Resize Buffers
+//--- Resize Buffers and enforce strict chronological safeguards
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price, rates_total);
+      ArrayResize(m_price,    rates_total);
       ArrayResize(m_avg_gain, rates_total);
       ArrayResize(m_avg_loss, rates_total);
+
+      ArraySetAsSeries(m_price,    false);
+      ArraySetAsSeries(m_avg_gain, false);
+      ArraySetAsSeries(m_avg_loss, false);
+     }
+
+//--- Enforce chronological alignment on caller output buffer if resized
+   if(ArraySize(rsi_buffer) != rates_total)
+     {
+      ArrayResize(rsi_buffer, rates_total);
+      ArraySetAsSeries(rsi_buffer, false);
      }
 
 // 1. Prepare Data
@@ -176,6 +191,11 @@ void CRSIEngine_HA::PrepareData(int rates_total, int start_index, ENUM_APPLIED_P
       ArrayResize(m_ha_high, rates_total);
       ArrayResize(m_ha_low, rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open,  false);
+      ArraySetAsSeries(m_ha_high,  false);
+      ArraySetAsSeries(m_ha_low,   false);
+      ArraySetAsSeries(m_ha_close, false);
      }
 
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high, m_ha_low, m_ha_close);
@@ -211,5 +231,4 @@ void CRSIEngine_HA::PrepareData(int rates_total, int start_index, ENUM_APPLIED_P
         }
      }
   }
-//+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
+#endif // RSI_ENGINE_MQH
