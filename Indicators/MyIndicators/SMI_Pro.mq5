@@ -3,9 +3,8 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.10" // Upgraded with dynamic high-performance Standard/MTF support
-#property description "Professional Stochastic Momentum Index (SMI) with a signal line and"
-#property description "selectable candle source (Standard or Heikin Ashi)."
+#property version   "3.20" // Upgraded with selectable MA smoothing types (including VWMA support)
+#property description "Professional Stochastic Momentum Index (SMI) with dynamic MTF and MA selections."
 
 //--- Indicator Window and Level Properties ---
 #property indicator_separate_window
@@ -54,7 +53,9 @@ input ENUM_TIMEFRAMES           InpTimeframe      = PERIOD_CURRENT;       // Tar
 input group "--- SMI Settings ---"
 input int                InpLengthK      = 10; // %K Length
 input int                InpLengthD      = 3;  // %D Length (for double smoothing)
+input ENUM_MA_TYPE       InpSlowingType  = EMA; // Double Smoothing MA Type
 input int                InpLengthEMA    = 3;  // EMA Length (for signal line)
+input ENUM_MA_TYPE       InpSignalType   = EMA; // Signal Line MA Type
 input ENUM_CANDLE_SOURCE InpCandleSource = CANDLE_STANDARD;
 
 //--- Indicator Buffers ---
@@ -62,7 +63,7 @@ double    BufferSMI[];
 double    BufferSignal[];
 
 //--- Internal HTF Data Caches
-double    h_open[], h_high[], h_low[], h_close[];
+double    h_open[], h_high[], h_low[], h_close[], h_volume[];
 double    h_res_smi[], h_res_sig[];
 datetime  h_time[];
 
@@ -116,7 +117,7 @@ int OnInit()
          break;
      }
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpLengthK, InpLengthD, InpLengthEMA))
+   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpLengthK, InpLengthD, InpSlowingType, InpLengthEMA, InpSignalType))
      {
       Print("Critical Error: Failed to create or initialize SMI Calculator object.");
       return(INIT_FAILED);
@@ -190,7 +191,21 @@ int OnCalculate(const int rates_total,
 //===================================================================
    if(!g_is_mtf_mode)
      {
-      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferSMI, BufferSignal);
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      bool is_vwma = (InpSlowingType == VWMA || InpSignalType == VWMA);
+
+      if(is_vwma)
+        {
+         if(volume_limit > 0)
+            g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, volume, BufferSMI, BufferSignal);
+         else
+            g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, tick_volume, BufferSMI, BufferSignal);
+        }
+      else
+        {
+         g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close, BufferSMI, BufferSignal);
+        }
+
       return(rates_total);
      }
 
@@ -223,13 +238,14 @@ int OnCalculate(const int rates_total,
       g_htf_count = MathMin(htf_bars, 3000); // Guard rails to prevent memory overload
 
       // Resize all HTF caching arrays
-      ArrayResize(h_time,    g_htf_count);
-      ArrayResize(h_open,    g_htf_count);
-      ArrayResize(h_high,    g_htf_count);
-      ArrayResize(h_low,     g_htf_count);
-      ArrayResize(h_close,   g_htf_count);
-      ArrayResize(h_res_smi,  g_htf_count);
-      ArrayResize(h_res_sig,  g_htf_count);
+      ArrayResize(h_time,       g_htf_count);
+      ArrayResize(h_open,       g_htf_count);
+      ArrayResize(h_high,       g_htf_count);
+      ArrayResize(h_low,        g_htf_count);
+      ArrayResize(h_close,      g_htf_count);
+      ArrayResize(h_volume,     g_htf_count);
+      ArrayResize(h_res_smi,    g_htf_count);
+      ArrayResize(h_res_sig,    g_htf_count);
 
       // Force chronological structure on high-level arrays
       ArraySetAsSeries(h_time,    false);
@@ -237,8 +253,9 @@ int OnCalculate(const int rates_total,
       ArraySetAsSeries(h_high,    false);
       ArraySetAsSeries(h_low,     false);
       ArraySetAsSeries(h_close,   false);
-      ArraySetAsSeries(h_res_smi,  false);
-      ArraySetAsSeries(h_res_sig,  false);
+      ArraySetAsSeries(h_volume,  false);
+      ArraySetAsSeries(h_res_smi, false);
+      ArraySetAsSeries(h_res_sig, false);
 
       // Copy basic pricing data
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
@@ -251,8 +268,41 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
+      // Copy proper volume types for VWMA supporting
+      long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(vol_limit > 0)
+        {
+         long temp_vol[];
+         if(CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
+           {
+            for(int i = 0; i < g_htf_count; i++)
+               h_volume[i] = (double)temp_vol[i];
+           }
+        }
+      else
+        {
+         long temp_vol[];
+         if(CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
+           {
+            for(int i = 0; i < g_htf_count; i++)
+               h_volume[i] = (double)temp_vol[i];
+           }
+        }
+
       //--- Calculate core indicators directly on high timeframe (Initial setup)
-      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_smi, h_res_sig);
+      bool is_vwma = (InpSlowingType == VWMA || InpSignalType == VWMA);
+      if(is_vwma)
+        {
+         long h_vol_long[];
+         ArrayResize(h_vol_long, g_htf_count);
+         for(int i=0; i<g_htf_count; i++)
+            h_vol_long[i] = (long)h_volume[i];
+         g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_vol_long, h_res_smi, h_res_sig);
+        }
+      else
+        {
+         g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_smi, h_res_sig);
+        }
 
       g_data_ready = true;
      }
@@ -265,6 +315,7 @@ int OnCalculate(const int rates_total,
    if(live_idx >= required_bars)
      {
       double o[1], h[1], l[1], c[1];
+      long v[1];
       int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
       if(shift >= 0 &&
          CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
@@ -277,8 +328,32 @@ int OnCalculate(const int rates_total,
          h_low[live_idx]   = l[0];
          h_close[live_idx] = c[0];
 
-         // Stateful, O(1) mock update for the live bar
-         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_smi, h_res_sig);
+         long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+         if(vol_limit > 0)
+           {
+            if(CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
+               h_volume[live_idx] = (double)v[0];
+           }
+         else
+           {
+            if(CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
+               h_volume[live_idx] = (double)v[0];
+           }
+
+         // Stateful, O(1) mock update for the live HTF bar
+         bool is_vwma = (InpSlowingType == VWMA || InpSignalType == VWMA);
+         if(is_vwma)
+           {
+            long h_vol_long[];
+            ArrayResize(h_vol_long, g_htf_count);
+            for(int i=0; i<g_htf_count; i++)
+               h_vol_long[i] = (long)h_volume[i];
+            g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_vol_long, h_res_smi, h_res_sig);
+           }
+         else
+           {
+            g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_smi, h_res_sig);
+           }
         }
      }
 
