@@ -1,11 +1,16 @@
 //+------------------------------------------------------------------+
 //|                                     StochasticSlow_Calculator.mqh|
-//|      VERSION 2.00: Uses MovingAverage_Engine for smoothing.      |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                     VERSION 2.10: Added strict chronological bounds |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.10" // Implemented chronological safety on internal buffers
+
+#ifndef STOCHASTIC_SLOW_CALCULATOR_MQH
+#define STOCHASTIC_SLOW_CALCULATOR_MQH
 
 #include <MyIncludes\MovingAverage_Engine.mqh>
+#include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //+==================================================================+
 //|           CLASS: CStochasticSlowCalculator                       |
@@ -56,7 +61,7 @@ bool CStochasticSlowCalculator::Init(int k_p, int slow_p, ENUM_MA_TYPE slow_ma, 
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Main Calculation (Stateful & Chronologically Safe)               |
 //+------------------------------------------------------------------+
 void CStochasticSlowCalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
       double &k_buffer[], double &d_buffer[])
@@ -68,12 +73,30 @@ void CStochasticSlowCalculator::Calculate(int rates_total, int prev_calculated, 
 
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
+//--- Resize state buffers and enforce chronological safety
    if(ArraySize(m_src_high) != rates_total)
      {
-      ArrayResize(m_src_high, rates_total);
-      ArrayResize(m_src_low, rates_total);
+      ArrayResize(m_src_high,  rates_total);
+      ArrayResize(m_src_low,   rates_total);
       ArrayResize(m_src_close, rates_total);
-      ArrayResize(m_raw_k, rates_total);
+      ArrayResize(m_raw_k,     rates_total);
+
+      ArraySetAsSeries(m_src_high,  false);
+      ArraySetAsSeries(m_src_low,   false);
+      ArraySetAsSeries(m_src_close, false);
+      ArraySetAsSeries(m_raw_k,     false);
+     }
+
+//--- Enforce chronological safety on output arrays
+   if(ArraySize(k_buffer) != rates_total)
+     {
+      ArrayResize(k_buffer, rates_total);
+      ArraySetAsSeries(k_buffer, false);
+     }
+   if(ArraySize(d_buffer) != rates_total)
+     {
+      ArrayResize(d_buffer, rates_total);
+      ArraySetAsSeries(d_buffer, false);
      }
 
    if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
@@ -95,17 +118,11 @@ void CStochasticSlowCalculator::Calculate(int rates_total, int prev_calculated, 
      }
 
 //--- 2. Calculate Slow %K (Main Line) using Slowing Engine
-// Offset for Raw %K is (K - 1)
    int raw_k_offset = m_k_period - 1;
-
-// Output goes to k_buffer (this is the main Slow Stochastic line)
    m_slowing_engine.CalculateOnArray(rates_total, prev_calculated, m_raw_k, k_buffer, raw_k_offset);
 
 //--- 3. Calculate %D (Signal Line) using Signal Engine
-// Offset for Slow %K is (Raw_Offset + Slowing_Period - 1)
    int slow_k_offset = raw_k_offset + m_slowing_engine.GetPeriod() - 1;
-
-// Input is k_buffer (Slow %K), Output is d_buffer
    m_signal_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, slow_k_offset);
   }
 
@@ -170,7 +187,7 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Prepare Source Data (Heikin Ashi)                                |
 //+------------------------------------------------------------------+
 bool CStochasticSlowCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
@@ -180,6 +197,11 @@ bool CStochasticSlowCalculator_HA::PrepareSourceData(int rates_total, int start_
       ArrayResize(m_ha_high_temp, rates_total);
       ArrayResize(m_ha_low_temp, rates_total);
       ArrayResize(m_ha_close_temp, rates_total);
+
+      ArraySetAsSeries(m_ha_open, false);
+      ArraySetAsSeries(m_ha_high_temp, false);
+      ArraySetAsSeries(m_ha_low_temp, false);
+      ArraySetAsSeries(m_ha_close_temp, false);
      }
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close, m_ha_open, m_ha_high_temp, m_ha_low_temp, m_ha_close_temp);
    for(int i = start_index; i < rates_total; i++)
@@ -190,4 +212,5 @@ bool CStochasticSlowCalculator_HA::PrepareSourceData(int rates_total, int start_
      }
    return true;
   }
+#endif // STOCHASTIC_SLOW_CALCULATOR_MQH
 //+------------------------------------------------------------------+
