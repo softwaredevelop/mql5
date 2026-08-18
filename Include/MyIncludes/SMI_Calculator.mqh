@@ -1,9 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                               SMI_Calculator.mqh |
 //|         Calculation engine for Standard and Heikin Ashi SMI.     |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.10" // Implemented strict chronological safety on all 6 internal state buffers
+
+#ifndef SMI_CALCULATOR_MQH
+#define SMI_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
@@ -26,7 +30,6 @@ protected:
    double            Highest(int period, int current_pos);
    double            Lowest(int period, int current_pos);
 
-   //--- Updated: Accepts start_index
    virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
 
 public:
@@ -35,7 +38,6 @@ public:
 
    bool              Init(int len_k, int len_d, int len_ema);
 
-   //--- Updated: Accepts prev_calculated
    void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &smi_buffer[], double &signal_buffer[]);
   };
@@ -52,7 +54,7 @@ bool CSMICalculator::Init(int len_k, int len_d, int len_ema)
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation Method (Optimized Incremental)                  |
+//| Main Calculation Method (Optimized Incremental & Safe)           |
 //+------------------------------------------------------------------+
 void CSMICalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[],
                                double &smi_buffer[], double &signal_buffer[])
@@ -62,13 +64,9 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
       return;
 
 //--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Buffers if needed
+//--- 2. Resize Buffers and enforce strict chronological safety
    if(ArraySize(m_src_high) != rates_total)
      {
       ArrayResize(m_src_high, rates_total);
@@ -81,6 +79,28 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
       ArrayResize(m_ema_range, rates_total);
       ArrayResize(m_ema_ema_rel, rates_total);
       ArrayResize(m_ema_ema_range, rates_total);
+
+      ArraySetAsSeries(m_src_high,      false);
+      ArraySetAsSeries(m_src_low,       false);
+      ArraySetAsSeries(m_src_close,      false);
+      ArraySetAsSeries(m_hl_range,       false);
+      ArraySetAsSeries(m_rel_range,      false);
+      ArraySetAsSeries(m_ema_rel,        false);
+      ArraySetAsSeries(m_ema_range,      false);
+      ArraySetAsSeries(m_ema_ema_rel,    false);
+      ArraySetAsSeries(m_ema_ema_range,  false);
+     }
+
+//--- Enforce chronological safety on output arrays
+   if(ArraySize(smi_buffer) != rates_total)
+     {
+      ArrayResize(smi_buffer, rates_total);
+      ArraySetAsSeries(smi_buffer, false);
+     }
+   if(ArraySize(signal_buffer) != rates_total)
+     {
+      ArrayResize(signal_buffer, rates_total);
+      ArraySetAsSeries(signal_buffer, false);
      }
 
 //--- 3. Prepare Source Data (Optimized)
@@ -88,7 +108,6 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
       return;
 
 //--- 4. Calculate Ranges
-// Ensure we start at least from m_len_k-1 to have enough history for Highest/Lowest
    int loop_start = MathMax(m_len_k - 1, start_index);
 
    for(int i = loop_start; i < rates_total; i++)
@@ -106,9 +125,6 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
    int ema2_start = ema1_start + m_len_d - 1;
    int signal_start = ema2_start + m_len_ema - 1;
 
-// We can reuse loop_start, but need to be careful about initialization logic
-// If start_index is way past the initialization point, we just continue recursive calc.
-
    for(int i = loop_start; i < rates_total; i++)
      {
       // --- 1st EMA Smoothing ---
@@ -119,7 +135,6 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
         }
       else
         {
-         // Recursive EMA relies on [i-1], which is safe due to persistent buffers
          m_ema_rel[i] = m_rel_range[i] * pr_d + m_ema_rel[i-1] * (1.0 - pr_d);
          m_ema_range[i] = m_hl_range[i] * pr_d + m_ema_range[i-1] * (1.0 - pr_d);
         }
@@ -149,7 +164,7 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
       if(i >= ema2_start)
         {
          if(m_ema_ema_range[i] != 0)
-            smi_buffer[i] = 100 * (m_ema_ema_rel[i] / (m_ema_ema_range[i] / 2.0));
+            smi_buffer[i] = 100.0 * (m_ema_ema_rel[i] / (m_ema_ema_range[i] / 2.0));
          else
             smi_buffer[i] = 0;
         }
@@ -177,7 +192,6 @@ void CSMICalculator::Calculate(int rates_total, int prev_calculated, const doubl
 //+------------------------------------------------------------------+
 bool CSMICalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Optimized copy loop
    for(int i = start_index; i < rates_total; i++)
      {
       m_src_high[i]  = high[i];
@@ -228,7 +242,6 @@ class CSMICalculator_HA : public CSMICalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers (Persistent)
    double            m_ha_open[], m_ha_high_temp[], m_ha_low_temp[], m_ha_close_temp[];
 
 protected:
@@ -236,29 +249,26 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Source Data (Heikin Ashi - Optimized)                    |
+//| Prepare Source Data (Heikin Ashi - Chronologically Safe)          |
 //+------------------------------------------------------------------+
 bool CSMICalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
   {
-// Resize internal HA buffers
    if(ArraySize(m_ha_open) != rates_total)
      {
-      ArrayResize(m_ha_open, rates_total);
+      ArrayResize(m_ha_open,      rates_total);
       ArrayResize(m_ha_high_temp, rates_total);
-      ArrayResize(m_ha_low_temp, rates_total);
-      ArrayResize(m_ha_close_temp, rates_total);
-     }
+      ArrayResize(m_ha_low_temp,  rates_total);
+      ArrayResize(m_ha_close_temp,rates_total);
 
-//--- STRICT CALL: Use the optimized 10-param HA calculation
-//--- Note: We calculate directly into the temporary buffers, then copy to m_src_...
-//--- Actually, we can calculate directly into m_src_high/low/close if we want,
-//--- but HA calc needs 4 buffers. m_src_... are 3 buffers.
-//--- So we use temp buffers.
+      ArraySetAsSeries(m_ha_open,      false);
+      ArraySetAsSeries(m_ha_high_temp, false);
+      ArraySetAsSeries(m_ha_low_temp,  false);
+      ArraySetAsSeries(m_ha_close_temp,false);
+     }
 
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high_temp, m_ha_low_temp, m_ha_close_temp);
 
-//--- Copy to source buffers (Optimized loop)
    for(int i = start_index; i < rates_total; i++)
      {
       m_src_high[i]  = m_ha_high_temp[i];
@@ -267,4 +277,5 @@ bool CSMICalculator_HA::PrepareSourceData(int rates_total, int start_index, cons
      }
    return true;
   }
+#endif // SMI_CALCULATOR_MQH
 //+------------------------------------------------------------------+
