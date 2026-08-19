@@ -41,6 +41,7 @@ Tokens describe the indicator stack. Main token glossary:
 | Token | Indicator / meaning |
 | :--- | :--- |
 | `adx_dmi` | ADX Pro + DMI Stoch |
+| `absorption` | Absorption Pro |
 | `murrey` | Murrey_Math_Line_X |
 | `ss` | SuperSmoother (Ehlers) |
 | `vwap` | VWAP indicator |
