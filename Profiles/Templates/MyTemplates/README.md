@@ -42,6 +42,9 @@ Tokens describe the indicator stack. Main token glossary:
 | :--- | :--- |
 | `adx_dmi` | ADX Pro + DMI Stoch |
 | `absorption` | Absorption Pro |
+| `absorption_mtf` | Absorption MTF Pro (multi-timeframe) |
+| `slope` | Laguerre Slope |
+| `accel` | Laguerre Accel |
 | `murrey` | Murrey_Math_Line_X |
 | `ss` | SuperSmoother (Ehlers) |
 | `vwap` | VWAP indicator |
