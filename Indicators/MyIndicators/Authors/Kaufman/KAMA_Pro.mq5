@@ -15,7 +15,7 @@
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrCrimson
 #property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_width1  1
 
 //--- Included Engines & Core Tools
 #include <MyIncludes\KAMA_Calculator.mqh>
@@ -34,7 +34,7 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD;   // Price 
 input group                     "Visual Settings"
 input color                     InpColorKAMA      = clrCrimson;        // Line Color
 input ENUM_LINE_STYLE           InpStyleKAMA      = STYLE_SOLID;       // Line Style
-input int                       InpWidthKAMA      = 2;                 // Line Width
+input int                       InpWidthKAMA      = 1;                 // Line Width
 
 //--- Indicator Buffers ---
 double    BufferKAMA[];
