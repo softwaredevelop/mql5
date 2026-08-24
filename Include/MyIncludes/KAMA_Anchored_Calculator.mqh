@@ -1,321 +1,417 @@
 //+------------------------------------------------------------------+
-//|                                     KAMA_Anchored_Calculator.mqh |
-//|      Kaufman's Adaptive Moving Average with Anchored Resets.      |
-//|      VERSION 1.11: Fixed buffer sizing and kama_buffer typos      |
-//|                                        Copyright 2026, xxxxxxxx  |
+//|                                  KAMA_Anchored_Calculator.mqh   |
+//|      Engine for Session-Anchored Kaufman's Adaptive MA (AKAMA)   |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.11" // Fixed persistent buffer sizing and corrected kama_buffer parameter mismatch typos
+#property version   "1.00" // First release of Anchored KAMA Engine
 
 #ifndef KAMA_ANCHORED_CALCULATOR_MQH
 #define KAMA_ANCHORED_CALCULATOR_MQH
 
-#include <MyIncludes\KAMA_Calculator.mqh>
+#include <MyIncludes\HeikinAshi_Tools.mqh>
 
-//--- Anchored Reset Period Enum
+//--- Enum for Anchor Reset Period ---
 enum ENUM_ANCHOR_PERIOD
   {
-   ANCHOR_NONE,           // Standard rolling window (InpErPeriod)
-   ANCHOR_SESSION,        // Reset every day (Daily VWAP style)
-   ANCHOR_WEEK,           // Reset every week (Weekly VWAP style)
-   ANCHOR_MONTH,          // Reset every month (Monthly VWAP style)
-   ANCHOR_CUSTOM_SESSION  // Reset based on custom broker-time range
+   ANCHOR_PERIOD_SESSION,        // Reset every day (with timezone shift)
+   ANCHOR_PERIOD_WEEK,           // Reset every week
+   ANCHOR_PERIOD_MONTH,          // Reset every month
+   ANCHOR_PERIOD_CUSTOM_SESSION  // Reset based on custom start/end times
   };
 
 //+==================================================================+
-//|           CLASS: CKamaAnchoredCalculator                         |
+//|             CLASS: CKamaAnchoredCalculator                       |
 //+==================================================================+
-class CKamaAnchoredCalculator : public CKamaCalculator
+class CKamaAnchoredCalculator
   {
-protected:
-   ENUM_ANCHOR_PERIOD m_anchor;
-   int               m_anchor_start[]; // Tracks the start index of the anchor period for each bar
-   int               m_period_idx[];    // Tracks the period count (odd/even) per bar
-   double            m_kama_internal[]; // Seamless internal KAMA buffer to preserve recursive state
+private:
+   ENUM_ANCHOR_PERIOD      m_anchor_period;
+   ENUM_APPLIED_PRICE_HA_ALL m_source_price;
+   long                    m_tz_shift_seconds;
+   int                     m_er_period;
+   double                  m_fastest_sc;
+   double                  m_slowest_sc;
 
-   // Custom session times
-   int               m_start_hour, m_start_min;
-   int               m_end_hour, m_end_min;
+   //--- Custom Session Times
+   int                     m_start_hour, m_start_min;
+   int                     m_end_hour, m_end_min;
 
-   bool              IsTimeInSession(datetime time_val);
+   //--- Persistent State Buffers
+   double                  m_price[];
+   double                  m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+
+   //--- Composition Engine
+   CHeikinAshi_Calculator  m_ha_engine;
+
+   //--- Internal Methods
+   bool                    IsTimeInCustomSession(const MqlDateTime &dt);
+   bool                    PreparePriceSeries(const int rates_total,
+         const int start_index,
+         const double &open[],
+         const double &high[],
+         const double &low[],
+         const double &close[]);
 
 public:
-                     CKamaAnchoredCalculator();
-                    ~CKamaAnchoredCalculator() {};
+                     CKamaAnchoredCalculator(void);
+                    ~CKamaAnchoredCalculator(void) {};
 
-   bool              Init(int er_p, int fast_ema_p, int slow_ema_p, ENUM_ANCHOR_PERIOD anchor, string custom_start="09:00", string custom_end="18:00");
+   bool                    Init(const ENUM_ANCHOR_PERIOD anchor_p,
+                                const int tz_shift_hours,
+                                const string custom_start,
+                                const string custom_end,
+                                const int er_p,
+                                const int fast_p,
+                                const int slow_p,
+                                const ENUM_APPLIED_PRICE_HA_ALL source);
 
-   //--- Upgraded Calculate to output into two separate gapped buffers (Odd & Even)
-   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
-                               const datetime &time[],
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &kama_odd[], double &kama_even[]);
+   void                    Calculate(const int rates_total,
+                                     const int prev_calculated,
+                                     const datetime &time[],
+                                     const double &open[],
+                                     const double &high[],
+                                     const double &low[],
+                                     const double &close[],
+                                     double &kama_odd[],
+                                     double &kama_even[],
+                                     double &out_price[]);
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CKamaAnchoredCalculator::CKamaAnchoredCalculator() : m_anchor(ANCHOR_SESSION)
+CKamaAnchoredCalculator::CKamaAnchoredCalculator(void) : m_anchor_period(ANCHOR_PERIOD_SESSION),
+   m_source_price(PRICE_CLOSE_STD),
+   m_tz_shift_seconds(0),
+   m_er_period(10),
+   m_fastest_sc(0.6667),
+   m_slowest_sc(0.0645),
+   m_start_hour(8), m_start_min(0),
+   m_end_hour(17), m_end_min(0)
   {
+   ArraySetAsSeries(m_price, false);
+   ArraySetAsSeries(m_ha_open, false);
+   ArraySetAsSeries(m_ha_high, false);
+   ArraySetAsSeries(m_ha_low, false);
+   ArraySetAsSeries(m_ha_close, false);
   }
 
 //+------------------------------------------------------------------+
-//| Init                                                             |
+//| Initialization                                                   |
 //+------------------------------------------------------------------+
-bool CKamaAnchoredCalculator::Init(int er_p, int fast_ema_p, int slow_ema_p, ENUM_ANCHOR_PERIOD anchor, string custom_start, string custom_end)
+bool CKamaAnchoredCalculator::Init(const ENUM_ANCHOR_PERIOD anchor_p,
+                                   const int tz_shift_hours,
+                                   const string custom_start,
+                                   const string custom_end,
+                                   const int er_p,
+                                   const int fast_p,
+                                   const int slow_p,
+                                   const ENUM_APPLIED_PRICE_HA_ALL source)
   {
-   if(!CKamaCalculator::Init(er_p, fast_ema_p, slow_ema_p))
-      return false;
-   m_anchor = anchor;
+   m_anchor_period    = anchor_p;
+   m_source_price     = source;
+   m_tz_shift_seconds = (long)tz_shift_hours * 3600;
 
-   string parts[];
-   if(StringSplit(custom_start, ':', parts) == 2)
+   m_er_period = (er_p < 1) ? 1 : er_p;
+   int fast_len = (fast_p < 1) ? 1 : fast_p;
+   int slow_len = (slow_p < 1) ? 1 : slow_p;
+
+   m_fastest_sc = 2.0 / (fast_len + 1.0);
+   m_slowest_sc = 2.0 / (slow_len + 1.0);
+
+   if(m_anchor_period == ANCHOR_PERIOD_CUSTOM_SESSION)
      {
-      m_start_hour = (int)StringToInteger(parts[0]);
-      m_start_min  = (int)StringToInteger(parts[1]);
+      string start_parts[], end_parts[];
+      if(StringSplit(custom_start, ':', start_parts) == 2)
+        {
+         m_start_hour = (int)StringToInteger(start_parts[0]);
+         m_start_min  = (int)StringToInteger(start_parts[1]);
+        }
+      if(StringSplit(custom_end, ':', end_parts) == 2)
+        {
+         m_end_hour = (int)StringToInteger(end_parts[0]);
+         m_end_min  = (int)StringToInteger(end_parts[1]);
+        }
      }
-   if(StringSplit(custom_end, ':', parts) == 2)
-     {
-      m_end_hour = (int)StringToInteger(parts[0]);
-      m_end_min  = (int)StringToInteger(parts[1]);
-     }
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| IsTimeInSession                                                  |
+//| Custom Session In-Time Check                                     |
 //+------------------------------------------------------------------+
-bool CKamaAnchoredCalculator::IsTimeInSession(datetime time_val)
+bool CKamaAnchoredCalculator::IsTimeInCustomSession(const MqlDateTime &dt)
   {
-   MqlDateTime dt;
-   TimeToStruct(time_val, dt);
    int current_min = dt.hour * 60 + dt.min;
-   int start_total = m_start_hour * 60 + m_start_min;
-   int end_total   = m_end_hour * 60 + m_end_min;
+   int start_min   = m_start_hour * 60 + m_start_min;
+   int end_min     = m_end_hour * 60 + m_end_min;
 
-   if(end_total < start_total) // Overlapping midnight session
-     {
-      return (current_min >= start_total || current_min < end_total);
-     }
+   if(end_min < start_min)
+      return (current_min >= start_min || current_min < end_min);
    else
-     {
-      return (current_min >= start_total && current_min < end_total);
-     }
+      return (current_min >= start_min && current_min < end_min);
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Strictly O(1) Non-Repainting Anchored Loop)           |
+//| Prepare Price Series (Standard / Heikin Ashi)                    |
 //+------------------------------------------------------------------+
-void CKamaAnchoredCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
-                                        const datetime &time[],
-                                        const double &open[], const double &high[], const double &low[], const double &close[],
-                                        double &kama_odd[], double &kama_even[])
+bool CKamaAnchoredCalculator::PreparePriceSeries(const int rates_total,
+      const int start_index,
+      const double &open[],
+      const double &high[],
+      const double &low[],
+      const double &close[])
   {
-   if(rates_total <= m_er_period)
-      return;
-
-//--- 1. Determine Start Index
-   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
-
-//--- 2. Resize Buffers (FIXED: Added sizing for period_idx and kama_internal)
    if(ArraySize(m_price) != rates_total)
      {
       ArrayResize(m_price, rates_total);
-      ArrayResize(m_anchor_start, rates_total);
-      ArrayResize(m_period_idx, rates_total);
-      ArrayResize(m_kama_internal, rates_total);
+      ArraySetAsSeries(m_price, false);
      }
 
-//--- 3. Prepare Price Series
-   if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
+   bool is_heikin_ashi = (m_source_price <= PRICE_HA_CLOSE);
+
+   if(is_heikin_ashi)
+     {
+      if(ArraySize(m_ha_open) != rates_total)
+        {
+         ArrayResize(m_ha_open, rates_total);
+         ArrayResize(m_ha_high, rates_total);
+         ArrayResize(m_ha_low, rates_total);
+         ArrayResize(m_ha_close, rates_total);
+
+         ArraySetAsSeries(m_ha_open, false);
+         ArraySetAsSeries(m_ha_high, false);
+         ArraySetAsSeries(m_ha_low, false);
+         ArraySetAsSeries(m_ha_close, false);
+        }
+
+      m_ha_engine.Calculate(rates_total, start_index, open, high, low, close,
+                            m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+      for(int i = start_index; i < rates_total; i++)
+        {
+         switch(m_source_price)
+           {
+            case PRICE_HA_OPEN:
+               m_price[i] = m_ha_open[i];
+               break;
+            case PRICE_HA_HIGH:
+               m_price[i] = m_ha_high[i];
+               break;
+            case PRICE_HA_LOW:
+               m_price[i] = m_ha_low[i];
+               break;
+            case PRICE_HA_MEDIAN:
+               m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+               break;
+            case PRICE_HA_TYPICAL:
+               m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
+               break;
+            case PRICE_HA_WEIGHTED:
+               m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+               break;
+            case PRICE_HA_CLOSE:
+            default:
+               m_price[i] = m_ha_close[i];
+               break;
+           }
+        }
+     }
+   else
+     {
+      for(int i = start_index; i < rates_total; i++)
+        {
+         switch(m_source_price)
+           {
+            case PRICE_OPEN_STD:
+               m_price[i] = open[i];
+               break;
+            case PRICE_HIGH_STD:
+               m_price[i] = high[i];
+               break;
+            case PRICE_LOW_STD:
+               m_price[i] = low[i];
+               break;
+            case PRICE_MEDIAN_STD:
+               m_price[i] = (high[i] + low[i]) / 2.0;
+               break;
+            case PRICE_TYPICAL_STD:
+               m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
+               break;
+            case PRICE_WEIGHTED_STD:
+               m_price[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+               break;
+            case PRICE_CLOSE_STD:
+            default:
+               m_price[i] = close[i];
+               break;
+           }
+        }
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Main Incremental Anchored KAMA Calculation                       |
+//+------------------------------------------------------------------+
+void CKamaAnchoredCalculator::Calculate(const int rates_total,
+                                        const int prev_calculated,
+                                        const datetime &time[],
+                                        const double &open[],
+                                        const double &high[],
+                                        const double &low[],
+                                        const double &close[],
+                                        double &kama_odd[],
+                                        double &kama_even[],
+                                        double &out_price[])
+  {
+   if(rates_total < 2)
       return;
 
-//--- 4. Calculate KAMA with Anchored Resets
-   if(start_index == 0)
+   int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
+
+   if(prev_calculated == 0)
      {
-      m_anchor_start[0] = 0;
-      m_period_idx[0] = 1;
-      m_kama_internal[0] = m_price[0]; // FIXED: Corrected array name
-      kama_odd[0] = m_price[0];
-      kama_even[0] = EMPTY_VALUE;
-      start_index = 1;
+      ArrayInitialize(kama_odd,  EMPTY_VALUE);
+      ArrayInitialize(kama_even, EMPTY_VALUE);
+     }
+
+   if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
+      return;
+
+// Export price series for band variance calculations
+   if(ArraySize(out_price) != rates_total)
+     {
+      ArrayResize(out_price, rates_total);
+      ArraySetAsSeries(out_price, false);
+     }
+   ArrayCopy(out_price, m_price, start_index, start_index, rates_total - start_index);
+
+// Internal variables for continuous session state
+   static int  s_period_index = 0;
+   static int  s_anchor_bar   = 0;
+   static bool s_in_session   = false;
+   static double s_last_kama  = 0.0;
+
+   if(prev_calculated == 0)
+     {
+      s_period_index = 0;
+      s_anchor_bar   = 0;
+      s_in_session   = false;
+      s_last_kama    = 0.0;
      }
 
    for(int i = start_index; i < rates_total; i++)
      {
       bool new_period = false;
 
-      switch(m_anchor)
+      if(i == 0)
         {
-         case ANCHOR_SESSION:
+         new_period = true;
+        }
+      else
+        {
+         switch(m_anchor_period)
            {
-            MqlDateTime dt_curr, dt_prev;
-            TimeToStruct(time[i], dt_curr);
-            TimeToStruct(time[i-1], dt_prev);
-            if(dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year)
-               new_period = true;
-            break;
-           }
-         case ANCHOR_WEEK:
-           {
-            MqlDateTime dt_curr, dt_prev;
-            TimeToStruct(time[i], dt_curr);
-            TimeToStruct(time[i-1], dt_prev);
-            if(dt_curr.day_of_week < dt_prev.day_of_week)
-               new_period = true;
-            break;
-           }
-         case ANCHOR_MONTH:
-           {
-            MqlDateTime dt_curr, dt_prev;
-            TimeToStruct(time[i], dt_curr);
-            TimeToStruct(time[i-1], dt_prev);
-            if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-               new_period = true;
-            break;
-           }
-         case ANCHOR_CUSTOM_SESSION:
-           {
-            MqlDateTime dt_curr, dt_prev;
-            TimeToStruct(time[i], dt_curr);
-            TimeToStruct(time[i-1], dt_prev);
-            int min_curr = dt_curr.hour * 60 + dt_curr.min;
-            int min_prev = dt_prev.hour * 60 + dt_prev.min;
-            int start_min = m_start_hour * 60 + m_start_min;
-            bool day_changed = (dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year);
-            if(day_changed)
+            case ANCHOR_PERIOD_SESSION:
               {
-               if(min_curr >= start_min)
+               datetime curr_t = time[i] + (datetime)m_tz_shift_seconds;
+               datetime prev_t = time[i - 1] + (datetime)m_tz_shift_seconds;
+               MqlDateTime dt_curr, dt_prev;
+               TimeToStruct(curr_t, dt_curr);
+               TimeToStruct(prev_t, dt_prev);
+               if(dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year)
                   new_period = true;
+               break;
               }
-            else
+            case ANCHOR_PERIOD_WEEK:
               {
-               if(min_prev < start_min && min_curr >= start_min)
+               MqlDateTime dt_curr, dt_prev;
+               TimeToStruct(time[i], dt_curr);
+               TimeToStruct(time[i - 1], dt_prev);
+               if(dt_curr.day_of_week < dt_prev.day_of_week)
                   new_period = true;
+               break;
               }
-            break;
+            case ANCHOR_PERIOD_MONTH:
+              {
+               MqlDateTime dt_curr, dt_prev;
+               TimeToStruct(time[i], dt_curr);
+               TimeToStruct(time[i - 1], dt_prev);
+               if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
+                  new_period = true;
+               break;
+              }
+            case ANCHOR_PERIOD_CUSTOM_SESSION:
+              {
+               MqlDateTime dt_curr;
+               TimeToStruct(time[i], dt_curr);
+               bool inside = IsTimeInCustomSession(dt_curr);
+               if(inside && !s_in_session)
+                  new_period = true;
+               s_in_session = inside;
+               break;
+              }
            }
-         default:
-            break;
         }
 
+      // Period Anchor Reset
       if(new_period)
         {
-         m_anchor_start[i] = i;
-         m_period_idx[i] = m_period_idx[i-1] + 1;
+         s_period_index++;
+         s_anchor_bar = i;
+         s_last_kama  = m_price[i];
+        }
+
+      // Calculate Adaptive Local KAMA within the Anchor Scope
+      int bars_in_session = i - s_anchor_bar;
+      double current_kama = s_last_kama;
+
+      if(bars_in_session == 0)
+        {
+         current_kama = m_price[i];
         }
       else
         {
-         m_anchor_start[i] = m_anchor_start[i-1];
-         m_period_idx[i] = m_period_idx[i-1];
-        }
+         int lookback = MathMin(bars_in_session, m_er_period);
 
-      int current_anchor_idx = m_anchor_start[i];
-      int current_period_idx = m_period_idx[i];
-
-      // Re-initialize KAMA on the reset bar to prevent historical drift
-      if(i == current_anchor_idx)
-        {
-         m_kama_internal[i] = m_price[i]; // FIXED: Corrected array name
-        }
-      else
-        {
-         // Calculate the adaptive lookback based on elapsed bars since reset
-         int elapsed_bars = i - current_anchor_idx;
-         int active_er_period = MathMin(m_er_period, elapsed_bars);
-
-         // Calculate Efficiency Ratio (ER)
-         double direction = MathAbs(m_price[i] - m_price[i - active_er_period]);
+         double direction = MathAbs(m_price[i] - m_price[i - lookback]);
          double volatility = 0.0;
 
-         for(int j = 0; j < active_er_period; j++)
-           {
+         for(int j = 0; j < lookback; j++)
             volatility += MathAbs(m_price[i - j] - m_price[i - j - 1]);
-           }
 
-         double er = (volatility > 0.000001) ? direction / volatility : 0;
+         double er = (volatility > 1.0e-9) ? (direction / volatility) : 0.0;
+         double sc = MathPow(er * (m_fastest_sc - m_slowest_sc) + m_slowest_sc, 2.0);
 
-         // Calculate Scaled Smoothing Constant (SSC)
-         double sc = pow(er * (m_fastest_sc - m_slowest_sc) + m_slowest_sc, 2);
-
-         // Calculate Final AMA (KAMA) into internal state buffer (FIXED: Corrected array names)
-         m_kama_internal[i] = m_kama_internal[i-1] + sc * (m_price[i] - m_kama_internal[i-1]);
+         // Recursive smoothing
+         current_kama = s_last_kama + sc * (m_price[i] - s_last_kama);
         }
 
-      // Map to separate buffers based on period parity to create a clean gap
-      if(current_period_idx % 2 != 0)
+      s_last_kama = current_kama;
+
+      // Odd / Even Segmentation for Gapped Line Rendering
+      if(m_anchor_period != ANCHOR_PERIOD_CUSTOM_SESSION || s_in_session)
         {
-         kama_odd[i] = m_kama_internal[i];
-         kama_even[i] = EMPTY_VALUE;
+         if(s_period_index % 2 != 0)
+           {
+            kama_odd[i]  = current_kama;
+            kama_even[i] = EMPTY_VALUE;
+           }
+         else
+           {
+            kama_even[i] = current_kama;
+            kama_odd[i]  = EMPTY_VALUE;
+           }
         }
       else
         {
-         kama_even[i] = m_kama_internal[i];
-         kama_odd[i] = EMPTY_VALUE;
+         kama_odd[i]  = EMPTY_VALUE;
+         kama_even[i] = EMPTY_VALUE;
         }
      }
-  }
-
-//+==================================================================+
-//|             CLASS 2: CKamaAnchoredCalculator_HA                  |
-//+==================================================================+
-class CKamaAnchoredCalculator_HA : public CKamaAnchoredCalculator
-  {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
-protected:
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
-
-//+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
-//+------------------------------------------------------------------+
-bool CKamaAnchoredCalculator_HA::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   if(ArraySize(m_ha_open) != rates_total)
-     {
-      ArrayResize(m_ha_open, rates_total);
-      ArrayResize(m_ha_high, rates_total);
-      ArrayResize(m_ha_low, rates_total);
-      ArrayResize(m_ha_close, rates_total);
-     }
-
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
-
-   for(int i = start_index; i < rates_total; i++)
-     {
-      switch(price_type)
-        {
-         case PRICE_CLOSE:
-            m_price[i] = m_ha_close[i];
-            break;
-         case PRICE_OPEN:
-            m_price[i] = m_ha_open[i];
-            break;
-         case PRICE_HIGH:
-            m_price[i] = m_ha_high[i];
-            break;
-         case PRICE_LOW:
-            m_price[i] = m_ha_low[i];
-            break;
-         case PRICE_MEDIAN:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i])/2.0;
-            break;
-         case PRICE_TYPICAL:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+m_ha_close[i])/3.0;
-            break;
-         case PRICE_WEIGHTED:
-            m_price[i] = (m_ha_high[i]+m_ha_low[i]+2*m_ha_close[i])/4.0;
-            break;
-         default:
-            m_price[i] = m_ha_close[i];
-            break;
-        }
-     }
-   return true;
   }
 
 #endif // KAMA_ANCHORED_CALCULATOR_MQH
