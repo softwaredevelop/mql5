@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // First release of Anchored KAMA Engine
+#property version   "1.10" // Deterministic Stateless Engine with Robust Custom Session Logic
 
 #ifndef KAMA_ANCHORED_CALCULATOR_MQH
 #define KAMA_ANCHORED_CALCULATOR_MQH
@@ -33,11 +33,11 @@ private:
    double                  m_fastest_sc;
    double                  m_slowest_sc;
 
-   //--- Custom Session Times
+   //--- Custom Session Configuration
    int                     m_start_hour, m_start_min;
    int                     m_end_hour, m_end_min;
 
-   //--- Persistent State Buffers
+   //--- Persistent Price Buffers
    double                  m_price[];
    double                  m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
@@ -45,7 +45,6 @@ private:
    CHeikinAshi_Calculator  m_ha_engine;
 
    //--- Internal Methods
-   bool                    IsTimeInCustomSession(const MqlDateTime &dt);
    bool                    PreparePriceSeries(const int rates_total,
          const int start_index,
          const double &open[],
@@ -65,6 +64,8 @@ public:
                                 const int fast_p,
                                 const int slow_p,
                                 const ENUM_APPLIED_PRICE_HA_ALL source);
+
+   bool                    IsTimeInCustomSession(const datetime bar_time);
 
    void                    Calculate(const int rates_total,
                                      const int prev_calculated,
@@ -139,18 +140,33 @@ bool CKamaAnchoredCalculator::Init(const ENUM_ANCHOR_PERIOD anchor_p,
   }
 
 //+------------------------------------------------------------------+
-//| Custom Session In-Time Check                                     |
+//| Custom Session In-Time Check (Stateless)                         |
 //+------------------------------------------------------------------+
-bool CKamaAnchoredCalculator::IsTimeInCustomSession(const MqlDateTime &dt)
+bool CKamaAnchoredCalculator::IsTimeInCustomSession(const datetime bar_time)
   {
+   MqlDateTime dt;
+   TimeToStruct(bar_time + (datetime)m_tz_shift_seconds, dt);
+
    int current_min = dt.hour * 60 + dt.min;
    int start_min   = m_start_hour * 60 + m_start_min;
    int end_min     = m_end_hour * 60 + m_end_min;
 
-   if(end_min < start_min)
-      return (current_min >= start_min || current_min < end_min);
-   else
+   if(end_min > start_min)
+     {
+      // Standard intraday session (e.g. 08:00 to 17:00)
       return (current_min >= start_min && current_min < end_min);
+     }
+   else
+      if(end_min < start_min)
+        {
+         // Overnight session spanning midnight (e.g. 22:00 to 06:00)
+         return (current_min >= start_min || current_min < end_min);
+        }
+      else
+        {
+         // Full 24-hour session
+         return true;
+        }
   }
 
 //+------------------------------------------------------------------+
@@ -254,7 +270,7 @@ bool CKamaAnchoredCalculator::PreparePriceSeries(const int rates_total,
   }
 
 //+------------------------------------------------------------------+
-//| Main Incremental Anchored KAMA Calculation                       |
+//| Deterministic Anchored KAMA Calculation                          |
 //+------------------------------------------------------------------+
 void CKamaAnchoredCalculator::Calculate(const int rates_total,
                                         const int prev_calculated,
@@ -272,12 +288,6 @@ void CKamaAnchoredCalculator::Calculate(const int rates_total,
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
-   if(prev_calculated == 0)
-     {
-      ArrayInitialize(kama_odd,  EMPTY_VALUE);
-      ArrayInitialize(kama_even, EMPTY_VALUE);
-     }
-
    if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
       return;
 
@@ -289,113 +299,100 @@ void CKamaAnchoredCalculator::Calculate(const int rates_total,
      }
    ArrayCopy(out_price, m_price, start_index, start_index, rates_total - start_index);
 
-// Internal variables for continuous session state
-   static int  s_period_index = 0;
-   static int  s_anchor_bar   = 0;
-   static bool s_in_session   = false;
-   static double s_last_kama  = 0.0;
+// Full deterministic scan across all historical sessions
+   int    period_index  = 0;
+   int    anchor_bar    = 0;
+   double current_kama  = 0.0;
+   bool   in_session    = false;
 
-   if(prev_calculated == 0)
-     {
-      s_period_index = 0;
-      s_anchor_bar   = 0;
-      s_in_session   = false;
-      s_last_kama    = 0.0;
-     }
-
-   for(int i = start_index; i < rates_total; i++)
+   for(int i = 0; i < rates_total; i++)
      {
       bool new_period = false;
 
-      if(i == 0)
+      if(m_anchor_period == ANCHOR_PERIOD_CUSTOM_SESSION)
         {
-         new_period = true;
+         bool is_inside = IsTimeInCustomSession(time[i]);
+         if(is_inside && !in_session)
+            new_period = true;
+         in_session = is_inside;
         }
       else
         {
-         switch(m_anchor_period)
+         in_session = true;
+         if(i == 0)
            {
-            case ANCHOR_PERIOD_SESSION:
+            new_period = true;
+           }
+         else
+           {
+            switch(m_anchor_period)
               {
-               datetime curr_t = time[i] + (datetime)m_tz_shift_seconds;
-               datetime prev_t = time[i - 1] + (datetime)m_tz_shift_seconds;
-               MqlDateTime dt_curr, dt_prev;
-               TimeToStruct(curr_t, dt_curr);
-               TimeToStruct(prev_t, dt_prev);
-               if(dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year)
-                  new_period = true;
-               break;
-              }
-            case ANCHOR_PERIOD_WEEK:
-              {
-               MqlDateTime dt_curr, dt_prev;
-               TimeToStruct(time[i], dt_curr);
-               TimeToStruct(time[i - 1], dt_prev);
-               if(dt_curr.day_of_week < dt_prev.day_of_week)
-                  new_period = true;
-               break;
-              }
-            case ANCHOR_PERIOD_MONTH:
-              {
-               MqlDateTime dt_curr, dt_prev;
-               TimeToStruct(time[i], dt_curr);
-               TimeToStruct(time[i - 1], dt_prev);
-               if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-                  new_period = true;
-               break;
-              }
-            case ANCHOR_PERIOD_CUSTOM_SESSION:
-              {
-               MqlDateTime dt_curr;
-               TimeToStruct(time[i], dt_curr);
-               bool inside = IsTimeInCustomSession(dt_curr);
-               if(inside && !s_in_session)
-                  new_period = true;
-               s_in_session = inside;
-               break;
+               case ANCHOR_PERIOD_SESSION:
+                 {
+                  datetime curr_t = time[i] + (datetime)m_tz_shift_seconds;
+                  datetime prev_t = time[i - 1] + (datetime)m_tz_shift_seconds;
+                  MqlDateTime dt_c, dt_p;
+                  TimeToStruct(curr_t, dt_c);
+                  TimeToStruct(prev_t, dt_p);
+                  if(dt_c.day_of_year != dt_p.day_of_year || dt_c.year != dt_p.year)
+                     new_period = true;
+                  break;
+                 }
+               case ANCHOR_PERIOD_WEEK:
+                 {
+                  MqlDateTime dt_c, dt_p;
+                  TimeToStruct(time[i], dt_c);
+                  TimeToStruct(time[i - 1], dt_p);
+                  if(dt_c.day_of_week < dt_p.day_of_week)
+                     new_period = true;
+                  break;
+                 }
+               case ANCHOR_PERIOD_MONTH:
+                 {
+                  MqlDateTime dt_c, dt_p;
+                  TimeToStruct(time[i], dt_c);
+                  TimeToStruct(time[i - 1], dt_p);
+                  if(dt_c.mon != dt_p.mon || dt_c.year != dt_p.year)
+                     new_period = true;
+                  break;
+                 }
               }
            }
         }
 
-      // Period Anchor Reset
+      // Handle Period Reset
       if(new_period)
         {
-         s_period_index++;
-         s_anchor_bar = i;
-         s_last_kama  = m_price[i];
-        }
-
-      // Calculate Adaptive Local KAMA within the Anchor Scope
-      int bars_in_session = i - s_anchor_bar;
-      double current_kama = s_last_kama;
-
-      if(bars_in_session == 0)
-        {
+         period_index++;
+         anchor_bar   = i;
          current_kama = m_price[i];
         }
-      else
+
+      // Compute KAMA within Session Scope
+      if(in_session)
         {
-         int lookback = MathMin(bars_in_session, m_er_period);
+         int bars_in_session = i - anchor_bar;
+         if(bars_in_session == 0)
+           {
+            current_kama = m_price[i];
+           }
+         else
+           {
+            int lookback = MathMin(bars_in_session, m_er_period);
+            double direction = MathAbs(m_price[i] - m_price[i - lookback]);
+            double volatility = 0.0;
 
-         double direction = MathAbs(m_price[i] - m_price[i - lookback]);
-         double volatility = 0.0;
+            for(int j = 0; j < lookback; j++)
+               volatility += MathAbs(m_price[i - j] - m_price[i - j - 1]);
 
-         for(int j = 0; j < lookback; j++)
-            volatility += MathAbs(m_price[i - j] - m_price[i - j - 1]);
+            double er = (volatility > 1.0e-9) ? (direction / volatility) : 0.0;
+            double sc = MathPow(er * (m_fastest_sc - m_slowest_sc) + m_slowest_sc, 2.0);
 
-         double er = (volatility > 1.0e-9) ? (direction / volatility) : 0.0;
-         double sc = MathPow(er * (m_fastest_sc - m_slowest_sc) + m_slowest_sc, 2.0);
+            current_kama = current_kama + sc * (m_price[i] - current_kama);
+           }
 
-         // Recursive smoothing
-         current_kama = s_last_kama + sc * (m_price[i] - s_last_kama);
-        }
-
-      s_last_kama = current_kama;
-
-      // Odd / Even Segmentation for Gapped Line Rendering
-      if(m_anchor_period != ANCHOR_PERIOD_CUSTOM_SESSION || s_in_session)
-        {
-         if(s_period_index % 2 != 0)
+         // Gapped Line Plotting (Odd / Even)
+         if(period_index % 2 != 0)
            {
             kama_odd[i]  = current_kama;
             kama_even[i] = EMPTY_VALUE;
