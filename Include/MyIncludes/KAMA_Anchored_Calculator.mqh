@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.10" // Deterministic Stateless Engine with Robust Custom Session Logic
+#property version   "1.20" // Fixed: Robust Array Auto-Resizing & Bounds Protection
 
 #ifndef KAMA_ANCHORED_CALCULATOR_MQH
 #define KAMA_ANCHORED_CALCULATOR_MQH
@@ -153,18 +153,15 @@ bool CKamaAnchoredCalculator::IsTimeInCustomSession(const datetime bar_time)
 
    if(end_min > start_min)
      {
-      // Standard intraday session (e.g. 08:00 to 17:00)
       return (current_min >= start_min && current_min < end_min);
      }
    else
       if(end_min < start_min)
         {
-         // Overnight session spanning midnight (e.g. 22:00 to 06:00)
          return (current_min >= start_min || current_min < end_min);
         }
       else
         {
-         // Full 24-hour session
          return true;
         }
   }
@@ -270,7 +267,7 @@ bool CKamaAnchoredCalculator::PreparePriceSeries(const int rates_total,
   }
 
 //+------------------------------------------------------------------+
-//| Deterministic Anchored KAMA Calculation                          |
+//| Deterministic Anchored KAMA Calculation with Bounds Protection   |
 //+------------------------------------------------------------------+
 void CKamaAnchoredCalculator::Calculate(const int rates_total,
                                         const int prev_calculated,
@@ -286,17 +283,31 @@ void CKamaAnchoredCalculator::Calculate(const int rates_total,
    if(rates_total < 2)
       return;
 
-   int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
-
-   if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
-      return;
-
-// Export price series for band variance calculations
+//--- CRITICAL SAFEGUARD: Ensure all output/destination arrays are properly allocated
+   if(ArraySize(kama_odd) != rates_total)
+     {
+      ArrayResize(kama_odd, rates_total);
+      ArraySetAsSeries(kama_odd, false);
+      ArrayInitialize(kama_odd, EMPTY_VALUE);
+     }
+   if(ArraySize(kama_even) != rates_total)
+     {
+      ArrayResize(kama_even, rates_total);
+      ArraySetAsSeries(kama_even, false);
+      ArrayInitialize(kama_even, EMPTY_VALUE);
+     }
    if(ArraySize(out_price) != rates_total)
      {
       ArrayResize(out_price, rates_total);
       ArraySetAsSeries(out_price, false);
      }
+
+   int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
+
+   if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
+      return;
+
+// Export price series safely
    ArrayCopy(out_price, m_price, start_index, start_index, rates_total - start_index);
 
 // Full deterministic scan across all historical sessions
