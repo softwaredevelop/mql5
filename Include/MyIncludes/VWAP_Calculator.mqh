@@ -1,13 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|      VERSION 2.00: Added history limit for buffer output.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|      VERSION 3.00: Deterministic Session Anchoring & Bounds Safe |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "3.00" // Fully deterministic session logic with zero live-tick flickering
+
+#ifndef VWAP_CALCULATOR_MQH
+#define VWAP_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 
 //--- Enum for VWAP Reset Period ---
+#ifndef ENUM_VWAP_PERIOD_DEFINED
+#define ENUM_VWAP_PERIOD_DEFINED
 enum ENUM_VWAP_PERIOD
   {
    PERIOD_SESSION,        // Reset every day (can be shifted by timezone)
@@ -15,6 +21,7 @@ enum ENUM_VWAP_PERIOD
    PERIOD_MONTH,          // Reset every month
    PERIOD_CUSTOM_SESSION  // Reset based on custom start/end times
   };
+#endif
 
 //+==================================================================+
 //|             CLASS 1: CVWAPCalculator (Base Class)                |
@@ -26,284 +33,299 @@ protected:
    ENUM_APPLIED_VOLUME m_volume_type;
    bool                m_enabled;
    long                m_tz_shift_seconds;
-   int                 m_max_history_days; // NEW: Limit buffer output
+   int                 m_max_history_days;
 
-   //--- Persistent Buffers
+   //--- Persistent Price Buffer
    double              m_typical_price[];
 
-   //--- Persistent State for Incremental Calculation
-   double              m_cumulative_tpv;
-   double              m_cumulative_vol;
-   int                 m_period_index;
-   bool                m_in_session;
-   datetime            m_last_time;
-
-   //--- For custom sessions ---
+   //--- Custom Session Parameters
    int                 m_start_hour, m_start_min;
    int                 m_end_hour, m_end_min;
 
-   bool              IsTimeInSession(const MqlDateTime &dt);
-   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
+   bool                IsTimeInSession(const datetime bar_time);
+   virtual bool        PrepareSourceData(const int rates_total, const int start_index,
+                                         const double &open[], const double &high[],
+                                         const double &low[], const double &close[]);
 
 public:
                      CVWAPCalculator(void);
-   virtual          ~CVWAPCalculator(void) {};
+   virtual            ~CVWAPCalculator(void) {};
 
-   //--- Updated Init methods with max_history_days
-   bool              Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true, int max_history_days=0);
-   bool              Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true, int max_history_days=0);
+   //--- Backward-Compatible Initialization Signatures
+   bool                Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true, int max_history_days=0);
+   bool                Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true, int max_history_days=0, int tz_shift_hours=0);
 
-   void              Calculate(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
-                               const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[]);
+   void                Calculate(const int rates_total,
+                                 const int prev_calculated,
+                                 const datetime &time[],
+                                 const double &open[],
+                                 const double &high[],
+                                 const double &low[],
+                                 const double &close[],
+                                 const long &tick_volume[],
+                                 const long &volume[],
+                                 double &vwap_odd[],
+                                 double &vwap_even[]);
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CVWAPCalculator::CVWAPCalculator(void)
+CVWAPCalculator::CVWAPCalculator(void) : m_period(PERIOD_SESSION),
+   m_volume_type(VOLUME_TICK),
+   m_enabled(true),
+   m_tz_shift_seconds(0),
+   m_max_history_days(0),
+   m_start_hour(9), m_start_min(30),
+   m_end_hour(16), m_end_min(0)
   {
-   m_enabled = false;
-   m_tz_shift_seconds = 0;
-   m_cumulative_tpv = 0;
-   m_cumulative_vol = 0;
-   m_period_index = 0;
-   m_in_session = false;
-   m_last_time = 0;
-   m_max_history_days = 0;
+   ArraySetAsSeries(m_typical_price, false);
   }
 
 //+------------------------------------------------------------------+
-//| Init (Standard)                                                  |
+//| Init (Standard Periods)                                          |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours, bool enabled, int max_history_days)
   {
-   m_enabled     = enabled;
+   m_enabled          = enabled;
    if(!m_enabled)
       return true;
 
-   m_period      = period;
-   m_volume_type = vol_type;
-   m_tz_shift_seconds = tz_shift_hours * 3600;
+   m_period           = period;
+   m_volume_type      = vol_type;
+   m_tz_shift_seconds = (long)tz_shift_hours * 3600;
    m_max_history_days = max_history_days;
 
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
-      Print("VWAP Error: Real Volume is not available for '", _Symbol, "'.");
-      return false;
+      PrintFormat("VWAP Warning: Real Volume not available for '%s'. Falling back to Tick Volume.", _Symbol);
+      m_volume_type = VOLUME_TICK;
      }
+
    return true;
   }
 
 //+------------------------------------------------------------------+
 //| Init (Custom Session)                                            |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled, int max_history_days)
+bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled, int max_history_days, int tz_shift_hours)
   {
-   m_enabled = enabled;
+   m_enabled          = enabled;
    if(!m_enabled)
       return true;
 
-   m_period      = PERIOD_CUSTOM_SESSION;
-   m_volume_type = vol_type;
-   m_tz_shift_seconds = 0;
+   m_period           = PERIOD_CUSTOM_SESSION;
+   m_volume_type      = vol_type;
+   m_tz_shift_seconds = (long)tz_shift_hours * 3600;
    m_max_history_days = max_history_days;
 
-   string parts[];
-   if(StringSplit(start_time, ':', parts) == 2)
+   string start_parts[], end_parts[];
+   if(StringSplit(start_time, ':', start_parts) == 2)
      {
-      m_start_hour = (int)StringToInteger(parts[0]);
-      m_start_min  = (int)StringToInteger(parts[1]);
+      m_start_hour = (int)StringToInteger(start_parts[0]);
+      m_start_min  = (int)StringToInteger(start_parts[1]);
      }
-   if(StringSplit(end_time, ':', parts) == 2)
+   if(StringSplit(end_time, ':', end_parts) == 2)
      {
-      m_end_hour = (int)StringToInteger(parts[0]);
-      m_end_min  = (int)StringToInteger(parts[1]);
+      m_end_hour = (int)StringToInteger(end_parts[0]);
+      m_end_min  = (int)StringToInteger(end_parts[1]);
      }
 
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
-      Print("VWAP Error: Real Volume is not available for '", _Symbol, "'.");
-      return false;
+      PrintFormat("VWAP Warning: Real Volume not available for '%s'. Falling back to Tick Volume.", _Symbol);
+      m_volume_type = VOLUME_TICK;
      }
+
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Helper                                                           |
+//| Stateless Custom Session In-Time Check                           |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::IsTimeInSession(const MqlDateTime &dt)
+bool CVWAPCalculator::IsTimeInSession(const datetime bar_time)
   {
-   int current_time_in_minutes = dt.hour * 60 + dt.min;
-   int start_time_in_minutes = m_start_hour * 60 + m_start_min;
-   int end_time_in_minutes = m_end_hour * 60 + m_end_min;
+   MqlDateTime dt;
+   TimeToStruct(bar_time + (datetime)m_tz_shift_seconds, dt);
 
-   if(end_time_in_minutes < start_time_in_minutes)
-      return (current_time_in_minutes >= start_time_in_minutes || current_time_in_minutes < end_time_in_minutes);
+   int current_min = dt.hour * 60 + dt.min;
+   int start_min   = m_start_hour * 60 + m_start_min;
+   int end_min     = m_end_hour * 60 + m_end_min;
+
+   if(end_min > start_min)
+     {
+      return (current_min >= start_min && current_min < end_min);
+     }
    else
-      return (current_time_in_minutes >= start_time_in_minutes && current_time_in_minutes < end_time_in_minutes);
+      if(end_min < start_min)
+        {
+         // Overnight session
+         return (current_min >= start_min || current_min < end_min);
+        }
+      else
+        {
+         // 24-hour continuous session
+         return true;
+        }
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Main Calculation (Deterministic & Zero-Flicker)                  |
 //+------------------------------------------------------------------+
-void CVWAPCalculator::Calculate(int rates_total, int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
-                                const long &tick_volume[], const long &volume[], double &vwap_odd[], double &vwap_even[])
+void CVWAPCalculator::Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const datetime &time[],
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                const long &tick_volume[],
+                                const long &volume[],
+                                double &vwap_odd[],
+                                double &vwap_even[])
   {
    if(!m_enabled || rates_total < 1)
       return;
 
-   int start_index;
-   if(prev_calculated == 0)
+//--- Safe array allocation
+   if(ArraySize(vwap_odd) != rates_total)
      {
-      start_index = 0;
-      m_cumulative_tpv = 0;
-      m_cumulative_vol = 0;
-      m_period_index = 0;
-      m_in_session = false;
-      m_last_time = 0;
-
+      ArrayResize(vwap_odd, rates_total);
+      ArraySetAsSeries(vwap_odd, false);
       ArrayInitialize(vwap_odd, EMPTY_VALUE);
+     }
+   if(ArraySize(vwap_even) != rates_total)
+     {
+      ArrayResize(vwap_even, rates_total);
+      ArraySetAsSeries(vwap_even, false);
       ArrayInitialize(vwap_even, EMPTY_VALUE);
      }
-   else
-     {
-      start_index = prev_calculated - 1;
-     }
 
-   if(ArraySize(m_typical_price) != rates_total)
-      ArrayResize(m_typical_price, rates_total);
-   if(ArraySize(vwap_odd) != rates_total)
-      ArrayResize(vwap_odd, rates_total);
-   if(ArraySize(vwap_even) != rates_total)
-      ArrayResize(vwap_even, rates_total);
+   int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
    if(!PrepareSourceData(rates_total, start_index, open, high, low, close))
       return;
 
-// Calculate cutoff time
    datetime cutoff_time = 0;
    if(m_max_history_days > 0)
-      cutoff_time = TimeCurrent() - m_max_history_days * 86400;
+      cutoff_time = TimeCurrent() - (datetime)(m_max_history_days * 86400);
 
-   for(int i = start_index; i < rates_total; i++)
+// Deterministic Scan
+   double cum_tpv       = 0.0;
+   double cum_vol       = 0.0;
+   int    period_index  = 0;
+   bool   in_session    = false;
+
+   for(int i = 0; i < rates_total; i++)
      {
-      double current_cum_tpv = m_cumulative_tpv;
-      double current_cum_vol = m_cumulative_vol;
-      int current_period_idx = m_period_index;
-      bool current_in_session = m_in_session;
-
       bool new_period = false;
 
-      if(i == 0)
+      if(m_period == PERIOD_CUSTOM_SESSION)
         {
-         new_period = true;
+         bool is_inside = IsTimeInSession(time[i]);
+         if(is_inside && !in_session)
+            new_period = true;
+         in_session = is_inside;
         }
       else
         {
-         switch(m_period)
+         in_session = true;
+         if(i == 0)
            {
-            case PERIOD_SESSION:
+            new_period = true;
+           }
+         else
+           {
+            switch(m_period)
               {
-               datetime adjusted_time_curr = time[i] + (datetime)m_tz_shift_seconds;
-               datetime adjusted_time_prev = time[i-1] + (datetime)m_tz_shift_seconds;
-               MqlDateTime dt_curr, dt_prev;
-               TimeToStruct(adjusted_time_curr, dt_curr);
-               TimeToStruct(adjusted_time_prev, dt_prev);
-               if(dt_curr.day_of_year != dt_prev.day_of_year || dt_curr.year != dt_prev.year)
-                  new_period = true;
-               break;
-              }
-            case PERIOD_WEEK:
-              {
-               MqlDateTime dt_curr, dt_prev;
-               TimeToStruct(time[i], dt_curr);
-               TimeToStruct(time[i-1], dt_prev);
-               if(dt_curr.day_of_week < dt_prev.day_of_week)
-                  new_period = true;
-               break;
-              }
-            case PERIOD_MONTH:
-              {
-               MqlDateTime dt_curr, dt_prev;
-               TimeToStruct(time[i], dt_curr);
-               TimeToStruct(time[i-1], dt_prev);
-               if(dt_curr.mon != dt_prev.mon || dt_curr.year != dt_prev.year)
-                  new_period = true;
-               break;
-              }
-            case PERIOD_CUSTOM_SESSION:
-              {
-               MqlDateTime dt_curr;
-               TimeToStruct(time[i], dt_curr);
-               bool is_in_current_session = IsTimeInSession(dt_curr);
-               if(is_in_current_session && !current_in_session)
-                  new_period = true;
-               current_in_session = is_in_current_session;
-               break;
+               case PERIOD_SESSION:
+                 {
+                  datetime curr_t = time[i] + (datetime)m_tz_shift_seconds;
+                  datetime prev_t = time[i - 1] + (datetime)m_tz_shift_seconds;
+                  MqlDateTime dt_c, dt_p;
+                  TimeToStruct(curr_t, dt_c);
+                  TimeToStruct(prev_t, dt_p);
+                  if(dt_c.day_of_year != dt_p.day_of_year || dt_c.year != dt_p.year)
+                     new_period = true;
+                  break;
+                 }
+               case PERIOD_WEEK:
+                 {
+                  MqlDateTime dt_c, dt_p;
+                  TimeToStruct(time[i], dt_c);
+                  TimeToStruct(time[i - 1], dt_p);
+                  if(dt_c.day_of_week < dt_p.day_of_week)
+                     new_period = true;
+                  break;
+                 }
+               case PERIOD_MONTH:
+                 {
+                  MqlDateTime dt_c, dt_p;
+                  TimeToStruct(time[i], dt_c);
+                  TimeToStruct(time[i - 1], dt_p);
+                  if(dt_c.mon != dt_p.mon || dt_c.year != dt_p.year)
+                     new_period = true;
+                  break;
+                 }
               }
            }
         }
 
+      // Reset accumulators on session open
       if(new_period)
         {
-         current_cum_tpv = 0;
-         current_cum_vol = 0;
-         current_period_idx++;
+         cum_tpv = 0.0;
+         cum_vol = 0.0;
+         period_index++;
         }
 
-      long current_volume = (m_volume_type == VOLUME_TICK) ? tick_volume[i] : volume[i];
-      if(current_volume < 1)
-         current_volume = 1;
-
-      current_cum_tpv += m_typical_price[i] * (double)current_volume;
-      current_cum_vol += (double)current_volume;
-
-      double vwap_value = (current_cum_vol > 0) ? current_cum_tpv / current_cum_vol : EMPTY_VALUE;
-
-      // Fill buffers ONLY if within history limit
-      bool show_data = (time[i] >= cutoff_time);
-
-      if(m_period != PERIOD_CUSTOM_SESSION || current_in_session)
+      if(in_session)
         {
-         if(current_period_idx % 2 != 0)
+         long current_vol = (m_volume_type == VOLUME_REAL) ? volume[i] : tick_volume[i];
+         if(current_vol < 1)
+            current_vol = 1;
+
+         cum_tpv += m_typical_price[i] * (double)current_vol;
+         cum_vol += (double)current_vol;
+
+         double vwap_val = (cum_vol > 0.0) ? (cum_tpv / cum_vol) : EMPTY_VALUE;
+         bool   show     = (time[i] >= cutoff_time);
+
+         if(period_index % 2 != 0)
            {
-            vwap_odd[i] = show_data ? vwap_value : EMPTY_VALUE;
+            vwap_odd[i]  = show ? vwap_val : EMPTY_VALUE;
             vwap_even[i] = EMPTY_VALUE;
            }
          else
            {
-            vwap_even[i] = show_data ? vwap_value : EMPTY_VALUE;
-            vwap_odd[i] = EMPTY_VALUE;
+            vwap_even[i] = show ? vwap_val : EMPTY_VALUE;
+            vwap_odd[i]  = EMPTY_VALUE;
            }
         }
       else
         {
-         vwap_odd[i] = EMPTY_VALUE;
+         vwap_odd[i]  = EMPTY_VALUE;
          vwap_even[i] = EMPTY_VALUE;
-        }
-
-      if(i < rates_total - 1)
-        {
-         m_cumulative_tpv = current_cum_tpv;
-         m_cumulative_vol = current_cum_vol;
-         m_period_index = current_period_idx;
-         m_in_session = current_in_session;
-         m_last_time = time[i];
         }
      }
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Standard - Optimized Copy)                        |
+//| Prepare Price (Standard Typical Price)                           |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CVWAPCalculator::PrepareSourceData(const int rates_total, const int start_index,
+                                        const double &open[], const double &high[],
+                                        const double &low[], const double &close[])
   {
    if(ArraySize(m_typical_price) != rates_total)
+     {
       ArrayResize(m_typical_price, rates_total);
+      ArraySetAsSeries(m_typical_price, false);
+     }
 
-// Optimized loop starting from start_index
    for(int i = start_index; i < rates_total; i++)
       m_typical_price[i] = (high[i] + low[i] + close[i]) / 3.0;
+
    return true;
   }
 
@@ -314,35 +336,48 @@ class CVWAPCalculator_HA : public CVWAPCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
-   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+   double                 m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
 protected:
-   virtual bool      PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool           PrepareSourceData(const int rates_total, const int start_index,
+         const double &open[], const double &high[],
+         const double &low[], const double &close[]) override;
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized Copy)                     |
+//| Prepare Price (Heikin Ashi Typical Price)                        |
 //+------------------------------------------------------------------+
-bool CVWAPCalculator_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CVWAPCalculator_HA::PrepareSourceData(const int rates_total, const int start_index,
+      const double &open[], const double &high[],
+      const double &low[], const double &close[])
   {
    if(ArraySize(m_ha_open) != rates_total)
      {
-      ArrayResize(m_ha_open, rates_total);
-      ArrayResize(m_ha_high, rates_total);
-      ArrayResize(m_ha_low, rates_total);
+      ArrayResize(m_ha_open,  rates_total);
+      ArrayResize(m_ha_high,  rates_total);
+      ArrayResize(m_ha_low,   rates_total);
       ArrayResize(m_ha_close, rates_total);
+
+      ArraySetAsSeries(m_ha_open,  false);
+      ArraySetAsSeries(m_ha_high,  false);
+      ArraySetAsSeries(m_ha_low,   false);
+      ArraySetAsSeries(m_ha_close, false);
      }
 
    m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
                              m_ha_open, m_ha_high, m_ha_low, m_ha_close);
 
    if(ArraySize(m_typical_price) != rates_total)
+     {
       ArrayResize(m_typical_price, rates_total);
+      ArraySetAsSeries(m_typical_price, false);
+     }
 
-// Optimized loop starting from start_index
    for(int i = start_index; i < rates_total; i++)
       m_typical_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
+
    return true;
   }
+
+#endif // VWAP_CALCULATOR_MQH
 //+------------------------------------------------------------------+
