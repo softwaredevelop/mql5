@@ -3,130 +3,191 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Integrated 7-zone super-thermal palette supporting all 3 level-pairs (Flow, Climax, Extreme)
-#property description "Dual-Timeframe Volatility Deviation Chart HUD Widget."
-#property description "Displays Daily V-Score (M15) and Weekly V-Score (H1) side-by-side with Extreme warnings."
+#property version   "2.00" // Fully Configurable Dual-Slot HUD Telemetry with Heap-Free Execution
+#property description "Dual-Timeframe Volume-Weighted Z-Score (V-Score) Chart HUD Widget."
+#property description "Displays Tactical and Strategic V-Score metrics side-by-side with 7-zone thermal telemetry."
+
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
 
+//--- Included Engines & Core Tools
 #include <MyIncludes\VScore_Calculator.mqh>
+#include <MyIncludes\DataSync_Tools.mqh>
+
+//--- Enum for selecting candle source ---
+#ifndef ENUM_CANDLE_SOURCE_DEFINED
+#define ENUM_CANDLE_SOURCE_DEFINED
+enum ENUM_CANDLE_SOURCE
+  {
+   CANDLE_STANDARD,      // Use standard OHLC data
+   CANDLE_HEIKIN_ASHI    // Use Heikin Ashi smoothed data
+  };
+#endif
 
 //--- Input Parameters ---
-input group "Heads-Up Display Settings"
-input int               InpRefreshSeconds = 3;               // Background Timer Fallback (Seconds)
+input group "--- Heads-Up Display Settings ---"
+input int                       InpRefreshSeconds       = 3;                     // Background Timer Fallback (Seconds)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-input group "Daily V-Score Settings (M15)"
-input ENUM_TIMEFRAMES   InpDailyTF        = PERIOD_M15;      // Daily Flow Timeframe
-input int               InpDailyPeriod    = 20;              // Daily Lookback Period
+input group "--- Slot 1: Tactical Flow (e.g. Daily / M15) ---"
+input string                    InpSlot1Label           = "Daily";               // Slot 1 Custom Label
+input ENUM_TIMEFRAMES           InpSlot1TF              = PERIOD_M15;            // Slot 1 Timeframe
+input ENUM_VWAP_PERIOD          InpSlot1Reset           = PERIOD_SESSION;        // Slot 1 VWAP Anchor Reset
+input int                       InpSlot1Period          = 20;                    // Slot 1 Volatility Period (Sigma)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-input group "Weekly V-Score Settings (H1)"
-input ENUM_TIMEFRAMES   InpWeeklyTF       = PERIOD_H1;       // Weekly Context Timeframe
-input int               InpWeeklyPeriod   = 20;              // Weekly Lookback Period
+input group "--- Slot 2: Strategic Context (e.g. Weekly / H1) ---"
+input string                    InpSlot2Label           = "Weekly";              // Slot 2 Custom Label
+input ENUM_TIMEFRAMES           InpSlot2TF              = PERIOD_H1;             // Slot 2 Timeframe
+input ENUM_VWAP_PERIOD          InpSlot2Reset           = PERIOD_WEEK;           // Slot 2 VWAP Anchor Reset
+input int                       InpSlot2Period          = 20;                    // Slot 2 Volatility Period (Sigma)
 
-input group "--- Indicator Levels ---"
-input double            InpLevelFlowHigh   = 1.5;         // High Warning Level (Bullish Flow)
-input double            InpLevelFlowLow    = -1.5;        // Low Warning Level (Bearish Flow)
-input double            InpLevelClimaxHigh = 2.0;         // High Climax Level (Bullish Climax)
-input double            InpLevelClimaxLow  = -2.0;        // Low Climax Level (Bearish Climax)
-input double            InpLevelExtremeHigh= 2.5;         // High Extreme Level (Bullish Exhaustion)
-input double            InpLevelExtremeLow = -2.5;        // Low Extreme Level (Bearish Exhaustion)
+input group "--- Calculation & Session Settings ---"
+input ENUM_APPLIED_VOLUME       InpVolumeType           = VOLUME_TICK;           // Volume Type
+input ENUM_CANDLE_SOURCE        InpCandleSource         = CANDLE_STANDARD;       // Candle Source
+input int                       InpTzShift              = 0;                     // Timezone Shift in hours vs Broker Time
+input string                    InpCustomSessionStart   = "09:30";               // Custom Session Start (HH:MM)
+input string                    InpCustomSessionEnd     = "16:00";               // End time (HH:MM) for Custom Session
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-input group "Widget Placement (Pixels)"
-input int                       InpTableX         = 20;              // Widget X Offset (From Left)
-input int                       InpTableY         = 30;              // Widget Y Offset (From Bottom)
-input int                       InpFontSize       = 9;               // UI Font Size
+input group "--- Indicator Levels (Sigma Units) ---"
+input double                    InpLevelFlowHigh        = 1.5;                   // High Warning Level (Bullish Flow)
+input double                    InpLevelFlowLow         = -1.5;                  // Low Warning Level (Bearish Flow)
+input double                    InpLevelClimaxHigh      = 2.0;                   // High Climax Level (Bullish Climax)
+input double                    InpLevelClimaxLow       = -2.0;                  // Low Climax Level (Bearish Climax)
+input double                    InpLevelExtremeHigh     = 2.5;                   // High Extreme Level (Bullish Exhaustion)
+input double                    InpLevelExtremeLow      = -2.5;                  // Low Extreme Level (Bearish Exhaustion)
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+input group "--- Widget Placement (Pixels) ---"
+input int                       InpTableX               = 20;                    // Widget X Offset (From Left)
+input int                       InpTableY               = 30;                    // Widget Y Offset (From Bottom)
+input int                       InpFontSize             = 9;                     // UI Font Size
 
 //--- Global Variables ---
-string          g_prefix          = "";
-bool            g_updating        = false;
-ulong           g_last_update_ms  = 0; // Throttle timestamp
+string g_prefix         = "";
+bool   g_updating       = false;
+ulong  g_last_update_ms = 0;
 
 //+------------------------------------------------------------------+
-//| EnsureDataReady (History sync helper)                            |
+//| Heap-Free V-Score Calculation for Widget Slots                   |
 //+------------------------------------------------------------------+
-bool EnsureDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const int required_bars)
+double GetVScoreValue(const string symbol, const ENUM_TIMEFRAMES tf, const ENUM_VWAP_PERIOD reset, const int period)
   {
-   ResetLastError();
-   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
+// 1. Calculate Required Lookback Dynamically
+   int tf_sec = PeriodSeconds(tf);
+   if(tf_sec < 1)
+      tf_sec = 60;
+
+   int anchor_bars = 100;
+   switch(reset)
      {
-      SymbolSelect(symbol, true);
+      case PERIOD_SESSION:
+         anchor_bars = (int)(86400 / tf_sec) + 20;
+         break;
+      case PERIOD_WEEK:
+         anchor_bars = (int)(7 * 86400 / tf_sec) + 50;
+         break;
+      case PERIOD_MONTH:
+         anchor_bars = (int)(31 * 86400 / tf_sec) + 100;
+         break;
+      case PERIOD_CUSTOM_SESSION:
+         anchor_bars = (int)(86400 / tf_sec) + 20;
+         break;
      }
-   datetime times[];
-   int copied = CopyTime(symbol, timeframe, 0, required_bars, times);
-   return (copied >= required_bars);
-  }
 
-//+------------------------------------------------------------------+
-//| GetVScoreValue                                                   |
-//+------------------------------------------------------------------+
-double GetVScoreValue(string symbol, ENUM_TIMEFRAMES tf, ENUM_VWAP_PERIOD reset, int period)
-  {
-   int required_bars = period + 150;
+   int required_bars = period + anchor_bars;
+   required_bars = MathMin(required_bars, 3000);
 
-   if(!EnsureDataReady(symbol, tf, required_bars))
+// 2. Data Readiness Check
+   if(!CDataSync::EnsureHTFDataReady(symbol, tf, required_bars))
       return EMPTY_VALUE;
 
    int htf_bars = iBars(symbol, tf);
    if(htf_bars < required_bars)
       return EMPTY_VALUE;
 
-   int count = MathMin(htf_bars, 300);
+   int count = MathMin(htf_bars, required_bars);
 
-   double h_open[], h_high[], h_low[], h_close[];
-   long   h_vol[];
+// 3. Fetch Price & Volume Data
+   double   h_open[], h_high[], h_low[], h_close[];
+   long     h_tick_vol[], h_vol[];
    datetime h_time[];
 
-   ArrayResize(h_open, count);
-   ArrayResize(h_high, count);
-   ArrayResize(h_low, count);
-   ArrayResize(h_close, count);
-   ArrayResize(h_vol, count);
-   ArrayResize(h_time, count);
+   ArrayResize(h_open,     count);
+   ArraySetAsSeries(h_open,     false);
+   ArrayResize(h_high,     count);
+   ArraySetAsSeries(h_high,     false);
+   ArrayResize(h_low,      count);
+   ArraySetAsSeries(h_low,      false);
+   ArrayResize(h_close,    count);
+   ArraySetAsSeries(h_close,    false);
+   ArrayResize(h_tick_vol, count);
+   ArraySetAsSeries(h_tick_vol, false);
+   ArrayResize(h_vol,      count);
+   ArraySetAsSeries(h_vol,      false);
+   ArrayResize(h_time,     count);
+   ArraySetAsSeries(h_time,     false);
 
-   if(CopyTime(symbol, tf, 0, count, h_time) != count ||
-      CopyOpen(symbol, tf, 0, count, h_open) != count ||
-      CopyHigh(symbol, tf, 0, count, h_high) != count ||
-      CopyLow(symbol, tf, 0, count, h_low) != count ||
-      CopyClose(symbol, tf, 0, count, h_close) != count ||
-      CopyTickVolume(symbol, tf, 0, count, h_vol) != count)
+   if(CopyTime(symbol,       tf, 0, count, h_time)     != count ||
+      CopyOpen(symbol,       tf, 0, count, h_open)     != count ||
+      CopyHigh(symbol,       tf, 0, count, h_high)     != count ||
+      CopyLow(symbol,        tf, 0, count, h_low)      != count ||
+      CopyClose(symbol,      tf, 0, count, h_close)    != count ||
+      CopyTickVolume(symbol, tf, 0, count, h_tick_vol) != count)
      {
       return EMPTY_VALUE;
      }
 
+   long vol_limit = (long)SymbolInfoDouble(symbol, SYMBOL_VOLUME_LIMIT);
+   if(vol_limit > 0)
+      CopyRealVolume(symbol, tf, 0, count, h_vol);
+   else
+      ArrayCopy(h_vol, h_tick_vol, 0, 0, count);
+
+// 4. Heap-Free Stack Calculator Execution
    CVScoreCalculator calc;
-   if(!calc.Init(period, reset))
+   bool is_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
+   bool init_ok = false;
+
+   if(reset == PERIOD_CUSTOM_SESSION)
+      init_ok = calc.Init(period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, period * 5);
+   else
+      init_ok = calc.Init(period, reset, InpVolumeType, InpTzShift, is_ha, period * 5);
+
+   if(!init_ok)
       return EMPTY_VALUE;
 
    double h_res[];
    ArrayResize(h_res, count);
+   ArraySetAsSeries(h_res, false);
    ArrayInitialize(h_res, 0.0);
 
-   calc.Calculate(count, 0, h_time, h_open, h_high, h_low, h_close, h_vol, h_vol, h_res);
+   calc.Calculate(count, 0, h_time, h_open, h_high, h_low, h_close, h_tick_vol, h_vol, h_res);
 
    return h_res[count - 1];
   }
 
 //+------------------------------------------------------------------+
-//| CreateButton                                                     |
+//| CreateButton (HUD Element)                                       |
 //+------------------------------------------------------------------+
-void CreateButton(string name, string text, int x, int y, int w, int h, color bg_color, color text_color)
+void CreateButton(const string name, const string text, const int x, const int y, const int w, const int h, const color bg_color, const color text_color)
   {
    if(ObjectFind(0, name) < 0)
      {
       ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER); // Fixed Lower-Left Corner
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpFontSize);
-      ObjectSetString(0, name, OBJPROP_FONT, "Trebuchet MS");
+      ObjectSetString(0,  name, OBJPROP_FONT, "Trebuchet MS");
       ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
      }
@@ -134,17 +195,17 @@ void CreateButton(string name, string text, int x, int y, int w, int h, color bg
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
    ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0,  name, OBJPROP_TEXT, text);
    ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg_color);
    ObjectSetInteger(0, name, OBJPROP_COLOR, text_color);
   }
 
 //+------------------------------------------------------------------+
-//| RenderVScoreCell (Dynamic 7-Zone Super-Thermal Coloring)        |
+//| RenderVScoreCell (Dynamic 7-Zone Super-Thermal Palette)          |
 //+------------------------------------------------------------------+
-void RenderVScoreCell(string symbol, double val, string type_label, int x, int y, int w, int h)
+void RenderVScoreCell(const string symbol, const double val, const string slot_tag, const int x, const int y, const int w, const int h)
   {
-   string name = g_prefix + "_" + symbol + "_" + type_label;
+   string name = g_prefix + "_" + symbol + "_" + slot_tag;
    string text = "";
    color  bg_color = clrWhite;
    color  text_color = clrBlack;
@@ -157,12 +218,12 @@ void RenderVScoreCell(string symbol, double val, string type_label, int x, int y
      }
    else
      {
-      text = DoubleToString(val, 3);
+      text = DoubleToString(val, 2) + " σ";
 
-      //--- Symmetrical 7-Zone Super-Thermal Color Palette
+      // Symmetrical 7-Zone Super-Thermal Matrix
       if(val >= InpLevelExtremeHigh)
         {
-         bg_color = clrMidnightBlue; // Bull Extreme (Deep Midnight Blue) -> EXTREME DANGER
+         bg_color = clrMidnightBlue; // Bull Extreme (Deep Midnight Blue)
          text_color = clrWhite;
         }
       else
@@ -180,7 +241,7 @@ void RenderVScoreCell(string symbol, double val, string type_label, int x, int y
             else
                if(val <= InpLevelExtremeLow)
                  {
-                  bg_color = clrDarkRed;      // Bear Extreme (Dark Crimson Red) -> EXTREME DANGER
+                  bg_color = clrDarkRed;      // Bear Extreme (Dark Crimson Red)
                   text_color = clrWhite;
                  }
                else
@@ -197,15 +258,16 @@ void RenderVScoreCell(string symbol, double val, string type_label, int x, int y
                        }
                      else
                        {
-                        bg_color = clrWhite;        // Neutral
+                        bg_color = clrWhite;        // Neutral Range
                         text_color = clrDarkGray;
                        }
      }
+
    CreateButton(name, text, x, y, w, h, bg_color, text_color);
   }
 
 //+------------------------------------------------------------------+
-//| RenderDashboard                                                  |
+//| RenderDashboard (Dual-Slot HUD Layout Engine)                    |
 //+------------------------------------------------------------------+
 void RenderDashboard()
   {
@@ -214,50 +276,49 @@ void RenderDashboard()
 
    g_updating = true;
 
-   int col_w_sym   = 100;
-   int col_w_vs    = 100; // Expanded to fit full header labels cleanly
-   int row_h       = 22;
+   int col_w_sym = 90;
+   int col_w_vs  = 95;
+   int row_h     = 22;
 
-   string sym = _Symbol; // Automatically lock to the current chart symbol
+   string sym = _Symbol;
 
-//--- 1. Render Table Header (Placed above the data row)
-   int header_y = InpTableY + row_h + 2; // Y coordinates grow UPWARDS from bottom-left corner
+// 1. Render Table Header (Placed above baseline Y)
+   int header_y = InpTableY + row_h + 2; // Y coordinates grow UPWARDS
 
-   string daily_tf_name = StringSubstr(EnumToString(InpDailyTF), 7);
-   string weekly_tf_name = StringSubstr(EnumToString(InpWeeklyTF), 7);
+   string s1_tf = StringSubstr(EnumToString(InpSlot1TF), 7);
+   string s2_tf = StringSubstr(EnumToString(InpSlot2TF), 7);
+
+   string s1_header = InpSlot1Label + " (" + s1_tf + ")";
+   string s2_header = InpSlot2Label + " (" + s2_tf + ")";
 
    CreateButton(g_prefix + "H_Sym", "Symbol", InpTableX, header_y, col_w_sym, row_h, clrDarkSlateGray, clrWhite);
-   CreateButton(g_prefix + "H_VSD", "Daily (" + daily_tf_name + ")", InpTableX + col_w_sym + 2, header_y, col_w_vs, row_h, clrDarkSlateGray, clrWhite);
-   CreateButton(g_prefix + "H_VSW", "Weekly (" + weekly_tf_name + ")", InpTableX + col_w_sym + col_w_vs + 4, header_y, col_w_vs, row_h, clrDarkSlateGray, clrWhite);
+   CreateButton(g_prefix + "H_S1",  s1_header, InpTableX + col_w_sym + 2, header_y, col_w_vs, row_h, clrDarkSlateGray, clrWhite);
+   CreateButton(g_prefix + "H_S2",  s2_header, InpTableX + col_w_sym + col_w_vs + 4, header_y, col_w_vs, row_h, clrDarkSlateGray, clrWhite);
 
-//--- 2. Calculate and Render Current Row (Placed at baseline Y)
+// 2. Render Data Row (Placed at baseline Y)
    int row_y = InpTableY;
-
-// Symbol display (Flat/unclickable label for the active chart symbol)
    CreateButton(g_prefix + "_SymLbl_" + sym, sym, InpTableX, row_y, col_w_sym, row_h, clrLightGray, clrBlack);
 
-// Calculate Daily V-Score (Session Reset) on M15 Timeframe
-   double vs_day = GetVScoreValue(sym, InpDailyTF, PERIOD_SESSION, InpDailyPeriod);
+// Compute Slot 1 and Slot 2 Values
+   double vs_slot1 = GetVScoreValue(sym, InpSlot1TF, InpSlot1Reset, InpSlot1Period);
+   double vs_slot2 = GetVScoreValue(sym, InpSlot2TF, InpSlot2Reset, InpSlot2Period);
 
-// Calculate Weekly V-Score (Weekly Reset) on H1 Timeframe
-   double vs_week = GetVScoreValue(sym, InpWeeklyTF, PERIOD_WEEK, InpWeeklyPeriod);
+// Render Dual Cells side-by-side
+   RenderVScoreCell(sym, vs_slot1, "Slot1", InpTableX + col_w_sym + 2, row_y, col_w_vs, row_h);
+   RenderVScoreCell(sym, vs_slot2, "Slot2", InpTableX + col_w_sym + col_w_vs + 4, row_y, col_w_vs, row_h);
 
-// Render both cells side-by-side with collision-free naming
-   RenderVScoreCell(sym, vs_day, "VSDay", InpTableX + col_w_sym + 2, row_y, col_w_vs, row_h);
-   RenderVScoreCell(sym, vs_week, "VSWeek", InpTableX + col_w_sym + col_w_vs + 4, row_y, col_w_vs, row_h);
-
-   ChartRedraw();
+   ChartRedraw(0);
    g_updating = false;
   }
 
 //+------------------------------------------------------------------+
-//| OnInit                                                           |
+//| Custom Indicator Initialization                                  |
 //+------------------------------------------------------------------+
 int OnInit()
   {
    g_updating = false;
    g_last_update_ms = 0;
-   g_prefix = StringFormat("VSDW_%I64d_", ChartID()); // Unified VScore-Dual dynamic prefix
+   g_prefix = StringFormat("VSDW_%I64d_", ChartID());
 
    ObjectsDeleteAll(0, g_prefix);
 
@@ -268,17 +329,17 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| OnDeinit                                                         |
+//| Custom Indicator Deinitialization                                |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    EventKillTimer();
    ObjectsDeleteAll(0, g_prefix);
-   Comment("");
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
-//| OnCalculate                                                      |
+//| Custom Indicator Calculation Loop                                |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -291,18 +352,18 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Real-time high frequency tick throttling (Max 5 updates per second / 200ms)
+// Tick throttling: Maximum 5 UI updates per second (200ms)
    ulong current_ms = GetTickCount64();
    if(current_ms - g_last_update_ms >= 200)
      {
       g_last_update_ms = current_ms;
       RenderDashboard();
      }
-   return(rates_total);
+   return rates_total;
   }
 
 //+------------------------------------------------------------------+
-//| OnTimer                                                          |
+//| OnTimer Event Handler                                            |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
