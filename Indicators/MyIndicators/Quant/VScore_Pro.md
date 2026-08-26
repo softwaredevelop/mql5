@@ -1,150 +1,190 @@
-# V-Score Pro Suite (Standard & MTF)
+# Volume-Weighted Z-Score (V-Score) Pro (v3.00)
+
+Quantitative Volume-Weighted Dispersion & Institutional Fair-Value Oscillator
+
+---
 
 ## 1. Summary (Introduction)
 
-The **V-Score Pro Suite** is an institutional-grade, high-performance statistical arbitrage suite comprising two advanced indicators: `VScore_Pro` (Standard) and `VScore_MTF_Pro` (Multi-Timeframe).
+**V-Score Pro** is an institutional-grade statistical momentum oscillator that measures price deviation from the **Volume-Weighted Average Price (VWAP)** normalized in standardized units of standard deviation ($\sigma$).
 
-While standard statistical oscillators (such as the traditional Z-Score) measure price deviations from a simple, time-based simple moving average (SMA), the V-Score measures the statistical deviation from the **Volume-Weighted Average Price (VWAP)**.
+While standard Z-Score indicators measure distance from unweighted, lagging moving averages (such as SMA or EMA), **V-Score evaluates price against the market's true volume-weighted institutional fair value**. This allows systematic traders to quantify exactly how extreme a price move is relative to where actual transaction volume was committed.
 
-$$\text{VWAP} = \frac{\sum (\text{Typical Price} \times \text{Volume})}{\sum \text{Volume}}$$
+```text
 
-VWAP represents the "True Value"—the average price weighted by actual capital flow. Therefore, the V-Score precisely identifies whether the current price is "Expensive" or "Cheap" relative to where the major institutional money has actually been transacted, utilizing a **5-Zone Thermal Color Histogram** for zero-latency visual processing.
+┌────────────────────────────────────────────────────────────────────────┐
+│                        V-SCORE DISPERSION MODEL                        │
+├────────────────────────────────────────────────────────────────────────┤
+│  V-Score(t) = [ Close(t) - VWAP(t) ] / StandardDeviation(Price - VWAP) │
+│  Expressed in standardized Sigma Multiples (σ)                         │
+└────────────────────────────────────────────────────────────────────────┘
 
----
-
-## 2. Methodology & Logic
-
-The indicator calculates how many Standard Deviations ($\sigma$) the price has stretched away from the volume-weighted baseline.
-
-### The Formula
-
-$$\text{V-Score}_t = \frac{P_t - \text{VWAP}_t}{\sigma_{\text{spread}, t}}$$
-
-* **Numerator:** The absolute distance between the current price and the dynamic VWAP.
-* **Denominator:** The standard deviation of this distance over the volatility lookback window $N$ (`InpPeriod`).
-
-### The Institutional Z-Score Levels
-
-The indicator oscillates around **0.0** (Fair Value). Understanding the specific deviation levels is critical for interpreting market phases:
-
-* **0.0 to $\pm$1.0 (The Noise Zone):**
-  * *Meaning:* Algorithmic chop. No clear institutional directional flow.
-  * *Visual:* Histogram is **Gray** (Neutral Noise).
-* **$\pm$1.5 (The Point of No Return):**
-  * *Meaning:* The breakout threshold. Statistically, if the price breaches and holds the 1.5 level, the momentum is strong enough that it will likely reach the 2.0 extreme.
-  * *Visual:* Marked by a dashed horizontal line. Histogram shifts to **Coral** (Bull Flow) or **LightSkyBlue** (Bear Flow).
-* **$\pm$1.5 to $\pm$2.0 (The Flow / Momentum Zone):**
-  * *Meaning:* Active institutional accumulation or distribution. This is the optimal zone to be in a trend-following position.
-* **$\pm$2.0 to $\pm$2.5 (The Extreme Zone):**
-  * *Meaning:* **WARNING.** The trend is statistically overextended. The elastic band is stretched tight.
-  * *Action:* Do not open new trend-following positions here.
-  * *Visual:* Histogram shifts to **OrangeRed** (Bull Extreme) or **DeepSkyBlue** (Bear Extreme). Marked by solid lines.
-* **$\pm$2.5 to $\pm$3.0+ (The Statistical Wall):**
-  * *Meaning:* **STOP.** 99% probability of mean reversion or momentum exhaustion.
-  * *Action:* Mandatory profit-taking zone. The market is at a climax. Marked by the outermost solid lines.
-
----
-
-## 3. Advanced MQL5 MTF Implementation (The Warping Solution)
-
-### A. The Live-Bar Warping Problem
-
-In standard MTF implementations, updating the indicator separate-window tick-by-tick results in a highly distorted "jagged" or "fűrészfog" shape on the current forming HTF bar. Because standard `OnCalculate` only updates the very last lower timeframe (LTF) index (`rates_total - 1`), the previous LTF bars belonging to the active forming HTF block retain stale historic tick states.
-
-### B. The Forming LTF Block Flat-Force Solution
-
-`VScore_MTF_Pro` resolves this issue by implementing the **Forming LTF Block Flat-Force** step-alignment algorithm. On every tick, the indicator locates the exact boundary of the active forming HTF block and dynamically forces the calculation's starting index back to the beginning of that block:
-
-```mql5
-int first_bar_of_forming_htf = rates_total - 1;
-while(first_bar_of_forming_htf > 0 &&
-      iBarShift(_Symbol, InpTimeframe, time[first_bar_of_forming_htf], false) == 0)
-  {
-   first_bar_of_forming_htf--;
-  }
-first_bar_of_forming_htf++; // Start index of the forming HTF step block on lower TF chart
-
-if(start > first_bar_of_forming_htf)
-   start = first_bar_of_forming_htf;
 ```
 
-By forcing a full-block rewrite on every live tick, the active HTF step (the entire colored V-Score histogram) remains perfectly flat and responsive in real-time, matching institutional charting standards.
+### The Three Z-Score Indicator Paradigms
 
-### C. Dynamic Volume-Type Auto-Routing Pipeline
+* **Z-Score Pro:** Measures Gaussian dispersion from a static Moving Average (Price/Time axis).
+* **K-Score Pro:** Measures kinetic elasticity from Kaufman's Adaptive Moving Average (Efficiency/Regime axis).
+* **V-Score Pro:** Measures statistical overextension from the Volume-Weighted Average Price (Volume/Liquidity axis).
 
-To ensure complete robustness across all asset classes, the underlying `CVScoreCalculator` dynamically queries the broker's real volume limit (`SYMBOL_VOLUME_LIMIT`) on the chart symbol inside its `Init()` function.
+### Key Capabilities
 
-* If real volume is available (e.g. Stocks, Futures, Crypto), the engine automatically initializes the VWAP calculator to use **`VOLUME_REAL`** and pull HTF real volumes (`CopyRealVolume`).
-* If only tick volume is available (e.g. Forex, CFD), the engine automatically falls back to **`VOLUME_TICK`** and pull HTF tick volumes (`CopyTickVolume`).
-This makes the V-Score suite completely robust, universal, and fully automated across all financial instruments.
-
-### D. Asynchronous Timer Guard & HTF Calculations
-
-* **Background Timer:** High-frequency MTF data requests often suffer from terminal loading gaps. A 1-second `OnTimer` background daemon repeatedly verifies data readiness (`EnsureHTFDataReady`) and instantly triggers a chart redraw (`ChartRedraw()`) as soon as history is ready.
-* **HTF Calculations:** On every live tick, the latest HTF price/volume elements are copied, and the VWAP and Z-Score calculators are executed incrementally, optimizing CPU cycles.
+* **True Volume-Weighted Mean:** Evaluates price distance from Session, Weekly, Monthly, or Custom Session VWAPs.
+* **Swapped Thermal 5-Zone Color Palette:** Distinguishes between neutral consolidation noise, healthy institutional flow, and unsustainable statistical exhaustion climax.
+* **Integrated Signal Smoothing Engine:** Supports 8 moving average algorithms (including Volume-Weighted VWMA) directly over the V-Score histogram.
+* **Unified 2026 MTF Architecture:** Enables higher-timeframe V-Score histograms (e.g., M15 or H1 V-Score) to map seamlessly onto lower-timeframe execution charts (M1, M5) with flat, non-warping steps via `DataSync_Tools.mqh`.
 
 ---
 
-## 4. Solving Cumulative State Corruption in MTF VWAP
+## 2. Mathematical Foundations & Volume-Weighted Dispersion
 
-A critical, highly subtle mathematical hazard exists when calculating stateful cumulative indicators (such as VWAP) in a mocked MTF environment on live ticks.
+```text
 
-### A. The "Double-Accumulation" Bug
+                           +2.5σ (Extreme Exhaustion / Climax)
+          ───────────────────────────────────────────────────────────── DeepSkyBlue (Bull Climax)
+                           +1.5σ (Bullish Flow Threshold)
+          - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - LightSkyBlue (Bull Flow)
+                            0.0σ (VWAP Institutional Fair Value)
+          ───────────────────────────────────────────────────────────── Gray (Noise / Fair Value)
+                           -1.5σ (Bearish Flow Threshold)
+          - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Coral (Bear Flow)
+                           -2.5σ (Extreme Exhaustion / Climax)
+          ───────────────────────────────────────────────────────────── OrangeRed (Bear Climax)
 
-If we call the calculator's `Calculate` method on every tick by passing `rates_total = g_htf_count` and `prev_calculated = rates_total - 1` (i.e. `live_idx`), the internal `CVWAPCalculator` begins its loop at index `start_index = prev_calculated - 1` (which is `rates_total - 2`, the last closed bar).
-Since the loop processes `i = rates_total - 2` (which is `< rates_total - 1`), the internal state updates the persistent volume and typical price registers (`m_cumulative_vol` and `m_cumulative_tpv`).
-Because this closed bar's state was *already* calculated and saved during the previous bar close, running this loop again on a live tick **double-accumulates** the closed bar's volume. On subsequent ticks, it continues to accumulate it infinitely. This drives the cumulative volume to astronomical levels, compressing the standard deviation to zero and pulling the live Z-Score to corrupted, near-zero or extreme values (as shown below).
-
-```mql5
-// CORRUPTED LIVE MOCK CALL:
-g_calc.Calculate(g_htf_count, live_idx, ...); // live_idx = g_htf_count - 1
 ```
 
-### B. The Resolution: MT5-Aligned State Mocking
+### 2.1. Volume-Weighted Mean ($\mu_{\text{VWAP}, t}$)
 
-`VScore_MTF_Pro` completely eliminates this bug by mocking the live update call exactly how the MT5 terminal's native engine handles `prev_calculated` on live ticks. We pass `prev_calculated = g_htf_count` (which equals `rates_total`):
+$$\mu_{\text{VWAP}, t} = \frac{\sum_{k=\text{anchor}}^{t} \text{TP}_k \cdot V_k}{\sum_{k=\text{anchor}}^{t} V_k}$$
+*where $\text{TP}_k = \frac{H_k + L_k + C_k}{3}$ (Typical Price) and $V_k$ is the applied volume.*
 
-```mql5
-// FIXED LIVE MOCK CALL:
-g_calc.Calculate(g_htf_count, g_htf_count, ...);
+### 2.2. Rolling Standard Deviation Around VWAP ($\sigma_t$)
+
+Given a volatility lookback period $P = \text{InpPeriod}$:
+$$\text{Diff}_k = C_k - \mu_{\text{VWAP}, k}$$
+$$\sigma_t = \sqrt{\frac{1}{P} \sum_{k=0}^{P - 1} \left( \text{Diff}_{t-k} \right)^2}$$
+
+### 2.3. Normalized V-Score Formulation
+
+$$V\text{Score}_t = \begin{cases} \frac{C_t - \mu_{\text{VWAP}, t}}{\sigma_t}, & \text{if } \sigma_t > 10^{-9} \\ 0.0, & \text{otherwise} \end{cases}$$
+
+---
+
+### 2.4. Swapped Thermal 5-Zone Color Palette
+
+| State Index | Color | Classification | Sigma Level Trigger | Institutional Market Action |
+| :---: | :---: | :--- | :--- | :--- |
+| **0.0** | `clrGray` | **Noise / Neutral** | $\|V\text{Score}\| \le 1.5\sigma$ | Price oscillating within fair-value equilibrium. |
+| **1.0** | `clrLightSkyBlue` | **Bullish Flow** | $+1.5\sigma < V\text{Score} \le +2.0\sigma$ | Institutional buying pressure actively expanding. |
+| **2.0** | `clrDeepSkyBlue` | **Bullish Climax** | $V\text{Score} > +2.0\sigma$ | Statistical overbought climax; liquidity exhaustion warning. |
+| **3.0** | `clrCoral` | **Bearish Flow** | $-2.0\sigma \le V\text{Score} < -1.5\sigma$ | Institutional selling pressure actively expanding. |
+| **4.0** | `clrOrangeRed` | **Bearish Climax** | $V\text{Score} < -2.0\sigma$ | Panic capitulation floor; short-covering bounce potential. |
+
+---
+
+## 3. MQL5 Architecture & Engineering Standards
+
+```text
+
+┌────────────────────────────────────────────────────────┐
+│                  VScore_Calculator.mqh                 │
+│   (Core Math Engine - Overloaded & Bounds-Protected)   │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Outputs V-Score Values in O(1)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                     VScore_Pro.mq5                     │
+│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
+├──────────────────────────┬─────────────────────────────┤
+│   Buffer Layer (3)       │   Centralized Framework     │
+│   • ExtVScoreBuffer      │   • DataSync_Tools.mqh      │
+│   • ExtColorsBuffer      │   • MovingAverage_Engine    │
+│   • ExtSignalBuffer      │   • Dynamic Sigma Levels    │
+└──────────────────────────┴─────────────────────────────┘
+
 ```
 
-By passing `prev_calculated` as `g_htf_count`, the internal loop starts exactly at `start_index = g_htf_count - 1` (the live forming bar). The loop runs exactly once for the live bar, and since `i` is equal to `rates_total - 1`, the persistent registers (`m_cumulative_tpv`, `m_cumulative_vol`, etc.) are **never modified or double-accumulated**. This guarantees absolute mathematical stability and perfect alignment on every tick.
+1. **Overloaded Engine Architecture:** `CVScoreCalculator` supports legacy initialization signatures alongside enhanced Custom Session, Timezone Shift, and Heikin Ashi configurations.
+2. **Bounds-Safe Auto-Resizing:** Prevents runtime array-out-of-range errors during real-time tick recalculations and MTF array copying.
+3. **2026 MTF Framework (`DataSync_Tools.mqh`):** Higher-timeframe V-Score histograms map into synchronized steps on lower-timeframe execution charts with zero step-warping.
 
 ---
 
-## 5. Parameters
+## 4. Parameters Reference
 
-### A. Common Parameters
+### Timeframe Settings
 
-* **Lookback Window (`InpPeriod`):** The rolling window size ($N$) for the standard deviation and volatility calculations (Default: `20` bars).
-* **VWAP Reset Anchor (`InpVWAPReset`):** The reset anchor period for the underlying VWAP calculation:
-  * `PERIOD_SESSION` (Default): Resets daily. Used for Intraday trading.
-  * `PERIOD_WEEK`: Resets weekly. Used for Swing trading.
-  * `PERIOD_MONTH`: Resets monthly. Used for Position trading.
+* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it runs in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_M15`, `PERIOD_H1`), it activates the synchronized MTF engine.
 
-### B. MTF Specific Parameters
+### V-Score Settings
 
-* **Target Timeframe (`InpTimeframe`):** The target higher timeframe to calculate VWAP deviations on (Default: `PERIOD_H1`).
+* `InpPeriod` (*default: `20`*): Lookback period ($P$) for computing standard deviation variance around VWAP.
+* `InpVWAPReset` (*default: `PERIOD_SESSION`*): VWAP anchor mode (`PERIOD_SESSION`, `PERIOD_WEEK`, `PERIOD_MONTH`, `PERIOD_CUSTOM_SESSION`).
+* `InpTzShift` (*default: `0`*): Timezone offset in hours to align resets with broker server time.
+* `InpCustomSessionStart` (*default: `"09:30"`*): Session start time (`HH:MM`) when using `PERIOD_CUSTOM_SESSION`.
+* `InpCustomSessionEnd` (*default: `"16:00"`*): Session end time (`HH:MM`) when using `PERIOD_CUSTOM_SESSION`.
+
+### Calculation Settings
+
+* `InpVolumeType` (*default: `VOLUME_TICK`*): Volume data source (`VOLUME_TICK` or `VOLUME_REAL`).
+* `InpCandleSource` (*default: `CANDLE_STANDARD`*): Price series source (`CANDLE_STANDARD` or `CANDLE_HEIKIN_ASHI`).
+
+### Signal Line Settings
+
+* `InpShowSignal` (*default: `true`*): Toggle visibility of the Signal Moving Average line.
+* `InpSignalPeriod` (*default: `5`*): Lookback period for the signal line.
+* `InpSignalType` (*default: `EMA`*): Smoothing algorithm (`SMA`, `EMA`, `SMMA`, `LWMA`, `TMA`, `DEMA`, `TEMA`, `VWMA`).
+* `InpColorSignal` (*default: `clrFireBrick`*): Color applied to the signal line plot.
+
+### Indicator Levels (Sigma Units)
+
+* `InpLevelFlowHigh` (*default: `1.5`*): Bullish Flow warning boundary.
+* `InpLevelFlowLow` (*default: `-1.5`*): Bearish Flow warning boundary.
+* `InpLevelClimaxHigh` (*default: `2.0`*): Bullish Climax threshold (`DeepSkyBlue`).
+* `InpLevelClimaxLow` (*default: `-2.0`*): Bearish Climax threshold (`OrangeRed`).
+* `InpLevelExtremeHigh` (*default: `2.5`*): Extreme statistical overextension level.
+* `InpLevelExtremeLow` (*default: `-2.5`*): Extreme statistical capitulation level.
+* `InpLevelColor` (*default: `clrSilver`*): Color of horizontal level lines.
+* `InpLevelStyle` (*default: `STYLE_DOT`*): Line style of horizontal level lines.
 
 ---
 
-## 6. Strategic Quantitative Usage
+## 5. Quantitative Trading Playbooks
 
-### A. The "Point of No Return" Breakout
+```text
 
-Wait for the V-Score to cross above **+1.5** (Coral) or below **-1.5** (LightSkyBlue) with strong price action. This confirms that the move out of the "Noise" zone is legitimate and has institutional backing.
+┌────────────────────────────────────────────────────────────────────────┐
+│                    V-SCORE INSTITUTIONAL PLAYBOOKS                     │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Institutional Climax Fade: Fade rejections when V-Score > +2.0σ     │
+│                               and crosses below the Signal MA line.    │
+│ 2. Volume Flow Continuation:  Enter in direction of trend when V-Score │
+│                               holds between +1.5σ and +2.0σ.           │
+│ 3. Mean Reversion to VWAP:    Targets are strictly anchored to the     │
+│                               0.0σ baseline (VWAP Equilibrium).        │
+└────────────────────────────────────────────────────────────────────────┘
 
-### B. Mandatory Profit Taking (The Wall)
+```
 
-If you are in a Long position and the V-Score touches or exceeds **+2.5**, instantly scale out or close the position. Do not be greedy; statistical exhaustion is guaranteed.
+### 5.1. Institutional Climax Mean Reversion ($\pm 2.0\sigma \dots \pm 2.5\sigma$)
 
-### C. Absorption / Divergence (BULL_ABS / BEAR_ABS)
+* **Context:** A rapid price expansion pushes V-Score beyond $+2.0\sigma$ (`DeepSkyBlue`) or $+2.5\sigma$. This signifies that price is trading at a statistically unsustainable premium relative to committed volume.
+* **Trigger:** When the V-Score histogram bar prints lower than the previous bar and crosses **below** the Signal MA line $\rightarrow$ Enter Short targeting the VWAP centerline ($0.0\sigma$).
+* **Bullish Reversal:** When V-Score drops below $-2.0\sigma$ (`OrangeRed`) and crosses **above** the Signal MA line $\rightarrow$ Enter Long targeting VWAP ($0.0\sigma$).
 
-If the price makes a *New High*, but the V-Score fails to reach the Extreme Zone ($> 2.0$) and stays lower than it was at the previous price high, this is **Bull Absorption** (exhaustion of buyers). A sharp mean-reversion drop to the VWAP (0.0) is imminent.
+### 5.2. Multi-Timeframe Volume Expansion Alignment
 
-### D. Top-Down VWAP Deviation (MTF Core Strategy)
+* Attach an **M15-calculated V-Score** onto an **M5 execution chart**.
+* When M15 V-Score holds above $+1.5\sigma$ (`LightSkyBlue`), higher-timeframe institutional volume is actively supporting the markup phase $\rightarrow$ Focus exclusively on intraday long pullback entries on M5.
 
-1. **Macro Volatility Deviation (H1/H4):** Apply `VScore_MTF_Pro` set to H1 or H4 on an M5 execution chart.
-2. **The Setup:** Wait for the macro **H1 V-Score** to enter the **Bear Extreme Zone (DeepSkyBlue $\le -2.5$)**, indicating that the macro price is extremely cheap relative to institutional fair value.
-3. **Execution:** On the lower M5 chart, only look for buy setups. Ignore all sell signals. Once the local M5 V-Score crosses back above its own **-1.5** level (or crosses its signal line), execute **BUY** orders, riding the wave of macro mean-reversion back to the macro VWAP.
+---
+
+## 6. Indicator Buffer Map (For Developers & EA Integration)
+
+| Buffer Index | Name | Type | Description |
+| :---: | :---: | :---: | :--- |
+| **0** | `ExtVScoreBuffer` | `INDICATOR_DATA` | Standardized V-Score Values in Sigma Multiples ($\sigma$) |
+| **1** | `ExtColorsBuffer` | `INDICATOR_COLOR_INDEX` | Swapped Thermal 5-Zone Palette Index ($0.0 \dots 4.0$) |
+| **2** | `ExtSignalBuffer` | `INDICATOR_DATA` | Smoothed Signal Moving Average Plot |
+
+*All buffers strictly maintain non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
