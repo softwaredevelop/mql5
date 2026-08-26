@@ -1,128 +1,203 @@
-# Volatility Deviation HUD Cockpit Widget Suite (V1.20)
+# Volume-Weighted Z-Score (V-Score) Chart HUD Widgets Pro Suite
 
-## Technical Specification & Operational Manual
+*Quantitative Single-Asset & Dual-Horizon Volatility Dispersion Telemetry Suite*
+*(Covering: VScore_Widget_Pro & VScore_Dual_Widget_Pro - Version 2.00)*
+
+---
 
 ## 1. Summary (Introduction)
 
-The **Volatility Deviation HUD Cockpit Widget Suite (V1.20)** is an institutional-grade, real-time transaction-friction, regime-tracking, and volatility-adjusted market profiling suite. Operating directly on the price chart (`#property indicator_chart_window`), the suite comprises two specialized, highly optimized heads-up display (HUD) widgets:
+The **V-Score HUD Widget Suite** comprises two institutional Heads-Up Display (HUD) telemetry tools designed to deliver real-time statistical volume dispersion intelligence directly on the primary chart:
 
-1. **`VScore_Widget_Pro` (Single-Timeframe):** An ultra-compact, high-density cell overlay displaying the dynamic Z-Score relative to the Volume Weighted Average Price (VWAP) for a single user-defined timeframe.
-2. **`VScore_Dual_Widget_Pro` (Dual-Timeframe):** A comprehensive multi-timeframe dashboard displaying Daily (Session-Reset) V-Score and Weekly (Week-Reset) V-Score side-by-side to track trend-and-pullback alignments.
+1. **`VScore_Widget_Pro` (Single-Slot HUD):** A compact 2-cell table monitoring a single user-defined higher-timeframe V-Score.
+2. **`VScore_Dual_Widget_Pro` (Dual-Slot HUD):** A 3-cell dual-horizon table monitoring both **Tactical Intraday Flow** (e.g., Daily Session on M15) and **Strategic Macro Context** (e.g., Weekly Session on H1) side-by-side.
 
-Rather than cluttering the subwindow space, these widgets are anchored to the bottom-left corner of the price chart, operating as a **Heads-Up Display (HUD) Cockpit Warning System**.
-
-The suite leverages an advanced **7-zone Symmetrical Thermal Color Palette** mapped to all three of the main indicator’s level-pairs (Flow, Climax, and Extreme warnings). When an asset reaches an absolute statistical limits ($\ge \pm2.5$ Sigma), the single-cell background deepens to Midnight Blue or Dark Red, immediately alerting the trader without causing visual fatigue.
-
----
-
-## 2. Mathematical & Statistical Foundations
-
-The indicators calculate price deviation relative to the Volume Weighted Average Price (VWAP) in units of volume-weighted standard deviation (Sigma):
-
-### A. Volume Weighted Average Price (VWAP)
-
-The baseline average price is calculated cumulatively, weighted by tick or real exchange volume, resetting at the start of each Daily Session ($S_D$) or Weekly Session ($S_W$):
-
-$$\text{VWAP}_t = \frac{\sum_{i=S}^{t} (P_i \times V_i)}{\sum_{i=S}^{t} V_i}$$
-
-### B. V-Score Volatility Deviation (Z-Score)
-
-The price distance is divided by the volume-weighted standard deviation ($\sigma_{\text{VWAP}}$) calculated over the user-defined lookback window $N$ (`InpVScorePeriod`):
-
-$$\text{Variance}_t = \frac{1}{N} \sum_{k=0}^{N-1} (P_{t-k} - \text{VWAP}_{t-k})^2 \implies \sigma_{\text{VWAP}, t} = \sqrt{\text{Variance}_t}$$
-
-$$\text{V-Score}_t = \frac{P_t - \text{VWAP}_t}{\sigma_{\text{VWAP}, t}}$$
-
-* **`VScore_Widget_Pro`:** Evaluates `V-Score` on a single target timeframe (`InpTimeframe`).
-* **`VScore_Dual_Widget_Pro`:** Evaluates both `vs_day` (M15, Daily Session reset) and `vs_week` (H1, Weekly Session reset) side-by-side.
-
----
-
-## 3. The Symmetrical 7-Zone Super-Thermal Color Palette
-
-To represent market velocity and extreme over-extensions cleanly on a single text cell, the background and text colors of the widget buttons are dynamically updated using three adjustable input level-pairs:
+Both widgets anchor directly to the lower-left corner (`CORNER_LEFT_LOWER`) of the primary price chart, eliminating the requirement to sacrifice chart window height for auxiliary oscillator subwindows.
 
 ```text
 
-[ Extreme Low ] < [ Climax Low ] < [ Flow Low ] < [ Neutral ] < [ Flow High ] < [ Climax High ] < [ Extreme High ]
-    ( -2.5 )          ( -2.0 )         ( -1.5 )        ( 0.0 )        ( +1.5 )          ( +2.0 )           ( +2.5 )
+┌────────────────────────────────────────────────────────────────────────┐
+│                   DUAL-SLOT HUD TELEMETRY INTERFACE                    │
+├───────────────┬────────────────────────┬───────────────────────────────┤
+│ [Header Row]  │ Symbol                 │ Daily (M15)  │ Weekly (H1)    │
+│ [Data Row]    │ EURUSD                 │ -1.91 σ [CO] │ -2.34 σ [OR]   │
+└───────────────┴────────────────────────┴───────────────────────────────┘
+  *CO = Coral (Bear Flow) | OR = OrangeRed (Bear Climax)
 
 ```
 
-The background colors are mapped as follows:
+### Core Value Proposition
 
-| Zone Index | V-Score Range | Cell Background Color | Text Color | Quantitative Meaning |
-| :---: | :--- | :--- | :--- | :--- |
-| **`+3`** | $v \ge \text{InpLevelExtremeHigh}$ | **`clrMidnightBlue`** | `clrWhite` | **Extreme Bullish Exhaustion.** Absolute overbought ceiling. |
-| **`+2`** | $\text{InpLevelClimaxHigh} \le v < \text{InpLevelExtremeHigh}$ | **`clrDeepSkyBlue`** | `clrWhite` | **Bullish Climax.** High-velocity upward expansion. |
-| **`+1`** | $\text{InpLevelFlowHigh} \le v < \text{InpLevelClimaxHigh}$ | **`clrLightSkyBlue`** | `clrBlack` | **Bullish Flow.** Stable, healthy uptrend. |
-| **`0`** | $\text{InpLevelFlowLow} < v < \text{InpLevelFlowHigh}$ | **`clrWhite`** | `clrDarkGray` | **Neutral / Value.** Trading close to the VWAP. |
-| **`-1`** | $\text{InpLevelFlowLow} \ge v > \text{InpLevelClimaxLow}$ | **`clrCoral`** | `clrBlack` | **Bearish Flow.** Stable, healthy downtrend. |
-| **`-2`** | $\text{InpLevelClimaxLow} \ge v > \text{InpLevelExtremeLow}$ | **`clrOrangeRed`** | `clrWhite` | **Bearish Climax.** High-velocity downward expansion. |
-| **`-3`** | $v \le \text{InpLevelExtremeLow}$ | **`clrDarkRed`** | `clrWhite` | **Extreme Bearish Exhaustion.** Absolute oversold floor. |
+* **Zero Subwindow Clutter:** Delivers instant, multi-timeframe volume-weighted statistical awareness while leaving the chart window 100% dedicated to price action and structure.
+* **Instant Multi-Horizon Confluence:** Exposes whether an intraday price move is a healthy trend continuation or an over-extended statistical climax relative to larger institutional horizons.
+* **7-Zone Super-Thermal Telemetry:** Provides immediate visual recognition across 7 thermodynamic states ranging from neutral equilibrium to extreme 3-sigma exhaustion.
+* **Heap-Free Stack Execution:** Operates with zero dynamic memory allocation (`new`/`delete`) inside update loops, guaranteeing zero thread bloat and memory stability.
 
 ---
 
-## 4. Suite Configuration & Preset Matrix
+## 2. The Dual-Horizon Confluence Model
 
-Both indicators share identical input level configurations to maintain perfect fázis-helyes synchronization across your charts:
+In systematic trading, evaluating a single timeframe often creates a false-exhaustion paradox. An intraday move on M15 may appear over-extended at $-2.0\sigma$, yet on the H1 Weekly timeframe, the market may just be initiating a major structural trend breakout. The Dual Widget resolves this by contrasting both horizons simultaneously:
 
-| Indicator Variant | Target Timeframe | Reset Period | Lookback Period ($N$) | Warning Levels ($\text{Flow}, \text{Climax}, \text{Extreme}$) | Quantitative Objective |
-| :--- | :--- | :--- | :---: | :---: | :--- |
-| **`VScore_Widget_Pro`** | `InpTimeframe` | `InpVWAPReset` | `21` | $\pm 1.5, \pm 2.0, \pm 2.5$ | Focuses on a single key execution timeline (e.g., M5 or M15). |
-| **`VScore_Dual_Widget_Pro`** | `InpDailyTF` (M15) <br> `InpWeeklyTF` (H1) | `PERIOD_SESSION` <br> `PERIOD_WEEK` | `20` <br> `20` | $\pm 1.5, \pm 2.0, \pm 2.5$ | Complete MTF Cockpit. Tracks trend alignments and intraday pullbacks. |
+```text
 
----
+┌───────────────────────────┬───────────────────────────┬────────────────────────────────────────┐
+│ Slot 1: Tactical (M15)    │ Slot 2: Strategic (H1)    │ Systematic Market Action               │
+├───────────────────────────┼───────────────────────────┼────────────────────────────────────────┤
+│ Flow (+1.5σ LightBlue)    │ Fair-Value (0.0σ Gray)    │ High-Conviction Long Trend Breakout.   │
+│ Climax (+2.1σ DeepBlue)   │ Flow (+1.7σ LightBlue)    │ Strong Uptrend Active; Tighten Stops.  │
+│ Climax (+2.3σ DeepBlue)   │ Climax (+2.2σ DeepBlue)   │ Multi-Timeframe Climax; Scale Out.     │
+│ Flow (-1.6σ Coral)        │ Fair-Value (0.0σ Gray)    │ High-Conviction Short Trend Breakdown. │
+│ Climax (-2.4σ OrangeRed)  │ Climax (-2.3σ OrangeRed)  │ Multi-Timeframe Capitulation Floor.    │
+│ Extreme (-2.6σ DarkRed)   │ Climax (-2.2σ OrangeRed)  │ Extreme Exhaustion; Prepare Bounce.    │
+└───────────────────────────┴───────────────────────────┴────────────────────────────────────────┘
 
-## 5. Visual & Technical Highlights
-
-* **High-Frequency Tick Throttling (200 ms):**
-  To prevent CPU bloat and chart lag during fast-moving market sessions, the widgets restrict their calculations using a high-precision timer:
-
-  ```mql5
-  ulong current_ms = GetTickCount64();
-  if(current_ms - g_last_update_ms >= 200)
-    {
-     g_last_update_ms = current_ms;
-     RenderDashboard();
-    }
-  ```
-
-  This guarantees that even under a heavy tick-stream, the dashboard updates at most 5 times per second.
-
-* **Flicker-Free Object Modification:**
-  The engines use `CreateButton()` with a flat, borderless style (`BORDER_FLAT`). Rather than deleting and recreating buttons on every update (which would cause annoying flickering), the script uses `ObjectMove()` and `ObjectSetString()` to update coordinates and labels dynamically.
-* **Unified Corner Anchoring:**
-  All elements are anchored to `CORNER_LEFT_LOWER`. The Y-coordinates are calculated upwards ($header\_y > row\_y$), ensuring the widget stays perfectly aligned above the chart's timeline, regardless of terminal resizing.
+```
 
 ---
 
-## 6. HUD Cockpit Operational Playbook
+## 3. Mathematical Foundations & 7-Zone Thermal Matrix
 
-Traders and automated Expert Advisors can use the widgets as master cockpit panels to make high-expectancy trend decisions:
+$$V\text{Score} = \frac{\text{Close} - \mu_{\text{VWAP}}}{\sigma_V}$$
+*where $\mu_{\text{VWAP}}$ is the volume-weighted average price and $\sigma_V$ is the rolling standard deviation of price deviations from VWAP over period $P$.*
 
-### A. Intraday Volatility Pivot Detection (`VScore_Widget_Pro`)
+```text
 
-When trading a single asset (e.g. BTCUSD or EURUSD) intraday, load `VScore_Widget_Pro` set to your trigger timeframe (M5 or M15):
+                        +2.5σ (Extreme Bull Exhaustion)
+       ───────────────────────────────────────────────── clrMidnightBlue
+                        +2.0σ (Bullish Climax)
+       - - - - - - - - - - - - - - - - - - - - - - - - - clrDeepSkyBlue
+                        +1.5σ (Bullish Flow)
+       - - - - - - - - - - - - - - - - - - - - - - - - - clrLightSkyBlue
+                         0.0σ (VWAP Fair-Value Baseline)
+       ───────────────────────────────────────────────── clrWhite (Neutral Range)
+                        -1.5σ (Bearish Flow)
+       - - - - - - - - - - - - - - - - - - - - - - - - - clrCoral
+                        -2.0σ (Bearish Climax)
+       - - - - - - - - - - - - - - - - - - - - - - - - - clrOrangeRed
+                        -2.5σ (Extreme Bear Exhaustion)
+       ───────────────────────────────────────────────── clrDarkRed
 
-* **Execution:**
-  * If the widget is **White** (Neutral), wait.
-  * If the widget transitions to **LightSkyBlue** or **Coral**, look for momentum continuation trades in that direction.
-  * If the widget hits **DeepSkyBlue** or **OrangeRed** climax, prepare for trend exhaustion.
-  * If the widget flashes **Midnight Blue** or **Dark Red**, execute mean-reversion counter-trend trades immediately, placing tight stops outside the swing high/low.
+```
 
-### B. Multi-Timeframe Trend Alignment (`VScore_Dual_Widget_Pro`)
+### Symmetrical 7-Zone Super-Thermal Matrix
 
-* **The Setup:** Look for a state where both the Daily and Weekly V-Scores show the same color polarity.
-* **FULL BULL (Double Blue):** If Daily is `clrDeepSkyBlue` (Climax) and Weekly is `clrLightSkyBlue` (Flow), it confirms a powerful institutional trend alignment. Only look for Long continuation setups on pullbacks.
-* **FULL BEAR (Double Red):** If Daily is `clrOrangeRed` (Climax) and Weekly is `clrCoral` (Flow), a strong downward trend is in place. Only look for Short continuation setups.
+| Zone State | Background Color | Text Color | Sigma Trigger | Institutional Market Action |
+| :--- | :--- | :--- | :--- | :--- |
+| **Bull Extreme** | `clrMidnightBlue` | `clrWhite` | $V\text{Score} \ge +2.5\sigma$ | **Extreme Parabolic Exhaustion:** Unsustainable premium; scale out long positions or prepare short fade. |
+| **Bull Climax** | `clrDeepSkyBlue` | `clrWhite` | $+2.0\sigma \le V\text{Score} < +2.5\sigma$ | **Overbought Climax:** Heavy institutional volume expansion; tighten trailing stop-loss. |
+| **Bull Flow** | `clrLightSkyBlue` | `clrBlack` | $+1.5\sigma \le V\text{Score} < +2.0\sigma$ | **Bullish Momentum Flow:** Institutional markup phase active; favor long continuation setups. |
+| **Neutral Range** | `clrWhite` | `clrDarkGray` | $-1.5\sigma < V\text{Score} < +1.5\sigma$ | **Fair-Value Equilibrium:** Standard consolidation noise; market in balance around VWAP. |
+| **Bear Flow** | `clrCoral` | `clrBlack` | $-2.0\sigma < V\text{Score} \le -1.5\sigma$ | **Bearish Momentum Flow:** Institutional markdown phase active; favor short continuation setups. |
+| **Bear Climax** | `clrOrangeRed` | `clrWhite` | $-2.5\sigma < V\text{Score} \le -2.0\sigma$ | **Oversold Climax:** Heavy institutional selling push; prepare short-covering. |
+| **Bear Extreme** | `clrDarkRed` | `clrWhite` | $V\text{Score} \le -2.5\sigma$ | **Panic Capitulation Floor:** Severe statistical discount; high-probability long bounce potential. |
 
-### C. The Extreme Exhaustion Reversal (Midnight Blue / Dark Red Alerts)
+---
 
-When an asset hits the absolute boundaries, it represents a high-probability reversal zone due to institutional value-reversal.
+## 4. MQL5 Architecture & Engineering Standards
 
-* **Oversold Squeeze (Dark Red Alert):** If the Weekly V-Score (H1) is in the **Dark Red** exhaustion zone ($v \le -2.5$), but the Daily V-Score (M15) begins to rebound and turns **Gray** or **LightSkyBlue**:
-  * *The Signal:* This represents an extremely high-probability Long mean-reversion opportunity. The weekly macro sellers have completely exhausted, and intraday buyers are stepping in at an institutional discount.
-  * *Execution:* Enter Long, placing a tight Stop Loss below the local M15 swing low.
-* **Overbought Squeeze (Midnight Blue Alert):** If the Weekly V-Score (H1) is in the **Midnight Blue** zone ($v \ge 2.5$), but the Daily V-Score (M15) turns **Gray** or **Coral**:
-  * *The Signal:* High-probability Short mean-reversion opportunity as buying pressure exhausts at macro resistance.
+```text
+
+┌────────────────────────────────────────────────────────┐
+│            VScore_HUD_Widgets_Pro (Engine)             │
+│    (Zero-Subwindow Telemetry & Graphical Layout Engine)│
+├──────────────────────────┬─────────────────────────────┤
+│   Heap-Free Execution    │   Centralized Framework     │
+│   • Stack CVScoreCalc    │   • DataSync_Tools.mqh      │
+│   • 200ms Rate Throttling│   • VScore_Calculator v3.00 │
+│   • Dynamic Lookback     │   • 7-Zone Thermal Palette  │
+└──────────────────────────┴─────────────────────────────┘
+
+```
+
+1. **Heap-Free Execution Model:** `GetVScoreValue()` instantiates `CVScoreCalculator calc;` on the local stack frame. All price and volume arrays are managed locally, eliminating thread bloat and memory fragmentation.
+2. **Centralized Data Synchronization (`DataSync_Tools.mqh`):** Employs `CDataSync::EnsureHTFDataReady` for asynchronous, non-blocking history loading.
+3. **Standardized HUD Geometry:**
+   * Anchor Corner: `CORNER_LEFT_LOWER`.
+   * Data Row Y-coordinate: `InpTableY` (e.g., 30 px).
+   * Header Row Y-coordinate: `InpTableY + row_h + 2` (e.g., 54 px, growing upwards).
+4. **Dynamic History Lookback Scaling:** Automatically determines required historical depth based on the selected anchor mode (Session: ~1 day, Week: ~7 days, Month: ~31 days) up to a 3000-bar safety ceiling.
+5. **Tick Rate Throttling:** Built-in rate-limiter caps UI object redraws to a maximum of 5 updates per second (200 ms), preventing GUI thread saturation during high-frequency live tick floods.
+
+---
+
+## 5. Parameters Reference
+
+### 5.1. `VScore_Widget_Pro.mq5` (Single-Slot)
+
+| Parameter Group | Name | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **HUD Settings** | `InpTimeframe` | `PERIOD_M15` | Target higher timeframe evaluated by widget telemetry. |
+| | `InpRefreshSeconds` | `3` | Background timer interval for periodic refresh. |
+| **V-Score Settings** | `InpVScorePeriod` | `20` | Volatility lookback period ($P$) for standard deviation. |
+| | `InpVWAPReset` | `PERIOD_SESSION` | VWAP anchor mode (`SESSION`, `WEEK`, `MONTH`, `CUSTOM`). |
+| | `InpTzShift` | `0` | Timezone offset in hours vs broker server time. |
+| | `InpCustomSessionStart` | `"09:30"` | Custom session start time (`HH:MM`). |
+| | `InpCustomSessionEnd` | `"16:00"` | Custom session end time (`HH:MM`). |
+| **Calculation** | `InpVolumeType` | `VOLUME_TICK` | Volume source (`VOLUME_TICK` or `VOLUME_REAL`). |
+| | `InpCandleSource` | `CANDLE_STANDARD` | Price source (`CANDLE_STANDARD` or `CANDLE_HEIKIN_ASHI`). |
+| **Indicator Levels** | `InpLevelFlowHigh/Low` | `1.5 / -1.5` | Flow warning boundaries (`LightSkyBlue` / `Coral`). |
+| | `InpLevelClimaxHigh/Low` | `2.0 / -2.0` | Climax thresholds (`DeepSkyBlue` / `OrangeRed`). |
+| | `InpLevelExtremeHigh/Low` | `2.5 / -2.5` | Extreme exhaustion thresholds (`MidnightBlue` / `DarkRed`). |
+| **Placement** | `InpTableX` | `20` | Horizontal pixel offset from left chart border. |
+| | `InpTableY` | `30` | Vertical pixel offset from bottom chart border. |
+| | `InpFontSize` | `9` | Font size of button cells. |
+
+---
+
+### 5.2. `VScore_Dual_Widget_Pro.mq5` (Dual-Slot)
+
+| Parameter Group | Name | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **HUD Settings** | `InpRefreshSeconds` | `3` | Background timer refresh interval. |
+| **Slot 1 (Tactical)** | `InpSlot1Label` | `"Daily"` | Custom label text for Slot 1 header. |
+| | `InpSlot1TF` | `PERIOD_M15` | Timeframe for Slot 1 calculation. |
+| | `InpSlot1Reset` | `PERIOD_SESSION` | Anchor reset mode for Slot 1. |
+| | `InpSlot1Period` | `20` | Volatility lookback period ($P$) for Slot 1. |
+| **Slot 2 (Strategic)** | `InpSlot2Label` | `"Weekly"` | Custom label text for Slot 2 header. |
+| | `InpSlot2TF` | `PERIOD_H1` | Timeframe for Slot 2 calculation. |
+| | `InpSlot2Reset` | `PERIOD_WEEK` | Anchor reset mode for Slot 2. |
+| | `InpSlot2Period` | `20` | Volatility lookback period ($P$) for Slot 2. |
+| **Calculation** | `InpVolumeType` | `VOLUME_TICK` | Volume source (`VOLUME_TICK` or `VOLUME_REAL`). |
+| | `InpCandleSource` | `CANDLE_STANDARD` | Price source (`CANDLE_STANDARD` or `CANDLE_HEIKIN_ASHI`). |
+| | `InpTzShift` | `0` | Timezone offset in hours vs broker server time. |
+| | `InpCustomSessionStart` | `"09:30"` | Custom session start time (`HH:MM`). |
+| | `InpCustomSessionEnd` | `"16:00"` | Custom session end time (`HH:MM`). |
+| **Indicator Levels** | `InpLevelFlowHigh/Low` | `1.5 / -1.5` | Flow warning boundaries. |
+| | `InpLevelClimaxHigh/Low` | `2.0 / -2.0` | Climax thresholds. |
+| | `InpLevelExtremeHigh/Low` | `2.5 / -2.5` | Extreme exhaustion thresholds. |
+| **Placement** | `InpTableX` | `20` | Horizontal pixel offset from left chart border. |
+| | `InpTableY` | `30` | Vertical pixel offset from bottom chart border. |
+| | `InpFontSize` | `9` | Font size of button cells. |
+
+---
+
+## 6. Tactical Trading & Execution Playbooks
+
+```text
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                   TACTICAL HUD TELEMETRY PLAYBOOKS                     │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Multi-Horizon Trend Alignment: Enter M1/M5 pullbacks only when both │
+│                                   Slot 1 (M15) and Slot 2 (H1) agree.  │
+│ 2. False Breakout Trap Filter:    When Slot 1 hits +2.0σ but Slot 2 is │
+│                                   Neutral (0σ), expect range fade.     │
+│ 3. Extreme Exhaustion Fade:       When either slot hits MidnightBlue   │
+│                                   (+2.5σ) or DarkRed (-2.5σ), scale out│
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+### 6.1. Intraday Scalping Macro Filter
+
+* **Setup:** Place `VScore_Dual_Widget_Pro` on an `M1` or `M5` execution chart with `Slot 1 = M15 (Daily)` and `Slot 2 = H1 (Weekly)`.
+* **Execution Rules:**
+  * **Long Bias:** If Slot 1 is **`LightSkyBlue (+1.5σ)`** and Slot 2 is **`Gray (0.0σ)`** or **`LightSkyBlue`** $\rightarrow$ High-conviction long trend markup.
+  * **Short Bias:** If Slot 1 is **`Coral (-1.5σ)`** and Slot 2 is **`Gray (0.0σ)`** or **`Coral`** $\rightarrow$ High-conviction short trend markdown.
+  * **Range Bound:** If both slots are **`White (Neutral)`** $\rightarrow$ Trade boundary mean-reversion setups.
+
+### 6.2. The Dual-Horizon Climax Reversal ($\ge \pm 2.0\sigma \dots \pm 2.5\sigma$)
+
+* **Trigger:** Slot 1 turns **`DeepSkyBlue`** ($+2.0\sigma$) or **`MidnightBlue`** ($+2.5\sigma$) while Slot 2 also shows **`DeepSkyBlue`** ($+2.0\sigma$).
+* **Action:** This confirms a synchronous multi-timeframe volume exhaustion. Abort new trend-following entries and look for lower-timeframe structural reversal patterns to initiate counter-trend mean-reversion trades back toward the VWAP fair-value equilibrium.
