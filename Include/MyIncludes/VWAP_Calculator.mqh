@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|      VERSION 3.00: Deterministic Session Anchoring & Bounds Safe |
+//|      VERSION 3.01: Public Session Query & Bounds Protection       |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Fully deterministic session logic with zero live-tick flickering
+#property version   "3.01" // Made IsTimeInSession public for external indicator integration
 
 #ifndef VWAP_CALCULATOR_MQH
 #define VWAP_CALCULATOR_MQH
@@ -42,7 +42,6 @@ protected:
    int                 m_start_hour, m_start_min;
    int                 m_end_hour, m_end_min;
 
-   bool                IsTimeInSession(const datetime bar_time);
    virtual bool        PrepareSourceData(const int rates_total, const int start_index,
                                          const double &open[], const double &high[],
                                          const double &low[], const double &close[]);
@@ -50,6 +49,9 @@ protected:
 public:
                      CVWAPCalculator(void);
    virtual            ~CVWAPCalculator(void) {};
+
+   //--- Public Session Query Helper
+   bool                IsTimeInSession(const datetime bar_time);
 
    //--- Backward-Compatible Initialization Signatures
    bool                Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true, int max_history_days=0);
@@ -141,7 +143,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
   }
 
 //+------------------------------------------------------------------+
-//| Stateless Custom Session In-Time Check                           |
+//| Stateless Custom Session In-Time Check (Public)                  |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::IsTimeInSession(const datetime bar_time)
   {
@@ -159,12 +161,10 @@ bool CVWAPCalculator::IsTimeInSession(const datetime bar_time)
    else
       if(end_min < start_min)
         {
-         // Overnight session
          return (current_min >= start_min || current_min < end_min);
         }
       else
         {
-         // 24-hour continuous session
          return true;
         }
   }
