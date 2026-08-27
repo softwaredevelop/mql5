@@ -222,7 +222,7 @@ int OnInit()
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
-   IndicatorSetInteger(INDICATOR_DIGITS, 3);
+   IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
 // 7. Initialize Background Synchronization Timer (Only for MTF mode)
    if(g_is_mtf_mode)
