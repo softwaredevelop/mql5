@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Overloaded initialization, bounds safety & Custom Session support
+#property version   "3.10" // Upgraded with Open-Ended Session Volatility Sampling
 
 #ifndef VSCORE_CALCULATOR_MQH
 #define VSCORE_CALCULATOR_MQH
@@ -131,14 +131,14 @@ bool CVScoreCalculator::Init(const int period, const string custom_start, const 
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Bounds-Safe O(1))                              |
+//| Main Calculation (Open-Ended In-Session Variance Sampling)       |
 //+------------------------------------------------------------------+
 void CVScoreCalculator::Calculate(const int rates_total, const int prev_calculated,
                                   const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[],
                                   const long &tick_volume[], const long &volume[],
                                   double &out_vscore[])
   {
-   if(rates_total < m_period || CheckPointer(m_vwap_calc) == POINTER_INVALID)
+   if(rates_total < 2 || CheckPointer(m_vwap_calc) == POINTER_INVALID)
       return;
 
 // 1. Safe Allocation of Internal Buffers
@@ -165,11 +165,9 @@ void CVScoreCalculator::Calculate(const int rates_total, const int prev_calculat
 // 2. Compute Underlying VWAP
    m_vwap_calc.Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, m_vwap_odd, m_vwap_even);
 
-   int start = (prev_calculated > m_period) ? (prev_calculated - 1) : (m_period - 1);
-   if(start < m_period - 1)
-      start = m_period - 1;
+   int start = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
 
-// 3. Compute V-Score (Standard Deviation Distance from VWAP)
+// 3. Compute V-Score with Open-Ended Session Volatility Sampling
    for(int i = start; i < rates_total; i++)
      {
       m_price[i] = close[i];
@@ -183,22 +181,26 @@ void CVScoreCalculator::Calculate(const int rates_total, const int prev_calculat
          continue;
         }
 
+      // Collect the last m_period valid in-session bars (skipping off-session gaps)
       double sum_sq_diff = 0.0;
+      int    collected   = 0;
+      int    k           = 0;
 
-      for(int k = 0; k < m_period; k++)
+      while(collected < m_period && (i - k) >= 0)
         {
          int idx = i - k;
-         double p = m_price[idx];
          double v = m_vwap_buf[idx];
-
-         if(v == 0.0 || v == EMPTY_VALUE)
-            v = p;
-
-         double diff = p - v;
-         sum_sq_diff += diff * diff;
+         if(v != EMPTY_VALUE && v > 0.0)
+           {
+            double p = m_price[idx];
+            double diff = p - v;
+            sum_sq_diff += diff * diff;
+            collected++;
+           }
+         k++;
         }
 
-      double std_dev = MathSqrt(sum_sq_diff / (double)m_period);
+      double std_dev = (collected > 0) ? MathSqrt(sum_sq_diff / (double)collected) : 0.0;
 
       if(std_dev > 1.0e-9)
          out_vscore[i] = (close[i] - current_vwap) / std_dev;
