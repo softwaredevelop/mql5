@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Unified Native & MTF Release with 14-Buffer Synchronized Gapped Engine
+#property version   "3.10" // Open-Ended Session Volatility Bands (No Pinching at Session Start)
 #property description "V-Score Projected Dynamic Bands on Main Chart (Rolling Gaussian Envelope around VWAP)."
-#property description "Features unified Native & MTF pipelines, custom sessions, and swapped thermal colors."
+#property description "Features open-ended custom session bands, unified Native & MTF pipelines, and thermal palette."
 
 #property indicator_chart_window
 #property indicator_buffers 14
@@ -395,23 +395,21 @@ void CalculateVScoreBandsEngine(const int total, const int prev_calc,
                                 double &uw_odd[], double &uw_even[],
                                 double &dw_odd[], double &dw_even[])
   {
-   if(total < InpPeriod)
+   if(total < 2)
       return;
 
 // 1. Run Core VWAP
    g_vwap.Calculate(total, prev_calc, time_arr, open_arr, high_arr, low_arr, close_arr,
                     tick_vol_arr, vol_arr, odd_vwap, even_vwap);
 
-   int start = (prev_calc > InpPeriod) ? (prev_calc - 1) : (InpPeriod - 1);
-   if(start < InpPeriod - 1)
-      start = InpPeriod - 1;
+   int start = (prev_calc > 0) ? (prev_calc - 1) : 0;
 
-// 2. Project Rolling Standard Deviation Bands
+// 2. Project Open-Ended Rolling Standard Deviation Bands
    for(int i = start; i < total; i++)
      {
       price_cache[i] = close_arr[i];
 
-      bool is_odd = (odd_vwap[i] != EMPTY_VALUE && odd_vwap[i] > 0.0);
+      bool is_odd  = (odd_vwap[i]  != EMPTY_VALUE && odd_vwap[i]  > 0.0);
       bool is_even = (even_vwap[i] != EMPTY_VALUE && even_vwap[i] > 0.0);
       double cur_vwap = is_odd ? odd_vwap[i] : (is_even ? even_vwap[i] : EMPTY_VALUE);
       merged_vwap[i] = cur_vwap;
@@ -433,22 +431,26 @@ void CalculateVScoreBandsEngine(const int total, const int prev_calc,
       if(cur_vwap == EMPTY_VALUE || cur_vwap <= 0.0)
          continue;
 
-      // Compute Rolling Variance of (Price - VWAP) over InpPeriod
+      // Open-Ended Volatility Sampling: Scan backwards to collect InpPeriod valid in-session bars
       double sum_sq_diff = 0.0;
-      for(int k = 0; k < InpPeriod; k++)
+      int    collected   = 0;
+      int    k           = 0;
+
+      while(collected < InpPeriod && (i - k) >= 0)
         {
          int idx = i - k;
-         double p = price_cache[idx];
          double v = merged_vwap[idx];
-
-         if(v == EMPTY_VALUE || v <= 0.0)
-            v = p;
-
-         double diff = p - v;
-         sum_sq_diff += diff * diff;
+         if(v != EMPTY_VALUE && v > 0.0)
+           {
+            double p = price_cache[idx];
+            double diff = p - v;
+            sum_sq_diff += diff * diff;
+            collected++;
+           }
+         k++;
         }
 
-      double std_dev = MathSqrt(sum_sq_diff / (double)InpPeriod);
+      double std_dev = (collected > 0) ? MathSqrt(sum_sq_diff / (double)collected) : 0.0;
 
       if(is_odd)
         {
@@ -485,7 +487,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < InpPeriod || CheckPointer(g_vwap) == POINTER_INVALID)
+   if(rates_total < 2 || CheckPointer(g_vwap) == POINTER_INVALID)
       return 0;
 
 // Force chronological indexing
@@ -529,7 +531,7 @@ int OnCalculate(const int rates_total,
 //===================================================================
 // MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
 //===================================================================
-   int required_bars = InpPeriod + 10;
+   int required_bars = 10;
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
       g_data_synced = false;
@@ -772,7 +774,7 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   int required_bars = InpPeriod + 10;
+   int required_bars = 10;
    CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
   }
 //+------------------------------------------------------------------+
