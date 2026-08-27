@@ -205,7 +205,7 @@ void RenderVScoreCell(const string symbol, const double val, const int x, const 
      }
    else
      {
-      text = DoubleToString(val, 3) + " σ";
+      text = DoubleToString(val, 2) + " σ";
 
       // Symmetrical 7-Zone Super-Thermal Matrix
       if(val >= InpLevelExtremeHigh)
