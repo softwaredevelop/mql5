@@ -3,99 +3,173 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.30" // Fixed color polarity to perfectly align with VScore_Pro and VScore_MTF_Pro
+#property version   "3.00" // Single-Column Multi-Asset V-Score Scanner with 7-Zone Thermal Matrix
 #property description "Minimalist and Live-Updating V-Score Multi-Asset Thermal Scanner."
+#property description "Features 3-decimal precision, heap-free execution, and 1-click chart switching."
+
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
 
+//--- Included Engines & Core Tools
 #include <MyIncludes\VScore_Calculator.mqh>
+#include <MyIncludes\DataSync_Tools.mqh>
+
+//--- Enum for selecting candle source ---
+#ifndef ENUM_CANDLE_SOURCE_DEFINED
+#define ENUM_CANDLE_SOURCE_DEFINED
+enum ENUM_CANDLE_SOURCE
+  {
+   CANDLE_STANDARD,      // Use standard OHLC data
+   CANDLE_HEIKIN_ASHI    // Use Heikin Ashi smoothed data
+  };
+#endif
 
 //--- Input Parameters ---
-input string            InpCustomSymbols  = "";              // Custom Symbols (Comma separated, empty for Market Watch)
-input int               InpMaxSymbols     = 15;              // Maximum Symbols to display
-input ENUM_TIMEFRAMES   InpTimeframe      = PERIOD_M15;      // Target Timeframe
-input int               InpPeriod         = 21;              // V-Score Period (Matches V-Score Pro)
-input ENUM_VWAP_PERIOD  InpVWAPReset      = PERIOD_SESSION;  // VWAP Anchor
-input int               InpTableX         = 20;              // Table X Offset (Pixels)
-input int               InpTableY         = 60;              // Table Y Offset (Pixels)
-input int               InpFontSize       = 9;               // UI Font Size
-input int               InpRefreshSeconds = 3;               // Background Timer Fallback (Seconds)
+input group "--- Asset Selection Settings ---"
+input string            InpCustomSymbols        = "";                    // Custom Symbols (Comma separated, empty for Market Watch)
+input int               InpMaxSymbols           = 15;                    // Maximum Symbols to display
+input int               InpRefreshSeconds       = 3;                     // Background Timer Fallback (Seconds)
+
+input group "--- V-Score Settings ---"
+input ENUM_TIMEFRAMES   InpTimeframe            = PERIOD_M15;            // Target Timeframe
+input int               InpPeriod               = 20;                    // V-Score Period (Sigma)
+input ENUM_VWAP_PERIOD  InpVWAPReset            = PERIOD_SESSION;        // VWAP Anchor Reset
+input int               InpTzShift              = 0;                     // Timezone Shift in hours vs Broker Time
+input string            InpCustomSessionStart   = "09:30";               // Start time (HH:MM) for Custom Session
+input string            InpCustomSessionEnd     = "16:00";               // End time (HH:MM) for Custom Session
+
+input group "--- Calculation Settings ---"
+input ENUM_APPLIED_VOLUME InpVolumeType         = VOLUME_TICK;           // Volume Type
+input ENUM_CANDLE_SOURCE  InpCandleSource       = CANDLE_STANDARD;       // Candle Source
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+input group "--- Indicator Levels (Sigma Units) ---"
+input double            InpLevelFlowHigh        = 1.5;                   // High Warning Level (Bullish Flow)
+input double            InpLevelFlowLow         = -1.5;                  // Low Warning Level (Bearish Flow)
+input double            InpLevelClimaxHigh      = 2.0;                   // High Climax Level (Bullish Climax)
+input double            InpLevelClimaxLow       = -2.0;                  // Low Climax Level (Bearish Climax)
+input double            InpLevelExtremeHigh     = 2.5;                   // High Extreme Level (Bullish Exhaustion)
+input double            InpLevelExtremeLow      = -2.5;                  // Low Extreme Level (Bearish Exhaustion)
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+input group "--- Dashboard Placement (Pixels) ---"
+input int               InpTableX               = 20;                    // Table X Offset (From Left)
+input int               InpTableY               = 50;                    // Table Y Offset (From Top)
+input int               InpFontSize             = 9;                     // UI Font Size
 
 //--- Global Variables ---
-string          g_symbols[];
-int             g_symbols_total   = 0;
-string          g_prefix          = "";
-bool            g_updating        = false;
-ulong           g_last_update_ms  = 0; // Throttle timestamp
+string g_symbols[];
+int    g_symbols_total  = 0;
+string g_prefix         = "";
+bool   g_updating       = false;
+ulong  g_last_update_ms = 0;
 
 //+------------------------------------------------------------------+
-//| EnsureDataReady (History sync helper)                            |
+//| Heap-Free V-Score Calculation Engine                             |
 //+------------------------------------------------------------------+
-bool EnsureDataReady(const string symbol, const ENUM_TIMEFRAMES timeframe, const int required_bars)
+double GetVScoreValue(const string symbol, const ENUM_TIMEFRAMES tf, const ENUM_VWAP_PERIOD reset, const int period)
   {
-   ResetLastError();
-   if(!SymbolInfoInteger(symbol, SYMBOL_SELECT))
+// 1. Dynamic Lookback History Sizing
+   int tf_sec = PeriodSeconds(tf);
+   if(tf_sec < 1)
+      tf_sec = 60;
+
+   int anchor_bars = 100;
+   switch(reset)
      {
-      SymbolSelect(symbol, true);
+      case PERIOD_SESSION:
+         anchor_bars = (int)(86400 / tf_sec) + 20;
+         break;
+      case PERIOD_WEEK:
+         anchor_bars = (int)(7 * 86400 / tf_sec) + 50;
+         break;
+      case PERIOD_MONTH:
+         anchor_bars = (int)(31 * 86400 / tf_sec) + 100;
+         break;
+      case PERIOD_CUSTOM_SESSION:
+         anchor_bars = (int)(86400 / tf_sec) + 20;
+         break;
      }
-   datetime times[];
-   int copied = CopyTime(symbol, timeframe, 0, required_bars, times);
-   return (copied >= required_bars);
-  }
 
-//+------------------------------------------------------------------+
-//| GetVScoreValue                                                   |
-//+------------------------------------------------------------------+
-double GetVScoreValue(string symbol, ENUM_TIMEFRAMES tf, ENUM_VWAP_PERIOD reset, int period)
-  {
-   int required_bars = period + 150;
+   int required_bars = period + anchor_bars;
+   required_bars = MathMin(required_bars, 3000);
 
-   if(!EnsureDataReady(symbol, tf, required_bars))
+// 2. Data Readiness Check
+   if(!CDataSync::EnsureHTFDataReady(symbol, tf, required_bars))
       return EMPTY_VALUE;
 
    int htf_bars = iBars(symbol, tf);
    if(htf_bars < required_bars)
       return EMPTY_VALUE;
 
-   int count = MathMin(htf_bars, 300);
+   int count = MathMin(htf_bars, required_bars);
 
-   double h_open[], h_high[], h_low[], h_close[];
-   long   h_vol[];
+// 3. Fetch Price & Volume Data
+   double   h_open[], h_high[], h_low[], h_close[];
+   long     h_tick_vol[], h_vol[];
    datetime h_time[];
 
-   ArrayResize(h_open, count);
-   ArrayResize(h_high, count);
-   ArrayResize(h_low, count);
-   ArrayResize(h_close, count);
-   ArrayResize(h_vol, count);
-   ArrayResize(h_time, count);
+   ArrayResize(h_open,     count);
+   ArraySetAsSeries(h_open,     false);
+   ArrayResize(h_high,     count);
+   ArraySetAsSeries(h_high,     false);
+   ArrayResize(h_low,      count);
+   ArraySetAsSeries(h_low,      false);
+   ArrayResize(h_close,    count);
+   ArraySetAsSeries(h_close,    false);
+   ArrayResize(h_tick_vol, count);
+   ArraySetAsSeries(h_tick_vol, false);
+   ArrayResize(h_vol,      count);
+   ArraySetAsSeries(h_vol,      false);
+   ArrayResize(h_time,     count);
+   ArraySetAsSeries(h_time,     false);
 
-   if(CopyTime(symbol, tf, 0, count, h_time) != count ||
-      CopyOpen(symbol, tf, 0, count, h_open) != count ||
-      CopyHigh(symbol, tf, 0, count, h_high) != count ||
-      CopyLow(symbol, tf, 0, count, h_low) != count ||
-      CopyClose(symbol, tf, 0, count, h_close) != count ||
-      CopyTickVolume(symbol, tf, 0, count, h_vol) != count)
+   if(CopyTime(symbol,       tf, 0, count, h_time)     != count ||
+      CopyOpen(symbol,       tf, 0, count, h_open)     != count ||
+      CopyHigh(symbol,       tf, 0, count, h_high)     != count ||
+      CopyLow(symbol,        tf, 0, count, h_low)      != count ||
+      CopyClose(symbol,      tf, 0, count, h_close)    != count ||
+      CopyTickVolume(symbol, tf, 0, count, h_tick_vol) != count)
      {
       return EMPTY_VALUE;
      }
 
+   long vol_limit = (long)SymbolInfoDouble(symbol, SYMBOL_VOLUME_LIMIT);
+   if(vol_limit > 0)
+      CopyRealVolume(symbol, tf, 0, count, h_vol);
+   else
+      ArrayCopy(h_vol, h_tick_vol, 0, 0, count);
+
+// 4. Heap-Free Stack Calculator Execution
    CVScoreCalculator calc;
-   if(!calc.Init(period, reset))
+   bool is_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
+   bool init_ok = false;
+
+   if(reset == PERIOD_CUSTOM_SESSION)
+      init_ok = calc.Init(period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, period * 5);
+   else
+      init_ok = calc.Init(period, reset, InpVolumeType, InpTzShift, is_ha, period * 5);
+
+   if(!init_ok)
       return EMPTY_VALUE;
 
    double h_res[];
    ArrayResize(h_res, count);
+   ArraySetAsSeries(h_res, false);
    ArrayInitialize(h_res, 0.0);
 
-   calc.Calculate(count, 0, h_time, h_open, h_high, h_low, h_close, h_vol, h_vol, h_res);
+   calc.Calculate(count, 0, h_time, h_open, h_high, h_low, h_close, h_tick_vol, h_vol, h_res);
 
    return h_res[count - 1];
   }
 
 //+------------------------------------------------------------------+
-//| ParseSymbols                                                     |
+//| Parse Symbols from Input String or Market Watch                  |
 //+------------------------------------------------------------------+
 void ParseSymbols()
   {
@@ -144,32 +218,32 @@ void ParseSymbols()
   }
 
 //+------------------------------------------------------------------+
-//| CreateButton                                                     |
+//| CreateButton (Dashboard Cell)                                    |
 //+------------------------------------------------------------------+
-void CreateButton(string name, string text, int x, int y, int w, int h, color bg_color, color text_color)
+void CreateButton(const string name, const string text, const int x, const int y, const int w, const int h, const color bg_color, const color text_color, const bool selectable=false)
   {
    if(ObjectFind(0, name) < 0)
      {
       ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpFontSize);
-      ObjectSetString(0, name, OBJPROP_FONT, "Trebuchet MS");
+      ObjectSetString(0,  name, OBJPROP_FONT, "Trebuchet MS");
       ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, selectable);
      }
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
    ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0,  name, OBJPROP_TEXT, text);
    ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg_color);
    ObjectSetInteger(0, name, OBJPROP_COLOR, text_color);
   }
 
 //+------------------------------------------------------------------+
-//| RenderCell                                                       |
+//| RenderCell (7-Zone Super-Thermal Palette with 3 Decimals)        |
 //+------------------------------------------------------------------+
-void RenderCell(string symbol, double val, int x, int y, int w, int h)
+void RenderCell(const string symbol, const double val, const int x, const int y, const int w, const int h)
   {
    string name = g_prefix + "_" + symbol + "_Val";
    string text = "";
@@ -186,43 +260,54 @@ void RenderCell(string symbol, double val, int x, int y, int w, int h)
      {
       text = DoubleToString(val, 3);
 
-      //--- Swapped 5-Zone Thermal Color Palette (Corrected Polarity)
-      // Positive/Bullish -> Bluish / Cold
-      // Negative/Bearish -> Reddish / Hot
-      if(val >= 2.0)
+      // Symmetrical 7-Zone Super-Thermal Matrix
+      if(val >= InpLevelExtremeHigh)
         {
-         bg_color = clrDeepSkyBlue; // Bull Extreme (Deep Blue)
+         bg_color = clrMidnightBlue; // Bull Extreme (Deep Midnight Blue)
          text_color = clrWhite;
         }
       else
-         if(val >= 1.5)
+         if(val >= InpLevelClimaxHigh)
            {
-            bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
-            text_color = clrBlack;
+            bg_color = clrDeepSkyBlue;  // Bull Climax (Deep Sky Blue)
+            text_color = clrWhite;
            }
          else
-            if(val <= -2.0)
+            if(val >= InpLevelFlowHigh)
               {
-               bg_color = clrOrangeRed;  // Bear Extreme (Dark Red)
-               text_color = clrWhite;
+               bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
+               text_color = clrBlack;
               }
             else
-               if(val <= -1.5)
+               if(val <= InpLevelExtremeLow)
                  {
-                  bg_color = clrCoral;      // Bear Flow (Coral)
-                  text_color = clrBlack;
+                  bg_color = clrDarkRed;      // Bear Extreme (Dark Crimson Red)
+                  text_color = clrWhite;
                  }
                else
-                 {
-                  bg_color = clrWhite;      // Neutral
-                  text_color = clrDarkGray;
-                 }
+                  if(val <= InpLevelClimaxLow)
+                    {
+                     bg_color = clrOrangeRed;    // Bear Climax (Orange Red)
+                     text_color = clrWhite;
+                    }
+                  else
+                     if(val <= InpLevelFlowLow)
+                       {
+                        bg_color = clrCoral;        // Bear Flow (Coral Pink)
+                        text_color = clrBlack;
+                       }
+                     else
+                       {
+                        bg_color = clrWhite;        // Neutral Range
+                        text_color = clrDarkGray;
+                       }
      }
+
    CreateButton(name, text, x, y, w, h, bg_color, text_color);
   }
 
 //+------------------------------------------------------------------+
-//| RenderDashboard                                                  |
+//| RenderDashboard (Single-Column Layout Engine)                    |
 //+------------------------------------------------------------------+
 void RenderDashboard()
   {
@@ -232,23 +317,23 @@ void RenderDashboard()
    g_updating = true;
 
    int col_w_sym = 100;
-   int col_w_val = 80;
+   int col_w_val = 90;
    int row_h     = 22;
 
-//--- 1. Render Table Header
+// 1. Render Table Header
    int header_y = InpTableY;
    string tf_name = StringSubstr(EnumToString(InpTimeframe), 7);
-   CreateButton(g_prefix + "H_Sym", "Symbol (" + tf_name + ")", InpTableX, header_y, col_w_sym, row_h, clrDarkSlateGray, clrWhite);
-   CreateButton(g_prefix + "H_Val", "V-Score", InpTableX + col_w_sym + 2, header_y, col_w_val, row_h, clrDarkSlateGray, clrWhite);
+   CreateButton(g_prefix + "H_Sym", "Symbol", InpTableX, header_y, col_w_sym, row_h, clrDarkSlateGray, clrWhite);
+   CreateButton(g_prefix + "H_Val", "V-Score (" + tf_name + ")", InpTableX + col_w_sym + 2, header_y, col_w_val, row_h, clrDarkSlateGray, clrWhite);
 
-//--- 2. Loop and Calculate each asset row
+// 2. Loop and Calculate each Asset Row (Growing Downwards)
    for(int r = 0; r < g_symbols_total; r++)
      {
       string sym = g_symbols[r];
       int row_y = InpTableY + row_h + 2 + (r * (row_h + 2));
 
-      // Symbol Button (Clickable chart switcher)
-      CreateButton(g_prefix + "_SymBtn_" + sym, sym, InpTableX, row_y, col_w_sym, row_h, clrLightGray, clrBlack);
+      // Clickable Symbol Button (Chart Switcher)
+      CreateButton(g_prefix + "_SymBtn_" + sym, sym, InpTableX, row_y, col_w_sym, row_h, clrLightGray, clrBlack, true);
 
       // Get exact real-time V-Score
       double val = GetVScoreValue(sym, InpTimeframe, InpVWAPReset, InpPeriod);
@@ -257,12 +342,12 @@ void RenderDashboard()
       RenderCell(sym, val, InpTableX + col_w_sym + 2, row_y, col_w_val, row_h);
      }
 
-   ChartRedraw();
+   ChartRedraw(0);
    g_updating = false;
   }
 
 //+------------------------------------------------------------------+
-//| OnInit                                                           |
+//| Custom Indicator Initialization                                  |
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -280,17 +365,17 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-//| OnDeinit                                                         |
+//| Custom Indicator Deinitialization                                |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    EventKillTimer();
    ObjectsDeleteAll(0, g_prefix);
-   Comment("");
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
-//| OnCalculate                                                      |
+//| Custom Indicator Calculation Loop                                |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -303,18 +388,18 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-//--- Real-time high frequency tick throttling (Max 5 updates per second / 200ms)
+// Rate throttling: Max 5 scans per second (200ms)
    ulong current_ms = GetTickCount64();
    if(current_ms - g_last_update_ms >= 200)
      {
       g_last_update_ms = current_ms;
       RenderDashboard();
      }
-   return(rates_total);
+   return rates_total;
   }
 
 //+------------------------------------------------------------------+
-//| OnTimer                                                          |
+//| OnTimer Event Handler                                            |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
@@ -322,7 +407,7 @@ void OnTimer()
   }
 
 //+------------------------------------------------------------------+
-//| OnChartEvent                                                     |
+//| OnChartEvent (Interactive 1-Click Chart Switcher)                 |
 //+------------------------------------------------------------------+
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
@@ -335,9 +420,10 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
            {
             ChartSetSymbolPeriod(0, symbol, _Period);
             ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
-            ChartRedraw();
+            ChartRedraw(0);
            }
         }
      }
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
