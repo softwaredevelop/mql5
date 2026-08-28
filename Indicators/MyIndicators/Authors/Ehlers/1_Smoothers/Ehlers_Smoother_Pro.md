@@ -1,77 +1,176 @@
-# Ehlers Smoother Pro
+# Ehlers Smoother Pro (v3.00)
+
+Quantitative Digital Signal Processing (DSP) Smoothing & Low-Lag Filter Suite
+
+---
 
 ## 1. Summary (Introduction)
 
-> **Part of the Ehlers Filter Family**
->
-> This indicator is a member of a family of advanced digital filters described in John Ehlers' article, "The Ultimate Smoother." Each filter is designed to provide a superior balance between smoothing and lag compared to traditional moving averages.
->
-> * **Ehlers Smoother Pro:** A 2-in-1 indicator featuring the **SuperSmoother** (for maximum smoothing) and the **UltimateSmoother** (for near-zero lag).
-> * [Band-Pass Filter](./BandPass_Filter_Pro.md): An oscillator that isolates the cyclical components of the market.
-> * [Ehlers Smoother Momentum Pro](./Ehlers_Smoother_Momentum_Pro.md): The oscillator version of this smoother.
+**Ehlers Smoother Pro** is an institutional-grade trend and smoothing filter that implements two of John Ehlers' most advanced Digital Signal Processing (DSP) algorithms: the **SuperSmoother** and the **UltimateSmoother**.
 
-The Ehlers Smoother Pro is a versatile, "two-in-one" indicator that implements two of John Ehlers' most advanced digital filters: the **SuperSmoother** and the **UltimateSmoother**.
+Traditional moving averages (such as SMA, EMA, or SMMA) suffer from an unavoidable mathematical trade-off: increasing smoothing to eliminate market noise introduces severe phase lag, while shortening periods to reduce lag creates false breakout whipsaws. John Ehlers resolved this dilemma by applying electronic filter theory to financial time series, modeling price action through critically damped **Infinite Impulse Response (IIR)** low-pass transfer functions.
 
-The user can choose between the two filter types based on their trading style and needs:
+```text
 
-1. **SuperSmoother:** An optimized, second-order (2-pole) Butterworth filter. Its primary goal is to provide **maximum smoothing** with less lag than a traditional moving average of equivalent smoothing power. It is Ehlers' recommendation as a direct replacement for the EMA.
-2. **UltimateSmoother:** A unique filter created by mathematically subtracting a High-Pass filter's response from the original price data. Its primary goal is to achieve **near-zero lag** in the trend component of the price, at the cost of slightly less smoothing.
+┌────────────────────────────────────────────────────────────────────────┐
+│                      EHLERS SMOOTHER FILTER SUITE                      │
+├──────────────────────┬────────────────────────┬────────────────────────┤
+│     Filter Model     │   Filter Architecture  │   Optimal Use-Case     │
+├──────────────────────┼────────────────────────┼────────────────────────┤
+│ SuperSmoother        │ 2-Pole Butterworth     │ Maximum Noise Filter   │
+│                      │ Critical Damping       │ (Optimal EMA Alternate)│
+├──────────────────────┼────────────────────────┼────────────────────────┤
+│ UltimateSmoother     │ High-Pass Subtraction  │ Near-Zero Phase Lag    │
+│                      │ Modified Transfer Func │ (Dynamic S/R & Pullback)│
+└──────────────────────┴────────────────────────┴────────────────────────┘
 
-This indicator serves as a high-fidelity, responsive trendline for modern algorithmic and discretionary trading.
+```
 
-## 2. Mathematical Foundations and Calculation Logic
+### Key Capabilities
 
-Both filters are recursive Infinite Impulse Response (IIR) filters and use coefficients derived from the user-selected `Period` to define their characteristics.
+* **2-in-1 Adaptive Engine:** Instantly switch between maximum noise attenuation (`SUPERSMOOTHER`) and ultra-responsive low-lag tracking (`ULTIMATESMOOTHER`).
+* **Analytical Coefficient Tuning:** Filter parameters scale continuously from the user-defined `Period` ($P$) without heuristic curve-fitting.
+* **Unified 2026 MTF Framework:** Higher-timeframe Ehlers curves (e.g., H1 or H4) map onto lower-timeframe execution charts (M1, M5, M15) with flat, non-warping steps via `DataSync_Tools.mqh`.
+* **Synthetic Heikin Ashi Support:** Fully compatible with filtered Heikin Ashi price series via `CHeikinAshi_Calculator` composition.
+* **Incremental $O(1)$ Execution:** Stateful recursive registers update in zero latency on live market ticks without historical recalculation bloat.
 
-### SuperSmoother
+---
 
-The SuperSmoother is a 2-pole Butterworth filter optimized for reduced lag. Its recursive formula depends on the two previous filter values (`Filt[1]`, `Filt[2]`) and the average of the last two prices (`P[0]`, `P[1]`).
-$\text{Filt}_i = c_1 \times \frac{P_i + P_{i-1}}{2} + c_2 \times \text{Filt}_{i-1} + c_3 \times \text{Filt}_{i-2}$
+## 2. Mathematical Foundations & DSP Filter Theory
 
-### UltimateSmoother
+```text
 
-The UltimateSmoother is conceptually derived by subtracting a High-Pass filter from the price itself. Ehlers provides a closed-form recursive equation that achieves this result efficiently. It depends on the two previous filter values and the last three price points.
-$\text{Filt}_i = (1-c_1)P_i + (2c_1-c_2)P_{i-1} - (c_1+c_3)P_{i-2} + c_2\text{Filt}_{i-1} + c_3\text{Filt}_{i-2}$
+                  RAW PRICE (Market Noise & Aliasing)
+                                  │
+                                  ▼
+      ┌────────────────────────────────────────────────────────┐
+      │         2-Pole Butterworth Transfer Function           │
+      │    Cutoff Frequency: ω_c = (√2 · π) / Period           │
+      └───────────────────────────┬────────────────────────────┘
+                                  │
+                  Filtered Low-Frequency Trendline
 
-The coefficients `c1, c2, c3` are calculated based on the `Period` input.
+```
 
-## 3. MQL5 Implementation Details
+### 2.1. Analytical DSP Filter Coefficients
 
-Our MQL5 implementation follows a modern, object-oriented design to ensure stability and performance.
+For a selected cutoff period $P = \text{InpPeriod}$, the damping factors are calculated analytically:
+$$a_1 = \exp\left( -\frac{\sqrt{2} \cdot \pi}{P} \right)$$
+$$b_1 = 2 \cdot a_1 \cdot \cos\left( \frac{\sqrt{2} \cdot \pi}{P} \right)$$
+$$c_2 = b_1, \quad\quad c_3 = -a_1^2$$
 
-* **Unified Calculator (`Ehlers_Smoother_Calculator.mqh`):** The complex, recursive calculations for both filter types are encapsulated within a single, dedicated calculator class. A user input determines which formula is executed.
+---
 
-* **Optimized Incremental Calculation (O(1)):**
-    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
-  * **Persistent Buffers:** The indicator buffer itself acts as the persistent memory for the recursive calculation (`Filt[i-1]`, `Filt[i-2]`), ensuring seamless updates without drift or full recalculation.
+### 2.2. Filter Difference Equations
 
-* **Definition-True Initialization:** The filter is carefully "warmed up" by setting the initial output values to the raw price for the first few bars, providing a stable starting point for the recursion.
+#### 1. The SuperSmoother Filter
 
-* **Heikin Ashi Integration:** An inherited `_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data.
+The SuperSmoother is a second-order Butterworth low-pass filter engineered to suppress high-frequency market noise while strictly preventing transient overshoot:
+$$c_1 = 1 - c_2 - c_3$$
+$$\text{Filt}_t = c_1 \cdot \left( \frac{P_t + P_{t-1}}{2} \right) + c_2 \cdot \text{Filt}_{t-1} + c_3 \cdot \text{Filt}_{t-2}$$
 
-## 4. Parameters
+#### 2. The UltimateSmoother Filter
 
-* **Smoother Type (`InpSmootherType`):** Allows the user to select which filter to display (`SUPERSMOOTHER` or `ULTIMATESMOOTHER`).
-* **Period (`InpPeriod`):** The "critical period" of the filter. A longer period results in a smoother, slower filter. (Default: `20`).
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation. (Standard or Heikin Ashi).
+The UltimateSmoother is derived by mathematically subtracting the high-pass filter response from the raw price series, achieving near-zero phase lag in the dominant trend component:
+$$c_1 = \frac{1 + c_2 - c_3}{4}$$
+$$\text{Filt}_t = (1 - c_1) P_t + (2c_1 - c_2) P_{t-1} - (c_1 + c_3) P_{t-2} + c_2 \cdot \text{Filt}_{t-1} + c_3 \cdot \text{Filt}_{t-2}$$
 
-## 5. Usage and Interpretation
+---
 
-The choice between the two smoothers depends on your primary goal.
+## 3. MQL5 Architecture & Engineering Standards
 
-### Using the SuperSmoother (Focus on Clarity)
+```text
 
-Best used as a high-quality replacement for any traditional moving average, especially for **trend identification**.
+┌────────────────────────────────────────────────────────┐
+│              Ehlers_Smoother_Calculator.mqh            │
+│   (Core DSP Math Engine - Encapsulated Heikin Ashi)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Computes Filter Values in O(1)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                 Ehlers_Smoother_Pro.mq5                │
+│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
+├──────────────────────────┬─────────────────────────────┤
+│   Direct Mode (O(1))     │   Synchronized MTF Pipeline │
+│   • Current Timeframe    │   • DataSync_Tools Daemon   │
+│   • Zero-Overhead Bypass │   • Non-Repainting Step Map │
+└──────────────────────────┴─────────────────────────────┘
 
-### Using the Ultimate Smoother (Focus on Speed)
+```
 
-Excels where responsiveness is critical, making it an excellent tool for identifying **dynamic support/resistance zones**.
+1. **Composition over Inheritance:** `CEhlersSmootherCalculator` encapsulates `CHeikinAshi_Calculator` directly via composition, ensuring type-safe handling for all 14 standard and Heikin Ashi price modes through a single, unified interface.
+2. **2026 MTF Framework with Staircase Solution:**
+   * **Asynchronous Data Guard:** Background 1-second timer daemon (`OnTimerUpdate`) ensures higher-timeframe history readiness without chart freezing.
+   * **Forming LTF Block Flat-Force Anchor:** The mapping start index snaps to `first_bar_of_forming_htf`, updating all lower-timeframe sub-bars of the live higher-timeframe candle simultaneously.
+   * **State-Safe Live Bar Mocking:** Live forming HTF ticks are computed on index `g_htf_count - 1` without overwriting historical recursion registers.
+3. **Definition-True Warmup Protection:** Recursion registers are seeded cleanly with raw prices on bars 0..2 during initialization, preventing floating-point overflow spikes.
 
-### Combined Strategy with Smoother Momentum (Advanced)
+---
 
-The filter's true potential is unlocked when used with its companion oscillator, the **[Ehlers Smoother Momentum Pro](./Ehlers_Smoother_Momentum_Pro.md)**.
+## 4. Parameters Reference
 
-* **The Momentum Oscillator's zero-cross predicts the Smoother's turning point.**
-  * **Buy Signal:** Momentum crosses above zero -> Smoother forms a trough.
-  * **Sell Signal:** Momentum crosses below zero -> Smoother forms a peak.
+### Timeframe Settings
+
+* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it operates in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_H1`, `PERIOD_D1`), it activates the synchronized MTF engine.
+
+### Smoother Settings
+
+* `InpSmootherType` (*default: `SUPERSMOOTHER`*): Filter model selection (`SUPERSMOOTHER` or `ULTIMATESMOOTHER`).
+* `InpPeriod` (*default: `20`*): The critical cutoff period ($P$). Higher values produce smoother, slower curves; lower values increase responsiveness.
+* `InpSourcePrice` (*default: `PRICE_CLOSE_STD`*): Applied price series source (Supports all 7 Standard and 7 Heikin Ashi modes).
+
+### Visual Settings
+
+* `InpColorFilter` (*default: `clrBlueViolet`*): Color of the filter plot line.
+* `InpStyleFilter` (*default: `STYLE_SOLID`*): Line style (Solid, Dash, Dot).
+* `InpWidthFilter` (*default: `2`*): Line thickness.
+
+---
+
+## 5. Quantitative Trading Strategies & Filter Selection
+
+```text
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                   FILTER SELECTION & USAGE MATRIX                      │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. SuperSmoother (Clarity): Use as a superior EMA replacement for      │
+│                             macro trend filtering and bias definition. │
+│ 2. UltimateSmoother (Speed): Use as an ultra-fast dynamic support and   │
+│                             resistance line for high-precision entries.│
+│ 3. MTF Macro Alignment:     Attach an H1/H4 SuperSmoother on an M5     │
+│                             execution chart to trade institutional flow│
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+### 5.1. SuperSmoother: The Macro Noise-Free Trend Baseline
+
+* **Best Applied For:** Swing trading, macro trend filtering, and replacement for traditional 20/50/200 EMAs.
+* **Interpretation:**
+  * **Bullish Regime:** Price trading consistently above a rising SuperSmoother line.
+  * **Bearish Regime:** Price trading consistently below a falling SuperSmoother line.
+  * **Flat Regime:** When the curve flattens horizontally, the market is in consolidation; pause trend-following breakout strategies.
+
+### 5.2. UltimateSmoother: Ultra-Responsive Dynamic S/R
+
+* **Best Applied For:** Intraday scalping, fast pullbacks, and tight trailing stop-loss management.
+* **Interpretation:**
+  * Due to its near-zero phase lag transfer function, pullbacks into the UltimateSmoother line during established trends represent high-conviction continuation entry zones with minimal drawdown.
+
+### 5.3. Multi-Timeframe Confluence Execution
+
+* Load an **H1-calculated SuperSmoother** onto an **M5 execution chart**.
+* The flat, synchronized steps provide an unpainted macro institutional baseline:
+  * Only execute M5 long pullbacks when price is above the H1 SuperSmoother step.
+  * Only execute M5 short pullbacks when price is below the H1 SuperSmoother step.
+
+---
+
+## 6. Indicator Buffer Map (For Developers & EA Integration)
+
+| Buffer Index | Name | Type | Description |
+| :---: | :---: | :--- | :--- |
+| **0** | `BufferFilter` | `INDICATOR_DATA` | Smoothed Filter Plot Line (SuperSmoother / UltimateSmoother) |
+
+*The buffer strictly maintains non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
