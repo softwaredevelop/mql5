@@ -1,96 +1,200 @@
-# DMI Stochastic Professional
+# Barbara Star's DMI Stochastic Oscillator Pro (v3.00)
+
+Quantitative Trend-Momentum Hybrid & Directional Stochastic Oscillator Suite
+
+---
 
 ## 1. Summary (Introduction)
 
-The DMI Stochastic, developed by Barbara Star, is an innovative oscillator that combines two powerful concepts: J. Welles Wilder's Directional Movement Index (DMI) and the Stochastic Oscillator.
+**DMI Stochastic Pro** is an institutional-grade trend-momentum hybrid oscillator developed by technical analyst Barbara Star. It synthesizes **J. Welles Wilder Jr.'s Directional Movement System (+DI / -DI)** with **George Lane's Stochastic Oscillator formula**.
 
-Instead of analyzing the price, this indicator measures the **momentum of the underlying directional pressure** in the market. It does this by first creating an oscillator from the difference between the Positive (+DI) and Negative (-DI) Directional Indicators, and then feeding this new value series into a standard Stochastic calculation.
+Standard price-based Stochastics suffer from severe premature exhaustion in strong trends: because raw price continuously makes new highs, standard Stochastics gets pinned in "overbought" territory for extended periods. **Barbara Star resolved this by applying Stochastic normalization directly to the DMI Oscillator ($+DI - -DI$) rather than raw price**:
 
-The result is an oscillator that identifies overbought and oversold conditions in bullish or bearish momentum itself, providing unique insights into potential trend exhaustion and reversals.
+* **Directional Balance ($50.0$ Level):** When %K is above $50.0$, buyers dominate the directional market structure (+DI > -DI). When %K is below $50.0$, sellers dominate (-DI > +DI).
+* **True Momentum Exhaustion ($\ge 80.0 / \le 20.0$):** Identifies when the relative dominance of buyers or sellers has reached a statistical local extreme and is beginning to decelerate.
 
-Our `DMIStochastic_Pro` implementation is a professional version that includes:
+```text
 
-* Calculation based on either **standard** or **Heikin Ashi** candles.
-* A user-selectable formula for the internal DMI Oscillator for more intuitive use.
+┌────────────────────────────────────────────────────────────────────────┐
+│                   DMI STOCHASTIC HYBRID ARCHITECTURE                   │
+├──────────────────────┬────────────────────────┬────────────────────────┤
+│     Line Plot        │   Color Code           │   Core Role            │
+├──────────────────────┼────────────────────────┼────────────────────────┤
+│ %K Main Line         │ clrDodgerBlue (Width:2)│ Directional Momentum   │
+│ %D Signal Line       │ clrCoral (Width:1)     │ Smoothed Trigger Line  │
+└──────────────────────┴────────────────────────┴────────────────────────┘
 
-## 2. Mathematical Foundations and Calculation Logic
+```
 
-The calculation is a three-stage process: first building the DMI components, then creating the DMI Oscillator, and finally applying the Stochastic formula.
+### Key Capabilities
 
-### Required Components
+* **0–100 Bounded Hybrid Scale:** Maps unbounded directional momentum into standardized institutional overbought/oversold bands.
+* **Flexible Dual-Engine Smoothing:** Independent Moving Average smoothing methods for both %K Slowing and %D Signal lines (supports SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, and Volume-Weighted VWMA).
+* **Unified 2026 MTF Framework:** Higher-timeframe DMI Stochastic curves (e.g., H1 or H4) map onto lower-timeframe execution charts (M1, M5, M15) with flat, non-warping steps via `DataSync_Tools.mqh`.
+* **Synthetic Heikin Ashi Support:** Computes smoothed directional vectors from synthetic Heikin Ashi candles via `CDMIStochasticCalculator_HA`.
+* **Dynamic 5-Level Grid:** Fully customizable horizontal thresholds ($10, 20, 50, 80, 90$).
 
-* **DMI Period (N):** The lookback period for the DMI calculation (e.g., 10).
-* **Stochastic Periods:** Fast %K Period, Slowing Period, and %D Period.
+---
 
-### Calculation Steps (Algorithm)
+## 2. Mathematical Foundations & Hybrid Synthesis
 
-1. **Calculate Directional Indicators (+DI, -DI):** This initial step is identical to the standard ADX calculation.
-    * First, the raw Directional Movement (+DM, -DM) and True Range (TR) are calculated for each bar.
-    * These three series are then smoothed using Wilder's method (SMMA/RMA) over the DMI Period `N`.
-    * Finally, the +DI and -DI lines are calculated:
-        $\text{+DI}_i = 100 \times \frac{\text{Smoothed +DM}_i}{\text{Smoothed TR}_i}$
-        $\text{-DI}_i = 100 \times \frac{\text{Smoothed -DM}_i}{\text{Smoothed TR}_i}$
+```text
 
-2. **Create the DMI Oscillator:** This is the core of the indicator. An oscillator is created from the difference between the two directional indicators. Our implementation allows for two formulas:
-    * **Intuitive (Default):** $\text{DMI Oscillator}_i = \text{+DI}_i - \text{-DI}_i$
-        *(High values indicate strong bullish pressure)*
-    * **Original:** $\text{DMI Oscillator}_i = \text{-DI}_i - \text{+DI}_i$
-        *(High values indicate strong bearish pressure)*
+                 Wilder's DMI (+DI and -DI) over Period P_DMI
+                                      │
+                                      ▼
+             DMI Oscillator = (+DI) - (-DI)  (Ranges: -100 to +100)
+                                      │
+                                      ▼
+            Stochastic Normalization over Fast %K Period (0 to 100)
+               Fast %K = [ (DMI Osc - Lowest) / Range ] × 100
+                                      │
+                                      ▼
+                 Slow %K = MA(Fast %K, Period = SlowK, Method = K_MA)
+                                      │
+                                      ▼
+                 %D Signal = MA(Slow %K, Period = Smooth, Method = D_MA)
 
-3. **Apply the Slow Stochastic Formula:** The `DMI Oscillator` series is now used as the input for a standard Slow Stochastic calculation.
-    * **Calculate Fast %K:**
-        $\text{Highest High} = \text{Highest value of DMI Oscillator over the Fast \%K Period}$
-        $\text{Lowest Low} = \text{Lowest value of DMI Oscillator over the Fast \%K Period}$
-        $\text{Fast \%K} = 100 \times \frac{\text{DMI Oscillator}_i - \text{Lowest Low}}{\text{Highest High} - \text{Lowest Low}}$
-    * **Calculate Slow %K (Main Line):** The `Fast %K` series is smoothed using the selected moving average type over the `Slowing Period`.
-        $\text{Slow \%K} = \text{MA}(\text{Fast \%K}, \text{Slowing Period})$
-    * **Calculate %D (Signal Line):** The `Slow %K` series is smoothed again using the selected moving average type over the `%D Period`.
-        $\text{\%D} = \text{MA}(\text{Slow \%K}, \text{\%D Period})$
+```
 
-## 3. MQL5 Implementation Details
+### 2.1. The DMI Difference Oscillator
 
-Our MQL5 implementation follows the same modern, object-oriented design as our other professional indicators.
+$$\text{DMI Oscillator}_t = \begin{cases} (+DI_t) - (-DI_t), & \text{if } \text{InpOscType} = \text{OSC\_PDI\_MINUS\_NDI} \\ (-DI_t) - (+DI_t), & \text{if } \text{InpOscType} = \text{OSC\_NDI\_MINUS\_PDI} \end{cases}$$
 
-* **Shared Core Engine (`DMI_Engine.mqh`):**
-    Just like the ADX Pro, this indicator leverages the shared `DMI_Engine` to perform the initial heavy lifting (calculating +DI and -DI). This guarantees mathematical consistency across the suite.
+---
 
-* **Modular Calculation Engine (`DMIStochastic_Calculator.mqh`):**
-    This engine acts as a coordinator. It:
-    1. Delegates the DMI calculation to the `DMI_Engine`.
-    2. Calculates the DMI Oscillator from the engine's output.
-    3. Delegates the Stochastic smoothing to two instances of the `MovingAverage_Engine`.
+### 2.2. Fast %K Stochastic Normalization
 
-* **Engine Integration:**
-    The calculator internally uses two instances of our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Slow %K and the %D Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
+Across the lookback window $P_{\text{FastK}} = \text{InpFastKPeriod}$:
+$$\text{Highest}_t = \max_{j=0 \dots P_{\text{FastK}}-1} \left( \text{DMI Oscillator}_{t-j} \right)$$
+$$\text{Lowest}_t = \min_{j=0 \dots P_{\text{FastK}}-1} \left( \text{DMI Oscillator}_{t-j} \right)$$
+$$\text{Range}_t = \text{Highest}_t - \text{Lowest}_t$$
 
-* **Optimized Incremental Calculation (O(1)):**
-    The entire chain of engines (DMI Engine -> DMI Stoch Calculator -> MA Engines) is fully optimized for incremental calculation using `prev_calculated`. State is preserved across all layers.
+$$\text{Fast \%K}_t = \begin{cases} \left( \frac{\text{DMI Oscillator}_t - \text{Lowest}_t}{\text{Range}_t} \right) \times 100, & \text{if } \text{Range}_t > 10^{-9} \\ 50.0, & \text{if } \text{Range}_t = 0 \end{cases}$$
 
-* **Object-Oriented Design:**
-  * The Heikin Ashi version (`CDMIStochasticCalculator_HA`) works by injecting the Heikin Ashi version of the DMI Engine (`CDMIEngine_HA`) into the calculation pipeline.
+---
 
-## 4. Parameters
+### 2.3. Slow %K (Main Line) & %D (Signal Line) Smoothing
 
-* **Candle Source (`InpCandleSource`):** Selects the candle type for the initial DMI calculation.
-  * `CANDLE_STANDARD`: Uses standard OHLC data.
-  * `CANDLE_HEIKIN_ASHI`: Uses smoothed Heikin Ashi data.
-* **Oscillator Formula (`InpOscType`):** Determines the formula for the internal DMI Oscillator.
-  * `OSC_PDI_MINUS_NDI`: High values represent bullish pressure (recommended, intuitive).
-  * `OSC_NDI_MINUS_PDI`: High values represent bearish pressure (original definition).
-* **DMI Period (`InpDMIPeriod`):** The lookback period for the underlying +DI and -DI calculation. (Default: `10`).
-* **Stochastic %K Period (`InpFastKPeriod`):** The lookback period for finding the highest/lowest values of the DMI Oscillator. (Default: `10`).
-* **Stochastic %K Slowing (`InpSlowKPeriod`):** The period for the first smoothing of the raw %K line. (Default: `3`).
-* **Stochastic %D Period (`InpSmoothPeriod`):** The period for smoothing the main %K line to create the signal line. (Default: `3`).
-* **MA Method for Stochastic (`InpStochMethod`):** The type of moving average to use for the %K slowing step. (Default: `SMA`).
-* **MA Method for Signal (`InpSignalMethod`):** The type of moving average to use for the %D smoothing step. (Default: `SMA`).
+The raw Fast %K is smoothed using the user-defined moving average algorithm ($\mathcal{MA}$):
+$$\text{\%K}_t = \mathcal{MA}\left( \text{Fast \%K}, \text{Period} = \text{InpSlowKPeriod}, \text{Type} = \text{InpStochMethod} \right)$$
 
-## 5. Usage and Interpretation
+The final signal line is produced by smoothing the %K series:
+$$\text{\%D}_t = \mathcal{MA}\left( \text{\%K}, \text{Period} = \text{InpSmoothPeriod}, \text{Type} = \text{InpSignalMethod} \right)$$
 
-The DMI Stochastic should be interpreted as a **momentum-of-momentum** oscillator. It shows when the bullish or bearish *pressure* is overextended. (Assuming default `PDI - NDI` formula).
+---
 
-* **Overbought/Oversold Momentum:**
-  * **Values > 80 (Overbought):** Indicates that bullish pressure has been extremely strong and dominant. This may signal that the bullish move is exhausted and a bearish reversal or consolidation is imminent.
-  * **Values < 20 (Oversold):** Indicates that bearish pressure has been extremely strong. This may signal that the bearish move is exhausted and a bullish reversal or consolidation is likely.
-* **Crossovers:**
-  * When the **%K line (blue) crosses above the %D line (red)**, it signals a bullish shift in directional momentum.
-  * When the **%K line (blue) crosses below the %D line (red)**, it signals a bearish shift in directional momentum.
+## 3. MQL5 Architecture & Engineering Standards
+
+```text
+
+┌────────────────────────────────────────────────────────┐
+│                     DMI_Engine.mqh                     │
+│        (Core Math: Computes +DI and -DI Series)        │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Feeds +DI & -DI Series
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│               DMIStochastic_Calculator.mqh             │
+│    (DMI Difference & Fast %K Stochastic Normalizer)    │
+├──────────────────────────┬─────────────────────────────┤
+│   MovingAverage_Engine   │   Dual MA Smoothing Engine  │
+│   • Slow %K Calculator   │   • %D Signal Calculator    │
+└──────────────────────────┴─────────────────────────────┘
+                           │ Outputs %K and %D in O(1)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                 DMIStochastic_Pro.mq5                  │
+│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
+├──────────────────────────┬─────────────────────────────┤
+│   Direct Mode (O(1))     │   Synchronized MTF Pipeline │
+│   • Current Timeframe    │   • DataSync_Tools Daemon   │
+│   • 2 Output Plots       │   • Staircase Flat-Force    │
+└──────────────────────────┴─────────────────────────────┘
+
+```
+
+1. **4-Tier Modular Hierarchy:** Isolates raw Directional Movement (`DMI_Engine.mqh`) from moving average smoothing (`MovingAverage_Engine.mqh`), orchestrated through `DMIStochastic_Calculator.mqh`.
+2. **Leak-Free Pointer Protection:** Factory methods (`CreateEngine`) safely delete previous engine instances before allocating new ones.
+3. **2026 MTF Framework with Staircase Solution:**
+   * Asynchronous 1-second timer daemon (`OnTimerUpdate`) ensures higher-timeframe data synchronization without UI lag.
+   * Dynamic staircase anchor (`first_bar_of_forming_htf`) synchronizes all lower-timeframe sub-bars belonging to the active higher-timeframe candle.
+
+---
+
+## 4. Parameters Reference
+
+### Timeframe Settings
+
+* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it operates in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_H1`, `PERIOD_D1`), it activates the synchronized MTF engine.
+
+### DMI & Stochastic Settings
+
+* `InpCandleSource` (*default: `CANDLE_STANDARD`*): Price source (`CANDLE_STANDARD` or `CANDLE_HEIKIN_ASHI`).
+* `InpOscType` (*default: `OSC_PDI_MINUS_NDI`*): Formula polarity (`OSC_PDI_MINUS_NDI` for Bullish-dominant scaling, `OSC_NDI_MINUS_PDI` for Bearish-dominant scaling).
+* `InpDMIPeriod` (*default: `10`*): Wilder's smoothing lookback period for DMI calculations.
+* `InpFastKPeriod` (*default: `10`*): Lookback period for Stochastic normalization.
+* `InpSlowKPeriod` (*default: `3`*): Smoothing period for the %K main line.
+* `InpStochMethod` (*default: `SMA`*): Smoothing method for %K (`SMA`, `EMA`, `SMMA`, `LWMA`, `TMA`, `DEMA`, `TEMA`, `VWMA`).
+* `InpSmoothPeriod` (*default: `3`*): Smoothing period for the %D signal line.
+* `InpSignalMethod` (*default: `SMA`*): Smoothing method for %D.
+
+### Indicator Levels (0–100 Range)
+
+* `InpLevelExtrHigh` (*default: `90.0`*): Extreme Overbought Climax boundary.
+* `InpLevelHigh` (*default: `80.0`*): Overbought Warning threshold.
+* `InpLevelMid` (*default: `50.0`*): Directional Equilibrium threshold (+DI = -DI).
+* `InpLevelLow` (*default: `20.0`*): Oversold Warning threshold.
+* `InpLevelExtrLow` (*default: `10.0`*): Extreme Oversold Climax boundary.
+* `InpLevelColor` (*default: `clrSilver`*): Color of horizontal level lines.
+* `InpLevelStyle` (*default: `STYLE_DOT`*): Line style of horizontal level lines.
+
+### Visual Settings
+
+* `InpColorK` (*default: `clrDodgerBlue`*): %K line color (Width: 2, Solid).
+* `InpColorD` (*default: `clrCoral`*): %D signal line color (Width: 1, Solid).
+
+---
+
+## 5. Quantitative Trading Playbooks
+
+```text
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                   DMI STOCHASTIC TRADING PLAYBOOKS                     │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. 50-Line Equilibrium Cross: %K crossing > 50 confirms Bullish Flow.  │
+│                               %K crossing < 50 confirms Bearish Flow.  │
+│ 2. Signal Crossover Trigger:  %K crosses %D while in 20-80 zone in     │
+│                               direction of dominant trend.             │
+│ 3. Deep Climax Reversal:      %K exiting > 90 / < 10 extreme boundaries│
+│                               signals exhaustion mean-reversion.       │
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+### 5.1. The 50-Level Directional Regime Filter
+
+* **Bullish Dominance:** When `%K > 50.0`, buyers hold directional control (+DI > -DI). Only take long setups.
+* **Bearish Dominance:** When `%K < 50.0`, sellers hold directional control (-DI > +DI). Only take short setups.
+
+### 5.2. Trend-Following Signal Line Crossovers (%K / %D)
+
+* **Bullish Continuation Trigger:** Price is in an established uptrend (Price > KAMA or 20 EMA), %K pulls back toward the 50.0 line, and crosses **above %D** $\rightarrow$ Enter Long.
+* **Bearish Continuation Trigger:** Price is in a downtrend, %K rallies toward 50.0, and crosses **below %D** $\rightarrow$ Enter Short.
+
+### 5.3. Multi-Timeframe Confluence Execution
+
+* Attach an **H1-calculated DMI Stochastic** onto an **M5 execution chart**.
+* **Rule:** Only take M5 long breakout/pullback entries when **H1 %K is above 50.0 and rising**. This eliminates counter-trend traps against higher-timeframe institutional momentum.
+
+---
+
+## 6. Indicator Buffer Map (For Developers & EA Integration)
+
+| Buffer Index | Name | Type | Description |
+| :---: | :---: | :--- | :--- |
+| **0** | `BufferK` | `INDICATOR_DATA` | DMI Stochastic %K (Main Directional Line) |
+| **1** | `BufferD` | `INDICATOR_DATA` | DMI Stochastic %D (Signal Trigger Line) |
+
+*Both buffers strictly maintain non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
