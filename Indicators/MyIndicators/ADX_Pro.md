@@ -1,128 +1,206 @@
-# Welles Wilder ADX Pro Suite (Standard & MTF)
+# Average Directional Index (ADX) Pro (v3.00)
+
+Quantitative Trend Strength & Directional Movement Index (DMI) Suite
+
+---
 
 ## 1. Summary (Introduction)
 
-The **Welles Wilder ADX Pro Suite** is an institutional-grade trend-intensity and direction analysis suite comprising two advanced technical indicators: `ADX_Pro` (Standard) and `ADX_MTF_Pro` (Multi-Timeframe).
+**ADX Pro** is an institutional-grade implementation of J. Welles Wilder Jr.'s legendary **Directional Movement System**, comprising the **Average Directional Index (ADX)**, **Positive Directional Indicator (+DI)**, and **Negative Directional Indicator (-DI)**.
 
-Originally developed by J. Welles Wilder in his seminal 1978 work, the Average Directional Index (ADX) is designed to measure the **absolute strength of a trend**, completely independent of its direction. It does not identify whether the market is bullish or bearish, but quantifies its momentum.
+Unlike momentum oscillators that oscillate with price swings, **ADX measures the absolute strength and conviction of a market trend regardless of its direction**. By quantifying the balance of power between buyers (+DI) and sellers (-DI), ADX Pro serves as the ultimate regime filter:
 
-The ADX system consists of three distinct lines:
+* **Trend Absence / Consolidation Regime ($ADX < 20.0$):** Market is in a low-conviction range; trend-following breakout systems should be paused, and mean-reversion strategies favored.
+* **Trend Confirmation Regime ($ADX \ge 25.0$):** Validates that an authentic, directional momentum trend is in progress.
+* **Extreme Parabolic Climax ($ADX \ge 40.0$):** Indicates an over-extended, mature trend vulnerable to momentum exhaustion or violent pullbacks.
 
-* **ADX Line (DodgerBlue):** The main line that quantifies trend strength.
-* **+DI (Positive Directional Indicator - OliveDrab):** Measures the strength of the upward price movement.
-* **-DI (Negative Directional Indicator - Tomato):** Measures the strength of the downward price movement.
+```text
 
-Our ADX Suite is a highly optimized, professional-grade implementation that combines Welles Wilder's definition-true smoothing with modern object-oriented design and Heikin Ashi candle smoothing integration.
+┌────────────────────────────────────────────────────────────────────────┐
+│                   THE DIRECTIONAL MOVEMENT SYSTEM                      │
+├──────────────────────┬────────────────────────┬────────────────────────┤
+│     Line Plot        │   Color Code           │   Core Role            │
+├──────────────────────┼────────────────────────┼────────────────────────┤
+│ ADX Line             │ clrDodgerBlue (Width:2)│ Absolute Trend Strength│
+│ +DI Line             │ clrOliveDrab (Width:1) │ Positive Buying Power  │
+│ -DI Line             │ clrTomato (Width:1)    │ Negative Selling Power │
+└──────────────────────┴────────────────────────┴────────────────────────┘
 
----
-
-## 2. Mathematical Foundations and Calculation Logic
-
-The ADX calculation is a complex, multi-stage process that relies heavily on Wilder's smoothing technique (a specific type of Smoothed or Running Moving Average - SMMA/RMA).
-
-### Required Components
-
-* **ADX Period ($P$):** The lookback period used for all internal calculations (Default: `14`).
-* **Directional Movement (+DM, -DM):** Measures the portion of the current bar's range that is outside the previous bar's range.
-* **True Range (TR):** The standard measure of a single bar's volatility.
-
-### Calculation Steps (Algorithm)
-
-1. **Calculate Directional Movement and True Range:** For each period, calculate:
-    * $\text{Up Move}_t = \text{High}_t - \text{High}_{t-1}$
-    * $\text{Down Move}_t = \text{Low}_{t-1} - \text{Low}_t$
-    * If $\text{Up Move}_t > \text{Down Move}_t$ and $\text{Up Move}_t > 0$, then $\text{+DM}_t = \text{Up Move}_t$, else $\text{+DM}_t = 0$.
-    * If $\text{Down Move}_t > \text{Up Move}_t$ and $\text{Down Move}_t > 0$, then $\text{-DM}_t = \text{Down Move}_t$, else $\text{-DM}_t = 0$.
-    * $\text{True Range (TR)}_t = \max[(\text{High}_t - \text{Low}_t), \text{Abs}(\text{High}_t - \text{Close}_{t-1}), \text{Abs}(\text{Low}_t - \text{Close}_{t-1})]$
-
-2. **Smooth +DM, -DM, and TR:** Apply Wilder's smoothing method over period $P$.
-    * **Initialization:** The first value is the sum of the first $P$ periods:
-        $$\text{Smoothed +DM}_{P} = \sum_{i=1}^{P} \text{+DM}_i$$
-    * **Recursive Calculation:**
-        $$\text{Smoothed +DM}_t = \text{Smoothed +DM}_{t-1} - \frac{\text{Smoothed +DM}_{t-1}}{P} + \text{+DM}_t$$
-    * *(The same logic applies to -DM and TR)*
-
-3. **Calculate Directional Indicators (+DI, -DI):**
-    $$\text{+DI}_t = 100 \times \frac{\text{Smoothed +DM}_t}{\text{Smoothed TR}_t}$$
-    $$\text{-DI}_t = 100 \times \frac{\text{Smoothed -DM}_t}{\text{Smoothed TR}_t}$$
-
-4. **Calculate the Directional Index (DX):**
-    $$\text{DX}_t = 100 \times \frac{\text{Abs}(\text{+DI}_t - \text{-DI}_t)}{\text{+DI}_t + \text{-DI}_t}$$
-
-5. **Calculate the Final ADX:** The ADX is a Wilder-smoothed moving average of the DX.
-    * **Initialization:** The first ADX value is a simple average of the first $P$ DX values (calculated starting at index $2P-1$).
-    * **Recursive Calculation:**
-        $$\text{ADX}_t = \frac{(\text{ADX}_{t-1} \times (P-1)) + \text{DX}_t}{P}$$
-
----
-
-## 3. Advanced MQL5 MTF Implementation Details
-
-### A. Shared Core Engines
-
-The fundamental calculation of Directional Movement (+DI, -DI) is outsourced to a shared engine (`DMI_Engine.mqh`). This ensures that the ADX and other DMI-based indicators use the exact same, validated mathematical core, eliminating code duplication and potential inconsistencies. The `CADXCalculator` uses **Composition** to include the `CDMIEngine`.
-
-### B. Forming LTF Block Flat-Force (The Warping Solution)
-
-`ADX_MTF_Pro` resolves the classic MTF live-bar warping bug (where only the very last LTF bar gets updated, creating a jagged, diagonal line across the active HTF block) by implementing the **Forming LTF Block Flat-Force** step-blocking algorithm. On every tick, the indicator locates the exact boundary of the active forming HTF block and dynamically forces the calculation's starting index back to the beginning of that block:
-
-```mql5
-int first_bar_of_forming_htf = rates_total - 1;
-while(first_bar_of_forming_htf > 0 &&
-      iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-  {
-   first_bar_of_forming_htf--;
-  }
-first_bar_of_forming_htf++; // Start index of the forming HTF step block on lower TF chart
-
-if(start > first_bar_of_forming_htf)
-   start = first_bar_of_forming_htf;
 ```
 
-By forcing a full-block rewrite on every live tick, the active HTF step (Middle, Upper, and Lower bands) remains perfectly flat and responsive in real-time, matching institutional charting standards.
+### Key Capabilities
 
-### C. Strict Non-Repainting State Safety on MTF Live Ticks (State Mocking)
-
-Welles Wilder's smoothing equations (+DM, -DM, TR, and DX) are highly stateful. To support real-time updating without modifying closed historical states (which would cause severe repainting and backtesting discrepancies), the MTF indicator utilizes a highly sophisticated state-mocking call. During live updates on every tick, we pass `prev_calculated = g_htf_count` (which equals `rates_total` inside the calculator).
-
-This forces the loop inside the calculator to run **only once** for the active live index, using the stable closed-bar registers, without overwriting, double-accumulating, or corrupting any historical states inside the recursive Wilder's smoothing registers.
-
-### D. Asynchronous Timer Guard & Hybrid HA Pricing
-
-* **Background Timer:** High-frequency MTF data requests often suffer from terminal loading gaps. A 1-second `OnTimer` background daemon repeatedly verifies data readiness (`EnsureHTFDataReady`) and instantly triggers a chart redraw (`ChartRedraw()`) as soon as history is ready.
-
-* **Heikin Ashi Support:** Standard pricing is used by default. An inherited `CADXCalculator_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
+* **Definition-True Wilder Algorithm:** Implements Wilder's exact recursive smoothing (RMA) across True Range, Directional Movement, and the DX series.
+* **Unified 2026 MTF Framework:** Synchronized with `DataSync_Tools.mqh` to project higher-timeframe ADX and DMI curves (e.g., H1 or H4) onto lower-timeframe execution charts (M1, M5, M15) with flat, non-warping steps.
+* **Modular 3-Tier Architecture:** Powered by `DMI_Engine.mqh` and `ADX_Calculator.mqh` with leak-free pointer safety.
+* **Synthetic Heikin Ashi Support:** Computes smoothed directional vectors from synthetic Heikin Ashi candles to filter out false directional whipsaws.
+* **Dynamic Configurable Levels:** Customizable horizontal thresholds for trend strength ($25.0$) and exhaustion ($40.0$).
 
 ---
 
-## 4. Parameters
+## 2. Mathematical Foundations & Directional Movement Mechanics
 
-### A. Timeframe Settings (MTF Version Only)
+```text
 
-* **Target Timeframe (`InpUpperTimeframe`):** The target higher timeframe to calculate Welles Wilder ADX on (Default: `PERIOD_H1`).
+                 HIGH(t) - HIGH(t - 1)  ───►  +DM (Positive Directional Movement)
+                 LOW(t - 1) - LOW(t)    ───►  -DM (Negative Directional Movement)
+                                              │
+                      ┌───────────────────────┴───────────────────────┐
+                      │    Wilder's RMA Smoothing over Period P       │
+                      └───────────────────────┬───────────────────────┘
+                                              ▼
+                    +DI = Smoothed(+DM) / Smoothed(TR) × 100
+                    -DI = Smoothed(-DM) / Smoothed(TR) × 100
+                                              │
+                                              ▼
+                    DX = | (+DI) - (-DI) | / [ (+DI) + (-DI) ] × 100
+                                              │
+                                              ▼
+                      ADX = Wilder's RMA Smoothing on DX (Period P)
 
-### B. Core ADX Settings
+```
 
-* **ADX Period (`InpPeriodADX`):** The lookback period used for all internal calculations. Wilder's original recommendation and the most common value is `14` (Default: `14`).
+### 2.1. True Range ($TR$) Formulation
 
-* **Candle Source (`InpCandleSource`):** Selects the price series source, supporting Standard and Heikin Ashi price series (Default: `CANDLE_STANDARD`).
+$$TR_t = \max\left( H_t, C_{t-1} \right) - \min\left( L_t, C_{t-1} \right)$$
+
+### 2.2. Directional Movement Vectors ($+DM, -DM$)
+
+$$\Delta H_t = H_t - H_{t-1}, \quad\quad \Delta L_t = L_{t-1} - L_t$$
+
+$$+DM_t = \begin{cases} \Delta H_t, & \text{if } \Delta H_t > \Delta L_t \text{ and } \Delta H_t > 0 \\ 0.0, & \text{otherwise} \end{cases}$$
+
+$$-DM_t = \begin{cases} \Delta L_t, & \text{if } \Delta L_t > \Delta H_t \text{ and } \Delta L_t > 0 \\ 0.0, & \text{otherwise} \end{cases}$$
 
 ---
 
-## 5. Usage and Interpretation
+### 2.3. Wilder's Recursive Smoothing (RMA)
 
-* **Trend Strength:** The primary signal is the ADX line itself (DodgerBlue).
-  * **ADX < 25:** Weak or non-existent trend (ranging market). Trend-following strategies should be avoided.
-  * **ADX > 25:** Strong trend. The higher the ADX, the stronger the trend.
-  * **Rising ADX:** The trend is gaining strength.
-  * **Falling ADX:** The trend is losing strength.
-* **Trend Direction (+DI and -DI Crossover):**
-  * When the **+DI line (green) crosses above the -DI line (red)**, it suggests the start of a bullish trend.
-  * When the **-DI line (red) crosses above the +DI line (green)**, it suggests the start of a bearish trend.
-* **Trade Confirmation:** A common strategy is to wait for a +DI/-DI crossover and then confirm that the ADX line is above 25 (or rising) before entering a trade. This helps to filter out signals that occur in weak or non-trending markets.
+For any series $X \in \{+DM, -DM, TR\}$, the initial seed is the cumulative sum over lookback period $P$:
+$$\text{Smoothed}(X)_P = \sum_{j=1}^{P} X_j$$
 
-### C. Top-Down Macro Trend Alignment (MTF Core Strategy)
+Subsequent bars update via Wilder's recursive smoothing equation:
+$$\text{Smoothed}(X)_t = \text{Smoothed}(X)_{t-1} - \left( \frac{\text{Smoothed}(X)_{t-1}}{P} \right) + X_t = \frac{\text{Smoothed}(X)_{t-1} \cdot (P - 1) + X_t \cdot P}{P}$$
 
-1. **Macro Trend Filter (H1/H4):** Apply `ADX_MTF_Pro` set to H1 or H4 on an M5 execution chart.
-2. **The Trend Strength Alignment:** Identify if the macro timeframe is trending strongly. The **H1 MTF ADX** must be above 25.
-3. **The Local Entry:** If the H1 MTF +DI is above the -DI (bullish trend), only seek long entries on the lower M5 timeframe. Execute long trades when local LTF momentum shifts, avoiding counter-trend positions. If H1 MTF ADX is below 25 (ranging), avoid all trend-following breakouts and instead run range-trading grid bots on the lower timeframe.
+---
+
+### 2.4. Directional Indicators ($+DI, -DI$)
+
+$$+DI_t = \left( \frac{\text{Smoothed}(+DM)_t}{\text{Smoothed}(TR)_t} \right) \times 100$$
+$$-DI_t = \left( \frac{\text{Smoothed}(-DM)_t}{\text{Smoothed}(TR)_t} \right) \times 100$$
+
+### 2.5. Directional Index ($DX$) & Average Directional Index ($ADX$)
+
+$$DX_t = \begin{cases} \left( \frac{|+DI_t - -DI_t|}{+DI_t + -DI_t} \right) \times 100, & \text{if } (+DI_t + -DI_t) > 0 \\ 0.0, & \text{otherwise} \end{cases}$$
+
+The final ADX curve begins at bar index $t_{\text{seed}} = 2P - 1$ as the arithmetic mean of the preceding $P$ values of $DX$:
+$$ADX_{2P-1} = \frac{1}{P} \sum_{j=0}^{P-1} DX_{2P-1-j}$$
+
+Subsequent values update via Wilder's smoothing on $DX$:
+$$ADX_t = \frac{ADX_{t-1} \cdot (P - 1) + DX_t}{P}$$
+
+---
+
+## 3. MQL5 Architecture & Engineering Standards
+
+```text
+
+┌────────────────────────────────────────────────────────┐
+│                     DMI_Engine.mqh                     │
+│    (Core Math: Computes Smoothed TR, +DM, -DM, ±DI)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Feeds +DI & -DI Series
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                   ADX_Calculator.mqh                   │
+│    (DX Calculation & Wilder's Recursive ADX Engine)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Outputs ADX, +DI, -DI in O(1)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                       ADX_Pro.mq5                      │
+│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
+├──────────────────────────┬─────────────────────────────┤
+│   Direct Mode (O(1))     │   Synchronized MTF Pipeline │
+│   • Current Timeframe    │   • DataSync_Tools Daemon   │
+│   • 3 Output Plots       │   • Staircase Flat-Force    │
+└──────────────────────────┴─────────────────────────────┘
+
+```
+
+1. **Modular 3-Tier Engine Hierarchy:** Isolates low-level DMI physics (`DMI_Engine.mqh`) from high-level ADX smoothing (`ADX_Calculator.mqh`), allowing other oscillators in the suite to reuse DMI without recalculation overhead.
+2. **Leak-Free Pointer Protection:** Factory methods (`CreateEngine`) explicitly verify pointer validity (`CheckPointer`) and safely free memory before re-allocation.
+3. **2026 MTF Framework with Staircase Solution:**
+   * Asynchronous 1-second timer daemon (`OnTimerUpdate`) ensures higher-timeframe data synchronization without GUI freezes.
+   * Dynamic staircase anchor (`first_bar_of_forming_htf`) synchronizes all lower-timeframe sub-bars belonging to the active higher-timeframe candle.
+
+---
+
+## 4. Parameters Reference
+
+### Timeframe Settings
+
+* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it runs in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_H1`, `PERIOD_D1`), it activates the synchronized MTF engine.
+
+### ADX Core Settings
+
+* `InpPeriodADX` (*default: `14`*): Wilder's lookback smoothing period ($P$) for DMI and ADX calculations.
+* `InpCandleSource` (*default: `CANDLE_STANDARD`*): Candle price source (`CANDLE_STANDARD` or `CANDLE_HEIKIN_ASHI`).
+
+### Indicator Levels
+
+* `InpLevelTrend` (*default: `25.0`*): Key institutional trend strength threshold.
+* `InpLevelExtreme` (*default: `40.0`*): Strong trend / potential exhaustion boundary.
+* `InpLevelColor` (*default: `clrSilver`*): Color of horizontal level lines.
+* `InpLevelStyle` (*default: `STYLE_DOT`*): Line style of horizontal level lines.
+
+### Visual Settings
+
+* `InpColorADX` (*default: `clrDodgerBlue`*): ADX trend strength line color (Width: 2, Solid).
+* `InpColorPDI` (*default: `clrOliveDrab`*): +DI positive directional line color (Width: 1, Solid).
+* `InpColorNDI` (*default: `clrTomato`*): -DI negative directional line color (Width: 1, Solid).
+
+---
+
+## 5. Quantitative Trading Playbooks
+
+```text
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                   ADX & DMI INSTITUTIONAL PLAYBOOKS                    │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Regime Filter:        ADX < 20 = No Trend / Chop (Pause Breakouts) │
+│                          ADX > 25 = Valid Directional Trend Active     │
+│ 2. Directional Trigger:  +DI crosses above -DI while ADX > 25 = Buy    │
+│                          -DI crosses above +DI while ADX > 25 = Sell   │
+│ 3. Climax Exhaustion:    ADX > 40 turning downward = Scale Out Profits │
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+### 5.1. The ADX Regime Filter (Eliminating False Breakouts)
+
+* **Chop Rule ($ADX < 20.0$):** When ADX is below 20.0, the market is range-bound. Disregard moving average crossovers and breakout signals. Favor mean-reversion boundary trades.
+* **Trend Confirmation ($ADX \ge 25.0$):** A rising ADX crossing above 25.0 confirms that institutional trend expansion is active.
+
+### 5.2. Directional Indicator Crossovers (+DI / -DI)
+
+* **Bullish Momentum Trigger:** `+DI` crosses above `-DI` AND `ADX > 25.0` (with ADX sloping upward) $\rightarrow$ High-probability Long Trend Entry.
+* **Bearish Momentum Trigger:** `-DI` crosses above `+DI` AND `ADX > 25.0` (with ADX sloping upward) $\rightarrow$ High-probability Short Trend Entry.
+
+### 5.3. Multi-Timeframe Macro Trend Strength Filter
+
+* Attach an **H1-calculated ADX** onto an **M5 execution chart**.
+* Only take intraday long pullbacks on M5 when **H1 ADX is above 25.0 AND H1 +DI is above H1 -DI**. This ensures you are trading strictly aligned with higher-timeframe institutional trend momentum.
+
+---
+
+## 6. Indicator Buffer Map (For Developers & EA Integration)
+
+| Buffer Index | Name | Type | Description |
+| :---: | :---: | :--- | :--- |
+| **0** | `BufferADX` | `INDICATOR_DATA` | Average Directional Index (Main Trend Strength) |
+| **1** | `BufferPDI` | `INDICATOR_DATA` | Positive Directional Indicator (+DI) |
+| **2** | `BufferNDI` | `INDICATOR_DATA` | Negative Directional Indicator (-DI) |
+
+*All buffers strictly maintain non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
