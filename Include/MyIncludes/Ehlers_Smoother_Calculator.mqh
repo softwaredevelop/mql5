@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Unified Composition Engine with Full HA & Bounds Protection
+#property version   "3.25" // 100% Backward Compatible & Robust Composition DSP Engine
 
 #ifndef EHLERS_SMOOTHER_CALCULATOR_MQH
 #define EHLERS_SMOOTHER_CALCULATOR_MQH
@@ -43,29 +43,33 @@ public:
                      CEhlersSmootherCalculator(void);
    virtual                  ~CEhlersSmootherCalculator(void) {};
 
-   //--- Enhanced Pro Init
+   //--- Enhanced Pro Init (4 Parameters)
    bool                      Init(const int period, const ENUM_SMOOTHER_TYPE type,
                                   const ENUM_INPUT_SOURCE source_type, const ENUM_APPLIED_PRICE_HA_ALL price_source);
 
-   //--- Legacy Compatible Init
+   //--- Legacy Compatible Init (3 Parameters)
    bool                      Init(const int period, const ENUM_SMOOTHER_TYPE type, const ENUM_INPUT_SOURCE source_type)
      {
       return Init(period, type, source_type, PRICE_CLOSE_STD);
      }
 
-   //--- Unified Calculation Method
+   //--- Modern Unified Calculation Method
    void                      Calculate(const int rates_total, const int prev_calculated,
                                        const double &open[], const double &high[],
                                        const double &low[], const double &close[],
                                        double &filter_buffer[]);
 
-   //--- Legacy Overload (With price_type parameter)
+   //--- Legacy Overload (With explicit price_type parameter)
    void                      Calculate(const int rates_total, const int prev_calculated,
                                        const ENUM_APPLIED_PRICE price_type,
                                        const double &open[], const double &high[],
                                        const double &low[], const double &close[],
                                        double &filter_buffer[])
      {
+      // Preserve dynamic applied price passed from legacy caller
+      if(m_applied_price >= PRICE_CLOSE_STD)
+         m_applied_price = (ENUM_APPLIED_PRICE_HA_ALL)price_type;
+
       Calculate(rates_total, prev_calculated, open, high, low, close, filter_buffer);
      }
 
@@ -222,7 +226,7 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
    if(rates_total < 4)
       return;
 
-//--- Safe allocation of output buffer
+//--- Safe allocation of destination array
    if(ArraySize(filter_buffer) != rates_total)
      {
       ArrayResize(filter_buffer, rates_total);
