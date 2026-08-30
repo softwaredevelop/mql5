@@ -1,73 +1,211 @@
-# Stochastic Adaptive Professional
+# Frank Key's Adaptive Stochastic Oscillator Pro (v3.00)
+
+Quantitative Variable-Length Adaptive Momentum & Stochastic Oscillator Suite
+
+---
 
 ## 1. Summary (Introduction)
 
-The `Stochastic_Adaptive_Pro` is an implementation of Frank Key's innovative "Variable-Length Stochastic" concept. It is an "intelligent" oscillator that solves a major drawback of the classic Stochastic: its tendency to get "stuck" in overbought or oversold zones during a strong, sustained trend.
+**Stochastic Adaptive Pro** is an institutional-grade non-linear momentum oscillator developed by technical analyst Frank Key. It eliminates the fatal flaw of traditional fixed-period Stochastics by dynamically adjusting its lookback calculation window using **Perry Kaufman's Efficiency Ratio (ER)**.
 
-This indicator achieves this by dynamically adjusting its own lookback period based on the market's "trendiness," which it measures using **Kaufman's Efficiency Ratio (ER)**.
+Traditional Stochastics (George Lane) uses a rigid, constant period (e.g., 14). During explosive, sustained trends, fixed Stochastics gets pinned in "overbought" or "oversold" territory for dozens of bars, generating premature, false counter-trend signals. During choppy consolidations, it lags behind rapid swing reversals. **Frank Key's Adaptive Stochastic dynamically rescales its lookback window between a minimum and maximum period**:
 
-* In a **strong, trending market** (High ER), the indicator automatically **lengthens its period**. This desensitizes the oscillator, preventing it from hitting extremes too early and helping the trader stay with the trend.
-* In a **choppy, sideways market** (Low ER), it automatically **shortens its period**. This makes it more responsive, allowing it to identify potential turning points at the edges of the range.
+* **Strong Directional Trend ($ER \to 1.0$):** Lookback period automatically expands toward $P_{\text{max}} = 30$. This smooths the oscillator, preventing premature overbought/oversold pinning and keeping traders aligned with the trend.
+* **Choppy / Ranging Market ($ER \to 0.0$):** Lookback period automatically contracts toward $P_{\text{min}} = 5$. This transforms the oscillator into an ultra-responsive swing-trading tool that captures rapid turns at support and resistance boundaries.
 
-## 2. Mathematical Foundations and Calculation Logic
+```text
 
-The calculation is a multi-stage process that combines Kaufman's ER with the classic Slow Stochastic formula.
+┌────────────────────────────────────────────────────────────────────────┐
+│                   ADAPTIVE STOCHASTIC ARCHITECTURE                     │
+├──────────────────────┬────────────────────────┬────────────────────────┤
+│     Line Plot        │   Color Code           │   Core Role            │
+├──────────────────────┼────────────────────────┼────────────────────────┤
+│ %K Main Line         │ clrDodgerBlue (Width:2)│ Adaptive Momentum Line │
+│ %D Signal Line       │ clrCoral (Width:1)     │ Smoothed Trigger Line  │
+└──────────────────────┴────────────────────────┴────────────────────────┘
 
-### Required Components
+```
 
-* **ER Period (N):** The lookback period for the Efficiency Ratio.
-* **Min/Max Stochastic Periods (MinP, MaxP):** The range within which the Stochastic period can vary.
-* **Stochastic Smoothing Periods:** Slowing Period and %D Period.
+### Key Capabilities
 
-### Calculation Steps (Algorithm)
+* **Dynamic Lookback Rescaling ($P_{\text{min}} \dots P_{\text{max}}$):** Seamlessly shifts from fast scalping sensitivity to smooth macro trend retention.
+* **Dual-Engine Smoothing Flexibility:** Independent moving average algorithms for %K Slowing and %D Signal smoothing (supports SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, and Volume-Weighted VWMA).
+* **Unified 2026 MTF Framework:** Synchronized with `DataSync_Tools.mqh` to project higher-timeframe adaptive curves (e.g., H1 or H4) onto lower-timeframe execution charts (M1, M5, M15) with flat, non-warping steps.
+* **Synthetic Heikin Ashi Support:** Computes adaptive momentum from filtered Heikin Ashi candles via `CHeikinAshi_Calculator` composition.
+* **Dynamic 5-Level Grid:** Fully customizable horizontal thresholds ($10, 20, 50, 80, 90$).
 
-1. **Calculate the Efficiency Ratio (ER):** First, the ER is calculated over period `N` to measure the market's signal-to-noise ratio. The result is a value between 0 (pure noise) and 1 (perfect trend).
-    * $\text{ER}_t = \frac{\text{Abs}(P_t - P_{t-N})}{\sum_{i=0}^{N-1} \text{Abs}(P_{t-i} - P_{t-i-1})}$
+---
 
-2. **Calculate the Adaptive Stochastic Period (NSP):** The ER is then used to calculate the new, dynamic lookback period for the Stochastic on each bar.
-    * $\text{NSP}_t = \text{Integer}[(\text{ER}_t \times (\text{MaxP} - \text{MinP})) + \text{MinP}]$
+## 2. Mathematical Foundations & Adaptive Scaling
 
-3. **Apply the Slow Stochastic Formula with the Adaptive Period:** The standard Slow Stochastic logic is applied, but the crucial difference is that the `Raw %K` is calculated using the dynamic `NSP` for each bar.
-    * **Calculate Raw %K (using NSP):**
-        $\text{Highest High} = \text{Highest Price over the last NSP}_t \text{ bars}$
-        $\text{Lowest Low} = \text{Lowest Price over the last NSP}_t \text{ bars}$
-        $\text{Raw \%K}_t = 100 \times \frac{P_t - \text{Lowest Low}}{\text{Highest High} - \text{Lowest Low}}$
-    * **Calculate Slow %K and %D:** The `Raw %K` is then smoothed using configurable moving averages to produce the final %K (main) and %D (signal) lines.
+```text
 
-## 3. MQL5 Implementation Details
+                 Kaufman's Efficiency Ratio (ER) over Period P_ER
+                                      │
+                                      ▼
+           Dynamic Period Scaling: NSP = round(ER · [P_max - P_min] + P_min)
+                                      │
+                                      ▼
+             Adaptive Highest High & Lowest Low across dynamic NSP
+                                      │
+                                      ▼
+             Raw %K = [ (Price - Lowest) / (Highest - Lowest) ] × 100
+                                      │
+                                      ▼
+             Slow %K = MA(Raw %K, Period = Slowing, Method = K_MA)
+                                      │
+                                      ▼
+             %D Signal = MA(Slow %K, Period = D_Period, Method = D_MA)
 
-Our MQL5 implementation follows a modern, component-based, object-oriented design.
+```
 
-* **Modular Calculation Engine (`Stochastic_Adaptive_Calculator.mqh`):**
-    All mathematical logic is encapsulated in a dedicated include file.
-  * **Engine Integration:** The calculator internally uses two instances of our universal `MovingAverage_Engine.mqh` to handle the smoothing of the Slow %K and the %D Signal Line. This allows for advanced smoothing types (like DEMA or TEMA) beyond the standard SMA.
+### 2.1. Kaufman's Efficiency Ratio ($ER_t$)
 
-* **Optimized Incremental Calculation (O(1)):**
-    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * **State Tracking:** It utilizes `prev_calculated` to process only new bars.
-  * **Persistent Buffers:** Internal buffers (for ER, NSP, Raw %K) persist their state between ticks.
-  * **Dynamic Lookback Handling:** The algorithm correctly handles the variable lookback period during incremental updates, ensuring efficiency without sacrificing accuracy.
+The market's directional signal-to-noise ratio is evaluated over lookback window $P_{\text{ER}} = \text{InpErPeriod}$:
+$$\text{Direction}_t = | P_t - P_{t - P_{\text{ER}}} |$$
+$$\text{Volatility}_t = \sum_{j=0}^{P_{\text{ER}}-1} | P_{t-j} - P_{t-j-1} |$$
+$$\text{ER}_t = \begin{cases} \frac{\text{Direction}_t}{\text{Volatility}_t}, & \text{if } \text{Volatility}_t > 10^{-9} \\ 0.0, & \text{otherwise} \end{cases}$$
 
-* **Object-Oriented Design:**
-  * The Heikin Ashi version (`CStochasticAdaptiveCalculator_HA`) is achieved simply by instructing the main calculator to instantiate the Heikin Ashi version of the data preparation module.
+---
 
-## 4. Parameters
+### 2.2. Dynamic Lookback Scaling ($\text{NSP}_t$)
 
-* **Adaptive Settings:**
-  * `InpErPeriod`: The lookback period for the Efficiency Ratio calculation. (Default: `10`).
-  * `InpMinStochPeriod`: The shortest possible period for the Stochastic. (Default: `5`).
-  * `InpMaxStochPeriod`: The longest possible period for the Stochastic. (Default: `30`).
-* **Stochastic & Price Settings:**
-  * `InpSlowingPeriod`: The smoothing period for the main Slow %K line. (Default: `3`).
-  * `InpSlowingMAType`: The MA type for the "Slowing" step. (Default: `SMA`).
-  * `InpDPeriod`: The smoothing period for the final signal line (%D). (Default: `3`).
-  * `InpDMAType`: The MA type for the "%D" step. (Default: `SMA`).
-  * `InpSourcePrice`: The source price for the calculation. (Standard or Heikin Ashi).
+The Nominal Stochastic Period ($\text{NSP}$) rescales continuously between $P_{\text{min}} = \text{InpMinStochPeriod}$ and $P_{\text{max}} = \text{InpMaxStochPeriod}$:
+$$\text{NSP}_t = \text{round}\left( \text{ER}_t \cdot (P_{\text{max}} - P_{\text{min}}) + P_{\text{min}} \right)$$
+$$\text{Clamped Bounds: } P_{\text{min}} \le \text{NSP}_t \le P_{\text{max}}$$
 
-## 5. Usage and Interpretation
+---
 
-The key to using this indicator is understanding its dual nature.
+### 2.3. Adaptive Raw %K Formulation
 
-* **In Strong Trends:** When the market is moving decisively in one direction, the indicator's period will lengthen. It will stay away from the extreme overbought/oversold zones for longer than a standard Stochastic. This helps you **stay in a winning trade** and avoid exiting prematurely on minor pullbacks.
+Across the dynamically evolving lookback window $\text{NSP}_t$:
+$$\text{Highest}_t = \max_{j=0 \dots \text{NSP}_t-1} \left( P_{t-j} \right)$$
+$$\text{Lowest}_t = \min_{j=0 \dots \text{NSP}_t-1} \left( P_{t-j} \right)$$
+$$\text{Range}_t = \text{Highest}_t - \text{Lowest}_t$$
 
-* **In Sideways/Ranging Markets:** When the market is choppy, the indicator's period will shorten. Its behavior will become very similar to a fast standard Stochastic. In this mode, it is excellent for identifying potential turning points near the top (>80) and bottom (<20) of the range.
+$$\text{Raw \%K}_t = \begin{cases} \left( \frac{P_t - \text{Lowest}_t}{\text{Range}_t} \right) \times 100, & \text{if } \text{Range}_t > 10^{-9} \\ \text{Raw \%K}_{t-1}, & \text{if } \text{Range}_t = 0 \end{cases}$$
+
+---
+
+### 2.4. Slow %K (Main Line) & %D (Signal Line) Smoothing
+
+The Raw %K is smoothed using the user-defined Slowing Moving Average ($\mathcal{MA}$):
+$$\text{\%K}_t = \mathcal{MA}\left( \text{Raw \%K}, \text{Period} = \text{InpSlowingPeriod}, \text{Type} = \text{InpSlowingMAType} \right)$$
+
+The final signal line is produced by smoothing the %K series:
+$$\text{\%D}_t = \mathcal{MA}\left( \text{\%K}, \text{Period} = \text{InpDPeriod}, \text{Type} = \text{InpDMAType} \right)$$
+
+---
+
+## 3. MQL5 Architecture & Engineering Standards
+
+```text
+
+┌────────────────────────────────────────────────────────┐
+│           Stochastic_Adaptive_Calculator.mqh           │
+│   (Core Math: ER Computation & Adaptive Lookback Engine│
+├──────────────────────────┬─────────────────────────────┤
+│   MovingAverage_Engine   │   Composition Engine        │
+│   • Slow %K Smoothing    │   • CHeikinAshi_Calculator  │
+│   • %D Signal Smoothing  │   • Full VWMA Support       │
+└──────────────────────────┴─────────────────────────────┘
+                           │ Outputs %K and %D in O(1)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│               Stochastic_Adaptive_Pro.mq5              │
+│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
+├──────────────────────────┬─────────────────────────────┤
+│   Direct Mode (O(1))     │   Synchronized MTF Pipeline │
+│   • Current Timeframe    │   • DataSync_Tools Daemon   │
+│   • 2 Output Plots       │   • Staircase Flat-Force    │
+└──────────────────────────┴─────────────────────────────┘
+
+```
+
+1. **Modular Composition Architecture:** `CStochasticAdaptiveCalculator` encapsulates `CHeikinAshi_Calculator` and `CMovingAverageCalculator` via composition, guaranteeing zero memory fragmentation.
+2. **Leak-Free Pointer Protection:** Factory methods safely verify pointer validity (`CheckPointer`) before re-allocation on parameter updates.
+3. **2026 MTF Framework with Staircase Solution:**
+   * Asynchronous 1-second timer daemon (`OnTimerUpdate`) ensures higher-timeframe history readiness without GUI freezes.
+   * Dynamic staircase anchor (`first_bar_of_forming_htf`) synchronizes all lower-timeframe sub-bars belonging to the active higher-timeframe candle.
+
+---
+
+## 4. Parameters Reference
+
+### Timeframe Settings
+
+* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it operates in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_H1`, `PERIOD_D1`), it activates the synchronized MTF engine.
+
+### Adaptive Lookback Settings
+
+* `InpErPeriod` (*default: `10`*): Lookback period ($N$) for Kaufman's Efficiency Ratio calculation.
+* `InpMinStochPeriod` (*default: `5`*): Minimum Stochastic lookback period used during noisy, sideways consolidations ($ER \to 0$).
+* `InpMaxStochPeriod` (*default: `30`*): Maximum Stochastic lookback period used during strong, efficient trends ($ER \to 1$).
+* `InpSourcePrice` (*default: `PRICE_CLOSE_STD`*): Price series source (Supports all 7 Standard and 7 Heikin Ashi modes).
+
+### Smoothing & Signal Settings
+
+* `InpSlowingPeriod` (*default: `3`*): Smoothing period for the %K main line.
+* `InpSlowingMAType` (*default: `SMA`*): Smoothing method for %K (`SMA`, `EMA`, `SMMA`, `LWMA`, `TMA`, `DEMA`, `TEMA`, `VWMA`).
+* `InpDPeriod` (*default: `3`*): Smoothing period for the %D signal line.
+* `InpDMAType` (*default: `SMA`*): Smoothing method for %D.
+
+### Indicator Levels (0–100 Range)
+
+* `InpLevelExtrHigh` (*default: `90.0`*): Extreme Overbought Climax boundary.
+* `InpLevelHigh` (*default: `80.0`*): Overbought Warning threshold.
+* `InpLevelMid` (*default: `50.0`*): Directional Equilibrium threshold.
+* `InpLevelLow` (*default: `20.0`*): Oversold Warning threshold.
+* `InpLevelExtrLow` (*default: `10.0`*): Extreme Oversold Climax boundary.
+* `InpLevelColor` (*default: `clrSilver`*): Color of horizontal level lines.
+* `InpLevelStyle` (*default: `STYLE_DOT`*): Line style of horizontal level lines.
+
+### Visual Settings
+
+* `InpColorK` (*default: `clrDodgerBlue`*): %K adaptive line color (Width: 2, Solid).
+* `InpColorD` (*default: `clrCoral`*): %D signal line color (Width: 1, Solid).
+
+---
+
+## 5. Quantitative Trading Playbooks
+
+```text
+
+┌────────────────────────────────────────────────────────────────────────┐
+│               ADAPTIVE STOCHASTIC TRADING PLAYBOOKS                    │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Trend Retention Rule:     In strong trends (high ER), %K stays      │
+│                              in 50-80 zone without premature exits.    │
+│ 2. Range Boundary Scalp:     In chop (low ER), %K contracts to period  │
+│                              5, generating sharp turns at 20 and 80.   │
+│ 3. Signal Line Crossovers:   %K crosses %D near 50.0 line in direction │
+│                              of the macro trend baseline.              │
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+### 5.1. Trend Retention vs. Range Fading
+
+* **Trending Market ($ER > 0.60$):** The lookback expands to $25 \dots 30$. %K smooths out and tracks the markup/markdown. Do **NOT** sell simply because %K enters the 80.0 zone; wait for %K to cross below %D and drop below 80.0.
+* **Consolidating Market ($ER < 0.30$):** The lookback contracts to $5 \dots 10$. Look for aggressive mean-reversion fades when %K rejects from the `20.0 (Oversold)` or `80.0 (Overbought)` levels.
+
+### 5.2. The 50.0 Equilibrium Directional Shift
+
+* **Bullish Dominance:** %K crossing decisively **above 50.0** confirms that buyers are taking control of the active cycle.
+* **Bearish Dominance:** %K crossing decisively **below 50.0** confirms seller dominance.
+
+### 5.3. Multi-Timeframe Macro Confluence
+
+* Attach an **H1-calculated Adaptive Stochastic** onto an **M5 execution chart**.
+* **Rule:** Only take M5 long pullback entries when **H1 %K is above 50.0 and rising**. This guarantees that intraday entries are synchronized with higher-timeframe adaptive momentum.
+
+---
+
+## 6. Indicator Buffer Map (For Developers & EA Integration)
+
+| Buffer Index | Name | Type | Description |
+| :---: | :---: | :--- | :--- |
+| **0** | `BufferK` | `INDICATOR_DATA` | Adaptive %K Main Line |
+| **1** | `BufferD` | `INDICATOR_DATA` | Smoothed %D Signal Line |
+
+*Both buffers strictly maintain non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
