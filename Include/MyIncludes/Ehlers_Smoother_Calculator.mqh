@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.25" // 100% Backward Compatible & Robust Composition DSP Engine
+#property version   "3.30" // Fixed: Preserved Persistent State on ArrayResize
 
 #ifndef EHLERS_SMOOTHER_CALCULATOR_MQH
 #define EHLERS_SMOOTHER_CALCULATOR_MQH
@@ -66,7 +66,6 @@ public:
                                        const double &low[], const double &close[],
                                        double &filter_buffer[])
      {
-      // Preserve dynamic applied price passed from legacy caller
       if(m_applied_price >= PRICE_CLOSE_STD)
          m_applied_price = (ENUM_APPLIED_PRICE_HA_ALL)price_type;
 
@@ -226,12 +225,11 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
    if(rates_total < 4)
       return;
 
-//--- Safe allocation of destination array
+//--- Safe allocation of destination array without wiping history
    if(ArraySize(filter_buffer) != rates_total)
      {
       ArrayResize(filter_buffer, rates_total);
       ArraySetAsSeries(filter_buffer, false);
-      ArrayInitialize(filter_buffer, EMPTY_VALUE);
      }
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
@@ -248,12 +246,13 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
 
    int loop_start = MathMax(3, start_index);
 
-// Initialization for the seed bars on fresh run
-   if(prev_calculated == 0 || loop_start == 3)
+// Initialization for the seed bars strictly on fresh calculation
+   if(prev_calculated == 0)
      {
       filter_buffer[0] = m_price[0];
       filter_buffer[1] = m_price[1];
       filter_buffer[2] = m_price[2];
+      loop_start = 3;
      }
 
 // Recursive 2-Pole Difference Equation
