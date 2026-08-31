@@ -1,77 +1,204 @@
-# Laguerre Filter Pro
+# John Ehlers' Laguerre Filter Pro (v3.00)
+
+Quantitative Time-Warped Digital Filter & Low-Lag Trend Baseline Suite
+
+---
 
 ## 1. Summary (Introduction)
 
-> **Part of the Laguerre Indicator Family**
->
-> This indicator is a member of a family of tools based on John Ehlers' Laguerre filter. Each member utilizes the filter's extremely low-lag and smooth characteristics to analyze different aspects of market behavior.
->
-> * **Laguerre Filter:** A fast, responsive moving average.
-> * **Laguerre RSI:** A smooth, noise-filtered momentum oscillator.
+**Laguerre Filter Pro** is an institutional-grade digital signal processing (DSP) trendline indicator developed by aerospace engineer and quantitative trading pioneer John Ehlers.
 
-The Laguerre Filter, developed by John Ehlers, is a sophisticated, low-lag moving average based on the principles of digital signal processing. It applies a weighted average to the components of a Laguerre-transformed price series, resulting in a unique balance between smoothness and responsiveness.
+In classical electronic filter design, time series smoothing relies on linear unit delays ($z^{-1}$), which unavoidably introduce phase lag across all frequencies. Ehlers bypassed this limitation by implementing **orthogonal Laguerre polynomials**, replacing standard unit delays with an **all-pass time-warped transfer function**.
 
-It serves as an advanced trendline, and optionally, it can display a comparative **FIR (Finite Impulse Response) filter** to visually demonstrate the smoothing effect of the Laguerre transformation.
+This mathematical innovation allows the filter to achieve the smoothing power of a 20-to-100 period moving average using only **four recursive data registers ($L_0, L_1, L_2, L_3$)**, providing dramatically reduced phase delay and instantaneous trend inflection recognition.
 
-Our `Laguerre_Filter_Pro` implementation is a unified, professional version that allows the calculation to be based on either **standard** or **Heikin Ashi** price data.
+```text
 
-## 2. Mathematical Foundations and Calculation Logic
+┌────────────────────────────────────────────────────────────────────────┐
+│                     EHLERS LAGUERRE FILTER ENGINE                      │
+├──────────────────────┬────────────────────────┬────────────────────────┤
+│     Line Plot        │   Color Code           │   Core Role            │
+├──────────────────────┼────────────────────────┼────────────────────────┤
+│ Laguerre Filter Line │ clrCrimson (Width:2)   │ Low-Lag Adaptive Trend │
+│ FIR Comparison Line  │ clrDarkBlue (Width:1)  │ 4-Point FIR Benchmark  │
+└──────────────────────┴────────────────────────┴────────────────────────┘
 
-The indicator's logic is centered around the recursive Laguerre filter and a final weighted summation.
+```
 
-### Required Components
+### Key Capabilities
 
-* **Gamma (γ):** A coefficient between 0 and 1 that controls the filter's smoothing.
-* **Source Price (P):** The price series used for the calculation.
+* **Time-Warped 4-Element IIR Architecture:** Synthesizes higher-order low-pass smoothing from just four state registers ($L_0 \dots L_3$).
+* **Harmonic Fibonacci Damping Control ($\gamma$ – Gamma):** Aligns filter dampening with golden ratio proportions from ultra-sensitive scalping ($\gamma = 0.236$) to secular macro cycle smoothing ($\gamma = 0.882$).
+* **Optional 4-Point FIR Benchmark:** Provides an on-chart FIR comparison baseline ($\text{FIR} = \frac{P + 2P_1 + 2P_2 + P_3}{6}$) to visually expose phase lead and lag divergence.
+* **Unified 2026 MTF Framework:** Higher-timeframe Laguerre curves (e.g., H1 or H4) map onto lower-timeframe execution charts (M1, M5, M15) with flat, non-warping steps via `DataSync_Tools.mqh`.
+* **Synthetic Heikin Ashi Support:** Fully compatible with filtered Heikin Ashi price series via `CLaguerreEngine_HA` composition.
 
-### Calculation Steps (Algorithm)
+---
 
-1. **Calculate Laguerre Filter Components:** For each bar `i`, the four internal filter components (`L0`...`L3`) are updated recursively.
-    * $L0_i = (1 - \gamma) \times P_i + \gamma \times L0_{i-1}$
-    * $L1_i = -\gamma \times L0_i + L0_{i-1} + \gamma \times L1_{i-1}$
-    * ...and so on for `L2` and `L3`.
-2. **Calculate the Final Weighted Filter:** The final output is a weighted sum of the four components, as defined by Ehlers.
-    * $\text{Laguerre Filter}_i = \frac{L0_i + 2 \times L1_i + 2 \times L2_i + L3_i}{6}$
-3. **(Optional) Calculate the FIR Filter:** For comparison, a standard FIR filter with the same weights is calculated on the raw price data.
-    * $\text{FIR Filter}_i = \frac{P_i + 2 \times P_{i-1} + 2 \times P_{i-2} + P_{i-3}}{6}$
+## 2. Mathematical Foundations & Laguerre Transform Theory
 
-## 3. MQL5 Implementation Details
+```text
 
-* **Modular "Family" Architecture:** The core Laguerre filter calculation is encapsulated in a central `Laguerre_Engine.mqh` file. This engine is a **stateful class**, meaning it correctly maintains the previous values of its internal components (`L0`...`L3`) between calculations. This is critical for the stability and accuracy of the recursive filter. The `Laguerre_Filter_Calculator.mqh` is a thin adapter that uses this stable engine.
+                  RAW PRICE (Market Noise & High Frequencies)
+                                       │
+                                       ▼
+      ┌─────────────────────────────────────────────────────────────────┐
+      │             All-Pass Time-Warp Transfer Function                │
+      │                H(z) = (z⁻¹ - γ) / (1 - γ·z⁻¹)                   │
+      └────────────────────────────────┬────────────────────────────────┘
+                                       │
+        ┌──────────────┬───────────────┴───────────────┬──────────────┐
+        ▼              ▼                               ▼              ▼
+     L0 State       L1 State                        L2 State       L3 State
+        │              │                               │              │
+        └──────────────┴───────────────┬───────────────┴──────────────┘
+                                       ▼
+               Laguerre Filter = (L0 + 2·L1 + 2·L2 + L3) / 6
 
-* **Optimized Incremental Calculation:**
-    Unlike basic implementations that recalculate the entire history on every tick, this indicator employs an intelligent incremental algorithm.
-  * It utilizes the `prev_calculated` state to determine the exact starting point for updates.
-  * **Persistent State:** The internal buffers (`m_L0`...`m_L3`) persist their state between ticks, allowing the recursive Laguerre algorithm to continue seamlessly from the last known value.
-  * This results in **O(1) complexity** per tick, ensuring instant updates and zero lag, even on charts with extensive history.
+```
 
-* **Heikin Ashi Integration:** An inherited `CLaguerreEngine_HA` class allows the calculation to be performed seamlessly on smoothed Heikin Ashi data, leveraging the same optimized engine.
+### 2.1. The 4-Element Recursive Difference Equations
 
-## 4. Parameters
+Given input price $P_t$ and dampening coefficient $\gamma = \text{InpGamma}$ ($0.0 \le \gamma \le 1.0$):
+$$L_0(t) = (1 - \gamma) P_t + \gamma L_0(t-1)$$
+$$L_1(t) = -\gamma L_0(t) + L_0(t-1) + \gamma L_1(t-1)$$
+$$L_2(t) = -\gamma L_1(t) + L_1(t-1) + \gamma L_2(t-1)$$
+$$L_3(t) = -\gamma L_2(t) + L_2(t-1) + \gamma L_3(t-1)$$
 
-* **Gamma (`InpGamma`):** The Laguerre filter coefficient, a value between 0.0 and 1.0. This parameter controls the trade-off between smoothing and lag.
-  * **High Gamma (e.g., 0.7 - 0.9):** Results in a **slower, smoother** line with **more lag**.
-  * **Low Gamma (e.g., 0.1 - 0.3):** Results in a **faster, more responsive** line (less lag) that is less smooth. At `gamma = 0`, the Laguerre Filter becomes identical to the FIR filter.
-* **Applied Price (`InpSourcePrice`):** The source price for the calculation.
-* **Show FIR (`InpShowFIR`):** A boolean switch to show or hide the comparative FIR filter line on the chart.
+---
 
-## 5. Usage and Interpretation
+### 2.2. Weighted Median Synthesis
 
-The Laguerre Filter is used as a superior, low-lag alternative to traditional moving averages.
+The final output is computed as a symmetrical weighted average of the four state elements:
+$$\text{Laguerre Filter}_t = \frac{L_0(t) + 2 \cdot L_1(t) + 2 \cdot L_2(t) + L_3(t)}{6}$$
 
-* **Trend Identification:** It serves as a highly responsive trendline.
-  * When the price is consistently above the Laguerre Filter and the line is rising, the trend is bullish.
-  * When the price is consistently below the Laguerre Filter and the line is falling, the trend is bearish.
-* **Crossover Signals:**
-  * **Two-Line Crossover:** A classic fast/slow system can be created by placing two Laguerre Filter indicators on the chart with different `gamma` values (e.g., `0.5` for the fast line and `0.8` for the slow line). A crossover of the fast line above the slow line is a buy signal, and vice versa.
-* **Dynamic Support and Resistance:** In a trending market, the Laguerre Filter line often acts as a dynamic level of support (in an uptrend) or resistance (in a downtrend), providing potential entry points on pullbacks.
+---
 
-### **Combined Strategy with Laguerre Momentum (Advanced)**
+### 2.3. The 4-Point FIR Comparison Filter
 
-The filter's characteristics can be better understood when used with its companion oscillator, the `Laguerre_Momentum_Pro`. A key predictive relationship exists between them:
+When enabled (`InpShowFIR = true`), an unwarped 4-point Finite Impulse Response (FIR) filter is plotted for direct lag benchmarking:
+$$\text{FIR}_t = \frac{P_t + 2 \cdot P_{t-1} + 2 \cdot P_{t-2} + P_{t-3}}{6}$$
 
-* **The Momentum Oscillator's zero-cross predicts the Filter's turning point.**
-  * When the `Laguerre_Momentum` oscillator crosses **above its zero line**, it provides an early warning that the `Laguerre_Filter` on the main chart is about to form a **trough (a bottom)**.
-  * When the `Laguerre_Momentum` oscillator crosses **below its zero line**, it provides an early warning that the `Laguerre_Filter` is about to form a **peak (a top)**.
+---
 
-This relationship allows a trader to use the momentum oscillator as a **leading indicator** to anticipate the turning points of the smoother, lagging Laguerre Filter.
+### 2.4. Harmonized Fibonacci Gamma ($\gamma$) Spectrum Matrix
+
+Utilizing **Fibonacci ratios** as Gamma parameters aligns the filter's dampening curve with the golden proportions of natural market expansions:
+
+| Fibonacci Gamma | Smoothing Depth | Phase Latency (Lag) | Target Market Regime | Equivalent EMA Benchmark | Quantitative Concept & Institutional Application |
+| :---: | :---: | :---: | :--- | :---: | :--- |
+| **`0.236`** | Ultra-Light | Near-Zero | High-Frequency Scalping / Momentum | $\approx 5\text{ EMA}$ | **Extreme Sensitivity.** Tracks price closely. Identifies immediate trend acceleration and micro-reversals. |
+| **`0.382`** | Light | Very Low | Day Trading / Intraday Execution | $\approx 9\text{--}10\text{ EMA}$ | **Optimal Execution Baseline.** Excellent alternative to 9 EMA. Filters out noise while keeping crossovers fast. |
+| **`0.500`** | Balanced | Medium-Low | Swing Trading / Volatility Pivots | $\approx 15\text{--}20\text{ EMA}$ | **Balanced Corridor Center.** Standard baseline for medium swing setups on M15/H1 charts. |
+| **`0.618`** | Medium-Strong | Medium | Medium-Term Trend Following | $\approx 30\text{--}50\text{ EMA}$ | **The Golden Ratio Anchor.** Outstanding core filter. Replaces 20/50 standard moving averages with 50% less Fourier lag. |
+| **`0.764`** | Strong | Medium-High | Macro Trend Identification | $\approx 100\text{ EMA}$ | **Structural Support.** Identifies institutional trend direction on H4/D1 charts. Bypasses consolidation whipsaws. |
+| **`0.882`** | Ultra-Strong | High | Secular Trend Smoothing | $\approx 200\text{ EMA}$ | **Absolute Noise Elimination.** Ideal for long-term investing and tracking macro market cycles on weekly/monthly charts. |
+
+---
+
+## 3. MQL5 Architecture & Engineering Standards
+
+```text
+
+┌────────────────────────────────────────────────────────┐
+│                   Laguerre_Engine.mqh                  │
+│    (Core DSP Math: Computes L0..L3 States & Filter)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Feeds Filter Series & Price Getter
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│              Laguerre_Filter_Calculator.mqh            │
+│    (Engine Adapter: Computes Laguerre & FIR Output)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Outputs Filter & FIR in O(1)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                Laguerre_Filter_Pro.mq5                 │
+│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
+├──────────────────────────┬─────────────────────────────┤
+│   Direct Mode (O(1))     │   Synchronized MTF Pipeline │
+│   • Current Timeframe    │   • DataSync_Tools Daemon   │
+│   • 2 Output Plots       │   • Staircase Flat-Force    │
+└──────────────────────────┴─────────────────────────────┘
+
+```
+
+1. **Modular 3-Tier Hierarchy:** Isolates raw Laguerre state registers (`Laguerre_Engine.mqh`) from adapter calculation (`Laguerre_Filter_Calculator.mqh`), allowing oscillators like `Laguerre_RSI_Pro` to reuse internal $L_0 \dots L_3$ states directly via `GetLBuffers()`.
+2. **Stateful Historical Preservation:** Array allocation safeguards (`ArrayResize` without destructive wiping) ensure that recursive registers ($L_0 \dots L_3$) preserve 100% of historical states across live bar additions.
+3. **2026 MTF Framework with Staircase Solution:**
+   * Asynchronous 1-second timer daemon (`OnTimerUpdate`) ensures higher-timeframe data synchronization without UI lag.
+   * Dynamic staircase anchor (`first_bar_of_forming_htf`) synchronizes all lower-timeframe sub-bars belonging to the active higher-timeframe candle.
+
+---
+
+## 4. Parameters Reference
+
+### Timeframe Settings
+
+* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it operates in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_H1`, `PERIOD_D1`), it activates the synchronized MTF engine.
+
+### Laguerre Settings
+
+* `InpGamma` (*default: `0.5`*): Damping factor ($\gamma$). Controls the time-warp compression ratio ($0.0 \le \gamma \le 1.0$). Supports 3-decimal Fibonacci tuning (`0.236`, `0.382`, `0.500`, `0.618`, `0.764`, `0.882`).
+* `InpSourcePrice` (*default: `PRICE_CLOSE_STD`*): Price series source (Supports all 7 Standard and 7 Heikin Ashi modes).
+
+### FIR Comparison Filter Settings
+
+* `InpShowFIR` (*default: `false`*): Toggle on-chart visibility of the 4-point FIR benchmark line.
+
+### Visual Settings - Laguerre Filter
+
+* `InpColorLaguerre` (*default: `clrCrimson`*): Color of the main Laguerre Filter line (Width: 2, Solid).
+* `InpStyleLaguerre` (*default: `STYLE_SOLID`*): Line style of the Laguerre Filter.
+* `InpWidthLaguerre` (*default: `2`*): Line thickness.
+
+### Visual Settings - FIR Filter
+
+* `InpColorFIR` (*default: `clrDarkBlue`*): Color of the FIR comparison line (Width: 1, Solid).
+* `InpStyleFIR` (*default: `STYLE_SOLID`*): Line style of the FIR line.
+* `InpWidthFIR` (*default: `1`*): Line thickness.
+
+---
+
+## 5. Quantitative Trading Playbooks
+
+```text
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                   LAGUERRE FILTER TRADING PLAYBOOKS                    │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Dynamic S/R Pullback:   In strong trends, pullbacks into the        │
+│                            Laguerre line offer low-drawdown entries.   │
+│ 2. Laguerre / FIR Cross:   Laguerre crossing above FIR confirms trend  │
+│                            inflection with zero phase delay.           │
+│ 3. MTF Trend Filter:       Attach H1/H4 Laguerre Filter on M5 chart    │
+│                            to trade strictly in direction of macro flow│
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+### 5.1. Dynamic Support & Resistance Retests
+
+* **Bullish Retest:** In an established uptrend, price pulls back into the rising `Laguerre Filter (γ=0.382 or γ=0.500)` line and forms a rejection candle $\rightarrow$ High-conviction long continuation entry with stop-loss placed just below the curve.
+* **Bearish Retest:** In a downtrend, price rallies into the falling `Laguerre Filter` line and rejects $\rightarrow$ Enter short.
+
+### 5.2. Laguerre vs. FIR Lead-Lag Crossover
+
+* **Bullish Crossover:** The `Laguerre Filter` line crosses **above** the `FIR Filter` line $\rightarrow$ Confirms that price is accelerating upward faster than linear 4-bar momentum.
+* **Bearish Crossover:** The `Laguerre Filter` line crosses **below** the `FIR Filter` line $\rightarrow$ Confirms downward acceleration.
+
+### 5.3. Multi-Timeframe Macro Baseline Alignment
+
+* Attach an **H1-calculated Laguerre Filter ($\gamma=0.618$ or $\gamma=0.764$)** onto an **M5 execution chart**.
+* **Rule:** Only take intraday long pullbacks on M5 when **price is trading above the H1 Laguerre flat step**. This ensures you never trade against higher-timeframe institutional trend structure.
+
+---
+
+## 6. Indicator Buffer Map (For Developers & EA Integration)
+
+| Buffer Index | Name | Type | Description |
+| :---: | :---: | :--- | :--- |
+| **0** | `BufferFilter` | `INDICATOR_DATA` | Main John Ehlers Laguerre Filter Plot Line |
+| **1** | `BufferFIR` | `INDICATOR_DATA` | Optional 4-Point FIR Comparison Filter Line |
+
+*Both buffers strictly maintain non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
