@@ -3,64 +3,66 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // First unified Standard & MTF Laguerre Acceleration release
-#property description "Acceleration (2nd derivative) of John Ehlers' Laguerre Filter."
-#property description "Provides immediate momentum shift signals with a 5-zone thermal color palette."
+#property version   "3.00" // Unified Native & MTF Release with 5-Zone Thermal Matrix
+#property description "Acceleration derivative (2nd derivative) of John Ehlers' Laguerre Filter."
+#property description "Provides immediate momentum shift signals with a 5-zone thermal color palette and Native & MTF support."
 
 #property indicator_separate_window
 #property indicator_buffers 3
 #property indicator_plots   2
 
 //--- Plot 1: Laguerre Acceleration (Color Histogram)
-#property indicator_label1  "Laguerre Acceleration"
+#property indicator_label1  "Laguerre Accel"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 // Palette mapping: 0=Neutral, 1=Strong Bull, 2=Weak Bull, 3=Strong Bear, 4=Weak Bear
 #property indicator_color1  clrGray, clrDodgerBlue, clrLightSkyBlue, clrCrimson, clrCoral
 
-//--- Plot 2: Optional Signal MA Line (Continuous Line)
+//--- Plot 2: Optional Signal MA Line
 #property indicator_label2  "Signal MA"
 #property indicator_type2   DRAW_LINE
+#property indicator_color2  clrMaroon
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
-#property indicator_color2  clrMaroon
 
-//--- Included Engines & Central Tools
+//--- Included Engines & Core Tools
 #include <MyIncludes\Laguerre_Acceleration_Calculator.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
-#include <MyIncludes\DataSync_Tools.mqh> // Centralized MTF synchronization daemon
+#include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Input Parameters ---
 input group "--- Timeframe Settings ---"
-input ENUM_TIMEFRAMES           InpTimeframe     = PERIOD_CURRENT;  // Target Higher Timeframe
+input ENUM_TIMEFRAMES           InpTimeframe     = PERIOD_CURRENT;  // Calculation Timeframe (Current or HTF)
 
 input group "--- Laguerre Settings ---"
-input double                    InpGamma         = 0.5;             // Laguerre Gamma (e.g. 0.236, 0.382, 0.618)
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD; // Price Source
+input double                    InpGamma         = 0.5;             // Laguerre Gamma (e.g. 0.236, 0.382, 0.618, 0.764)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD; // Price Source (Standard / HA)
 input double                    InpThreshold     = 0.00001;         // Acceleration Neutral Threshold
 
 input group "--- Signal MA Settings ---"
 input bool                      InpShowSignal    = true;            // Show Signal MA Line?
 input int                       InpSignalPeriod  = 5;               // Signal MA Period
 input ENUM_MA_TYPE              InpSignalType    = EMA;             // Signal MA Type (Supports VWMA)
+input color                     InpColorSignal   = clrMaroon;       // Signal Line Color
 
 //--- Visual Indicator Buffers ---
 double    BufferAccel[];
 double    BufferAccelColor[];
 double    BufferSignalMA[];
 
-//--- Volume Cache (Used on Current Timeframe Mode)
+//--- Volume Cache (For Current Timeframe VWMA)
 double    g_double_volume[];
 
-//--- Internal HTF Data Caches
-double    h_open[], h_high[], h_low[], h_close[], h_volume[];
+//--- Internal HTF Data Caches (Chronological Arrays)
+double    h_open[], h_high[], h_low[], h_close[];
+long      h_tick_vol[], h_vol[];
 double    h_res_accel[], h_res_color[], h_res_signal[];
 datetime  h_time[];
 
-//--- Global Objects & Synchronizer State
-CLaguerreAccelerationCalculator *g_calculator;
-CMovingAverageCalculator        *g_ma_calc;
+//--- Global Objects & State Management
+CLaguerreAccelerationCalculator *g_calculator = NULL;
+CMovingAverageCalculator        *g_ma_calc    = NULL;
 
 bool            g_is_mtf_mode         = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
@@ -79,7 +81,7 @@ int OnInit()
    g_htf_count     = 0;
    g_last_htf_time = 0;
 
-//--- 1. Resolve Timeframe and validate direction
+// 1. Resolve Timeframe and validate direction
    g_calc_timeframe = InpTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
       g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
@@ -88,76 +90,83 @@ int OnInit()
      {
       PrintFormat("Critical Error: Target timeframe (%s) must be >= current timeframe (%s).",
                   EnumToString(g_calc_timeframe), EnumToString(Period()));
-      return(INIT_FAILED);
+      return INIT_PARAMETERS_INCORRECT;
      }
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
-//--- 2. Bind buffers to index mapping
+// 2. Bind Buffers
    SetIndexBuffer(0, BufferAccel,      INDICATOR_DATA);
    SetIndexBuffer(1, BufferAccelColor, INDICATOR_COLOR_INDEX);
    SetIndexBuffer(2, BufferSignalMA,   INDICATOR_DATA);
 
-//--- Force strict chronological alignment (false = old to new)
    ArraySetAsSeries(BufferAccel,      false);
    ArraySetAsSeries(BufferAccelColor, false);
    ArraySetAsSeries(BufferSignalMA,   false);
 
-//--- Setup EMPTY_VALUE fallback for signal plot
+   ArrayInitialize(BufferAccel,      0.0);
+   ArrayInitialize(BufferAccelColor, 0.0);
+   ArrayInitialize(BufferSignalMA,   EMPTY_VALUE);
+
+// Prevent drawing to 0.0 for empty Signal line values
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   bool is_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
+// 3. Configure Optional Signal Line Visuals
+   if(InpShowSignal)
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
+      PlotIndexSetInteger(1, PLOT_LINE_COLOR, InpColorSignal);
+      PlotIndexSetString(1,  PLOT_LABEL, "Signal MA");
 
-//--- 3. Initialize Physical Laguerre Acceleration Calculator
+      g_ma_calc = new CMovingAverageCalculator();
+      if(CheckPointer(g_ma_calc) == POINTER_INVALID || !g_ma_calc.Init(InpSignalPeriod, InpSignalType))
+        {
+         Print("Critical Error: Failed to initialize Signal MA Calculator.");
+         return INIT_FAILED;
+        }
+     }
+   else
+     {
+      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
+      PlotIndexSetString(1,  PLOT_LABEL, NULL);
+     }
+
+// 4. Initialize Core Calculator Engine
    g_calculator = new CLaguerreAccelerationCalculator();
-   if(CheckPointer(g_calculator) == POINTER_INVALID || !g_calculator.Init(InpGamma, SOURCE_PRICE, is_ha))
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpGamma, SOURCE_PRICE, InpSourcePrice))
      {
-      Print("Critical Error: Failed to create or initialize Laguerre Acceleration Calculator.");
-      return(INIT_FAILED);
+      Print("Critical Error: Failed to initialize Laguerre Acceleration Calculator.");
+      return INIT_FAILED;
      }
 
-//--- 4. Initialize Physical Signal MA Calculator
-   g_ma_calc = new CMovingAverageCalculator();
-   if(CheckPointer(g_ma_calc) == POINTER_INVALID || !g_ma_calc.Init(InpSignalPeriod, InpSignalType))
-     {
-      Print("Critical Error: Failed to create or initialize Signal MA Calculator.");
-      return(INIT_FAILED);
-     }
-
-//--- 5. Dynamic Setup of Indicator Shortname and Plots
-   string sig_str = "";
+   string ha_tag    = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   string tf_str    = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string sig_str   = "";
    if(InpShowSignal)
      {
       string sig_name = EnumToString(InpSignalType);
       StringToUpper(sig_name);
       sig_str = StringFormat(" | %s(%d)", sig_name, InpSignalPeriod);
-      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
-     }
-   else
-     {
-      PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
      }
 
-   string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
-   string short_name = StringFormat("Laguerre Accel%s%s(%.3f, %.6f)%s",
-                                    is_ha ? " HA" : "",
-                                    tf_str,
-                                    InpGamma,
-                                    InpThreshold,
+   string short_name = StringFormat("Laguerre Accel%s%s(γ=%.3f, %.6f)%s",
+                                    ha_tag, tf_str,
+                                    InpGamma, InpThreshold,
                                     sig_str);
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
+   PlotIndexSetString(0, PLOT_LABEL, "Laguerre Accel");
 
-//--- Drawing offset configuration (Acceleration needs 2 extra bars of history)
-   int draw_begin = InpSignalPeriod + 6;
+   int draw_begin = InpSignalPeriod + 3;
    if(g_is_mtf_mode)
-      draw_begin = 0; // Handled dynamically in mapped buffers
+      draw_begin = 0;
 
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 3);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
 
-//--- Expanded precision (Acceleration requires higher sub-point resolution)
+// Expanded precision for discrete second derivative
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits + 4);
 
-//--- 6. Initialize Background Synchronization Timer Daemon (Only if MTF is active)
+// 5. Initialize Background Synchronization Timer (Only for MTF mode)
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
@@ -169,11 +178,19 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   EventKillTimer();
+   if(g_is_mtf_mode)
+      EventKillTimer();
+
    if(CheckPointer(g_calculator) != POINTER_INVALID)
+     {
       delete g_calculator;
+      g_calculator = NULL;
+     }
    if(CheckPointer(g_ma_calc) != POINTER_INVALID)
+     {
       delete g_ma_calc;
+      g_ma_calc = NULL;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -190,25 +207,21 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < InpSignalPeriod + 6)
+   int required_bars = InpSignalPeriod + 10;
+   if(rates_total < required_bars || CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID || CheckPointer(g_ma_calc) == POINTER_INVALID)
-      return 0;
-
-//--- Force chronological indexing on current timeframe arrays
-   ArraySetAsSeries(time,  false);
-   ArraySetAsSeries(open,  false);
-   ArraySetAsSeries(high,  false);
-   ArraySetAsSeries(low,   false);
-   ArraySetAsSeries(close, false);
-
-   ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
-                                   (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice) :
-                                   (ENUM_APPLIED_PRICE)InpSourcePrice;
+// Force chronological indexing
+   ArraySetAsSeries(time,        false);
+   ArraySetAsSeries(open,        false);
+   ArraySetAsSeries(high,        false);
+   ArraySetAsSeries(low,         false);
+   ArraySetAsSeries(close,       false);
+   ArraySetAsSeries(tick_volume, false);
+   ArraySetAsSeries(volume,      false);
 
 //===================================================================
-// MODE 1: Current Timeframe calculation (Standard ultra-high speed)
+// MODE 1: Direct Current Timeframe Calculation (Zero-Lag O(1))
 //===================================================================
    if(!g_is_mtf_mode)
      {
@@ -231,33 +244,35 @@ int OnCalculate(const int rates_total,
             g_double_volume[i] = (double)tick_volume[i];
         }
 
-      g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
+      // 1. Calculate Laguerre Acceleration & Colors
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close,
                              BufferAccel, BufferAccelColor, InpThreshold);
 
-      if(InpShowSignal)
+      // 2. Calculate Signal MA Line
+      if(InpShowSignal && CheckPointer(g_ma_calc) != POINTER_INVALID)
+        {
          g_ma_calc.CalculateOnArray(rates_total, prev_calculated, BufferAccel, g_double_volume, BufferSignalMA, 2);
+        }
       else
         {
          for(int i = start_sync; i < rates_total; i++)
             BufferSignalMA[i] = EMPTY_VALUE;
         }
 
-      return(rates_total);
+      return rates_total;
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free step synchronization)
+// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
 //===================================================================
-   int required_bars = MathMax(100, InpSignalPeriod * 2);
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
       g_data_synced = false;
-      return 0; // Wait for next tick to let history synchronize
+      return 0;
      }
 
    g_data_synced = true;
 
-//--- Check if a new HTF candle has opened
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
@@ -272,7 +287,7 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      g_htf_count = MathMin(htf_bars, 3000); // Guard rails to prevent memory overload
+      g_htf_count = MathMin(htf_bars, 3000);
 
       // Resize all HTF caching arrays
       ArrayResize(h_time,       g_htf_count);
@@ -280,57 +295,54 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_high,       g_htf_count);
       ArrayResize(h_low,        g_htf_count);
       ArrayResize(h_close,      g_htf_count);
-      ArrayResize(h_volume,     g_htf_count);
+      ArrayResize(h_tick_vol,   g_htf_count);
+      ArrayResize(h_vol,        g_htf_count);
       ArrayResize(h_res_accel,  g_htf_count);
       ArrayResize(h_res_color,  g_htf_count);
       ArrayResize(h_res_signal, g_htf_count);
 
-      // Force chronological structure on high-level arrays
       ArraySetAsSeries(h_time,       false);
       ArraySetAsSeries(h_open,       false);
       ArraySetAsSeries(h_high,       false);
       ArraySetAsSeries(h_low,        false);
       ArraySetAsSeries(h_close,      false);
-      ArraySetAsSeries(h_volume,     false);
+      ArraySetAsSeries(h_tick_vol,   false);
+      ArraySetAsSeries(h_vol,        false);
       ArraySetAsSeries(h_res_accel,  false);
       ArraySetAsSeries(h_res_color,  false);
       ArraySetAsSeries(h_res_signal, false);
 
-      // Copy basic pricing data
-      if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
-         CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
-         CopyHigh(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_high)  != g_htf_count ||
-         CopyLow(_Symbol,   g_calc_timeframe, 0, g_htf_count, h_low)   != g_htf_count ||
-         CopyClose(_Symbol, g_calc_timeframe, 0, g_htf_count, h_close) != g_htf_count)
+      if(CopyTime(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_time)     != g_htf_count ||
+         CopyOpen(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_open)     != g_htf_count ||
+         CopyHigh(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_high)     != g_htf_count ||
+         CopyLow(_Symbol,        g_calc_timeframe, 0, g_htf_count, h_low)      != g_htf_count ||
+         CopyClose(_Symbol,      g_calc_timeframe, 0, g_htf_count, h_close)    != g_htf_count ||
+         CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_tick_vol) != g_htf_count)
         {
          g_data_ready = false;
          return 0;
         }
 
-      // Copy and extract proper volume types
       long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
       if(vol_limit > 0)
-        {
-         long temp_vol[];
-         if(CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
-           {
-            for(int i = 0; i < g_htf_count; i++)
-               h_volume[i] = (double)temp_vol[i];
-           }
-        }
+         CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_vol);
       else
-        {
-         long temp_vol[];
-         if(CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
-           {
-            for(int i = 0; i < g_htf_count; i++)
-               h_volume[i] = (double)temp_vol[i];
-           }
-        }
+         ArrayCopy(h_vol, h_tick_vol, 0, 0, g_htf_count);
 
-      //--- Calculate core indicators directly on high timeframe (Initial setup)
-      g_calculator.Calculate(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_res_accel, h_res_color, InpThreshold);
-      g_ma_calc.CalculateOnArray(g_htf_count, 0, h_res_accel, h_volume, h_res_signal, 2);
+      // Compute HTF Laguerre Acceleration Values
+      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close,
+                             h_res_accel, h_res_color, InpThreshold);
+
+      if(InpShowSignal && CheckPointer(g_ma_calc) != POINTER_INVALID)
+        {
+         double htf_double_vol[];
+         ArrayResize(htf_double_vol, g_htf_count);
+         ArraySetAsSeries(htf_double_vol, false);
+         for(int k = 0; k < g_htf_count; k++)
+            htf_double_vol[k] = (double)h_vol[k];
+
+         g_ma_calc.CalculateOnArray(g_htf_count, 0, h_res_accel, htf_double_vol, h_res_signal, 2);
+        }
 
       g_data_ready = true;
      }
@@ -338,43 +350,54 @@ int OnCalculate(const int rates_total,
    if(!g_data_ready)
       return 0;
 
-//--- 5. Real-Time Update for the active forming HTF candle (Index: g_htf_count - 1) on every tick
+// 5. Stateful live-bar update for active forming HTF candle
    int live_idx = g_htf_count - 1;
-   if(live_idx >= 10)
+   if(live_idx >= required_bars)
      {
       double o[1], h[1], l[1], c[1];
-      long v[1];
+      datetime t_bar[1];
+      long tv[1], v[1];
+
       int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
       if(shift >= 0 &&
-         CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
-         CopyHigh(_Symbol,  g_calc_timeframe, shift, 1, h) == 1 &&
-         CopyLow(_Symbol,   g_calc_timeframe, shift, 1, l) == 1 &&
-         CopyClose(_Symbol, g_calc_timeframe, shift, 1, c) == 1)
+         CopyTime(_Symbol,       g_calc_timeframe, shift, 1, t_bar) == 1 &&
+         CopyOpen(_Symbol,       g_calc_timeframe, shift, 1, o)     == 1 &&
+         CopyHigh(_Symbol,       g_calc_timeframe, shift, 1, h)     == 1 &&
+         CopyLow(_Symbol,        g_calc_timeframe, shift, 1, l)     == 1 &&
+         CopyClose(_Symbol,      g_calc_timeframe, shift, 1, c)     == 1 &&
+         CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, tv)    == 1)
         {
-         h_open[live_idx]  = o[0];
-         h_high[live_idx]  = h[0];
-         h_low[live_idx]   = l[0];
-         h_close[live_idx] = c[0];
+         h_time[live_idx]     = t_bar[0];
+         h_open[live_idx]     = o[0];
+         h_high[live_idx]     = h[0];
+         h_low[live_idx]      = l[0];
+         h_close[live_idx]    = c[0];
+         h_tick_vol[live_idx] = tv[0];
 
          long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-         if(vol_limit > 0)
-           {
-            if(CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-               h_volume[live_idx] = (double)v[0];
-           }
+         if(vol_limit > 0 && CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
+            h_vol[live_idx] = v[0];
          else
-           {
-            if(CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-               h_volume[live_idx] = (double)v[0];
-           }
+            h_vol[live_idx] = tv[0];
 
-         // Stateful, O(1) mock update for the live bar
-         g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close, h_res_accel, h_res_color, InpThreshold);
-         g_ma_calc.CalculateOnArray(g_htf_count, g_htf_count, h_res_accel, h_volume, h_res_signal, 2);
+         // Mock update on live bar
+         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close,
+                                h_res_accel, h_res_color, InpThreshold);
+
+         if(InpShowSignal && CheckPointer(g_ma_calc) != POINTER_INVALID)
+           {
+            double htf_double_vol[];
+            ArrayResize(htf_double_vol, g_htf_count);
+            ArraySetAsSeries(htf_double_vol, false);
+            for(int k = 0; k < g_htf_count; k++)
+               htf_double_vol[k] = (double)h_vol[k];
+
+            g_ma_calc.CalculateOnArray(g_htf_count, g_htf_count, h_res_accel, htf_double_vol, h_res_signal, 2);
+           }
         }
      }
 
-//--- 6. Warp-free step force (Staircase Solution anchor determination)
+// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
 
    int first_bar_of_forming_htf = rates_total - 1;
@@ -383,12 +406,12 @@ int OnCalculate(const int rates_total,
      {
       first_bar_of_forming_htf--;
      }
-   first_bar_of_forming_htf++; // Anchor set to start of current HTF period block
+   first_bar_of_forming_htf++;
 
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-//--- 7. Map HTF Calculated results cleanly to the lower chart timeframe (O(1) complexity)
+// 7. Chronological Mapping Loop to Chart Timeframe (3 Buffers)
    for(int i = start; i < rates_total; i++)
      {
       datetime t = time[i];
@@ -405,29 +428,28 @@ int OnCalculate(const int rates_total,
            }
          else
            {
-            BufferAccel[i]      = EMPTY_VALUE;
+            BufferAccel[i]      = 0.0;
             BufferAccelColor[i] = 0.0;
             BufferSignalMA[i]   = EMPTY_VALUE;
            }
         }
       else
         {
-         BufferAccel[i]      = EMPTY_VALUE;
+         BufferAccel[i]      = 0.0;
          BufferAccelColor[i] = 0.0;
          BufferSignalMA[i]   = EMPTY_VALUE;
         }
      }
 
-   return(rates_total);
+   return rates_total;
   }
 
 //+------------------------------------------------------------------+
-//| OnTimer Event Handler                                            |
+//| OnTimer Event Handler (Data Synchronization Daemon)              |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-//--- Delegate asynchronous history checking and forced redraws to DataSync daemon
-   int required_bars = MathMax(100, InpSignalPeriod * 2);
+   int required_bars = InpSignalPeriod + 10;
    CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
   }
 //+------------------------------------------------------------------+
