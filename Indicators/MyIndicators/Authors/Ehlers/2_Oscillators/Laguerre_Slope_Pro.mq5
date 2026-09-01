@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                           Laguerre_Slope_Pro.mq5|
+//|                                           Laguerre_Slope_Pro.mq5 |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.40" // Upgraded with dynamic Volume-Weighted MA (VWMA) signal line support
-#property description "Slope derivative of John Ehlers' Laguerre Filter with optional Signal MA."
-#property description "Features a 5-zone symmetrical thermal color palette and dynamic volume cache."
+#property version   "3.00" // Unified Native & MTF Release with 5-Zone Thermal Matrix
+#property description "Slope derivative of John Ehlers' Laguerre Filter with Native & MTF Support."
+#property description "Features a 5-zone symmetrical thermal momentum matrix and customizable Signal MA."
 
 #property indicator_separate_window
 #property indicator_buffers 3
@@ -16,113 +16,157 @@
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
+// Palette mapping: 0=Gray, 1=MediumSeaGreen, 2=PaleGreen, 3=Crimson, 4=LightCoral
 #property indicator_color1  clrGray, clrMediumSeaGreen, clrPaleGreen, clrCrimson, clrLightCoral
 
-//--- Plot 2: Moving Average Signal Line (Continuous Line)
+//--- Plot 2: Optional Moving Average Signal Line
 #property indicator_label2  "Signal MA"
 #property indicator_type2   DRAW_LINE
+#property indicator_color2  clrMaroon
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  1
-#property indicator_color2  clrMaroon
 
-//--- Included Engines
+//--- Included Engines & Core Tools
 #include <MyIncludes\Laguerre_Slope_Calculator.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
+#include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Input Parameters ---
+input group "--- Timeframe Settings ---"
+input ENUM_TIMEFRAMES           InpTimeframe      = PERIOD_CURRENT;      // Calculation Timeframe (Current or HTF)
+
 input group "--- Laguerre Settings ---"
-input double                    InpGamma         = 0.5;             // Laguerre Gamma (e.g. 0.236, 0.382, 0.618)
-input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice   = PRICE_CLOSE_STD; // Price Source
-input double                    InpThreshold     = 0.00005;         // Slope Neutral Threshold
+input double                    InpGamma          = 0.5;                 // Laguerre Gamma (e.g. 0.236, 0.382, 0.618, 0.764)
+input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice    = PRICE_CLOSE_STD;     // Price Source (Standard / HA)
+input double                    InpThreshold      = 0.00005;             // Slope Neutral Threshold
 
 input group "--- Signal MA Settings ---"
-input bool                      InpShowSignal    = true;            // Show Signal MA Line?
-input int                       InpSignalPeriod  = 5;               // Signal MA Period
-input ENUM_MA_TYPE              InpSignalType    = EMA;             // Signal MA Type (Supports VWMA)
+input bool                      InpShowSignal     = true;                // Show Signal MA Line?
+input int                       InpSignalPeriod   = 5;                   // Signal MA Period
+input ENUM_MA_TYPE              InpSignalType     = EMA;                 // Signal MA Type (Supports VWMA)
+input color                     InpColorSignal    = clrMaroon;           // Signal Line Color
 
-//--- Indicator Buffers ---
+//--- Visual Indicator Buffers ---
 double    BufferSlope[];
 double    BufferSlopeColor[];
 double    BufferSignalMA[];
 
-//--- Volume Cache to support Volume-Weighted types (VWMA)
+//--- Volume Cache (For Current Timeframe VWMA)
 double    g_double_volume[];
 
-//--- Global Objects ---
-CLaguerreSlopeCalculator *g_calculator;
-CMovingAverageCalculator *g_ma_calc;
+//--- Internal HTF Data Caches (Chronological Arrays)
+double    h_open[], h_high[], h_low[], h_close[];
+long      h_tick_vol[], h_vol[];
+double    h_res_slope[], h_res_color[], h_res_signal[];
+datetime  h_time[];
+
+//--- Global Objects & State Management
+CLaguerreSlopeCalculator *g_calculator = NULL;
+CMovingAverageCalculator *g_ma_calc    = NULL;
+
+bool            g_is_mtf_mode         = false;
+ENUM_TIMEFRAMES g_calc_timeframe;
+bool            g_data_ready          = false;
+bool            g_data_synced         = false;
+int             g_htf_count           = 0;
+datetime        g_last_htf_time       = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- Bind buffers to index mapping
+   g_data_ready    = false;
+   g_data_synced   = false;
+   g_htf_count     = 0;
+   g_last_htf_time = 0;
+
+// 1. Resolve Timeframe and validate direction
+   g_calc_timeframe = InpTimeframe;
+   if(g_calc_timeframe == PERIOD_CURRENT)
+      g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
+
+   if(g_calc_timeframe < Period())
+     {
+      PrintFormat("Critical Error: Target timeframe (%s) must be >= current timeframe (%s).",
+                  EnumToString(g_calc_timeframe), EnumToString(Period()));
+      return INIT_PARAMETERS_INCORRECT;
+     }
+   g_is_mtf_mode = (g_calc_timeframe > Period());
+
+// 2. Bind Buffers
    SetIndexBuffer(0, BufferSlope,      INDICATOR_DATA);
    SetIndexBuffer(1, BufferSlopeColor, INDICATOR_COLOR_INDEX);
    SetIndexBuffer(2, BufferSignalMA,   INDICATOR_DATA);
 
-//--- Force strict chronological alignment (false = old to new)
    ArraySetAsSeries(BufferSlope,      false);
    ArraySetAsSeries(BufferSlopeColor, false);
    ArraySetAsSeries(BufferSignalMA,   false);
 
-//--- Setup EMPTY_VALUE fallbacks for drawing safety
+   ArrayInitialize(BufferSlope,      0.0);
+   ArrayInitialize(BufferSlopeColor, 0.0);
+   ArrayInitialize(BufferSignalMA,   EMPTY_VALUE);
+
+// Prevent drawing to 0.0 for empty Signal line values
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   bool is_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
-
-//--- Initialize physical Laguerre Slope Calculator
-   g_calculator = new CLaguerreSlopeCalculator();
-   if(CheckPointer(g_calculator) == POINTER_INVALID)
-     {
-      Print("Critical Error: Failed to allocate Laguerre Slope Calculator memory.");
-      return(INIT_FAILED);
-     }
-
-   if(!g_calculator.Init(InpGamma, SOURCE_PRICE, is_ha))
-     {
-      Print("Critical Error: Failed to initialize Laguerre Slope Calculator.");
-      return(INIT_FAILED);
-     }
-
-//--- Initialize physical Signal MA Calculator
-   g_ma_calc = new CMovingAverageCalculator();
-   if(CheckPointer(g_ma_calc) == POINTER_INVALID)
-     {
-      Print("Critical Error: Failed to allocate Signal MA Calculator memory.");
-      return(INIT_FAILED);
-     }
-
-   if(!g_ma_calc.Init(InpSignalPeriod, InpSignalType))
-     {
-      Print("Critical Error: Failed to initialize Signal MA Calculator.");
-      return(INIT_FAILED);
-     }
-
-//--- Dynamic Plot visibility and Shortname configuration
-   string short_name = StringFormat("Laguerre Slope%s(%.3f, %.5f)",
-                                    is_ha ? " HA" : "",
-                                    InpGamma,
-                                    InpThreshold);
+// 3. Configure Optional Signal Line Visuals
    if(InpShowSignal)
      {
-      string sig_name = EnumToString(InpSignalType);
-      StringToUpper(sig_name);
-      short_name += StringFormat(" | %s(%d)", sig_name, InpSignalPeriod);
       PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
+      PlotIndexSetInteger(1, PLOT_LINE_COLOR, InpColorSignal);
+      PlotIndexSetString(1,  PLOT_LABEL, "Signal MA");
+
+      g_ma_calc = new CMovingAverageCalculator();
+      if(CheckPointer(g_ma_calc) == POINTER_INVALID || !g_ma_calc.Init(InpSignalPeriod, InpSignalType))
+        {
+         Print("Critical Error: Failed to initialize Signal MA Calculator.");
+         return INIT_FAILED;
+        }
      }
    else
      {
       PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_NONE);
+      PlotIndexSetString(1,  PLOT_LABEL, NULL);
      }
 
-   IndicatorSetString(INDICATOR_SHORTNAME, short_name);
+// 4. Initialize Core Calculator Engine
+   g_calculator = new CLaguerreSlopeCalculator();
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpGamma, SOURCE_PRICE, InpSourcePrice))
+     {
+      Print("Critical Error: Failed to initialize Laguerre Slope Calculator.");
+      return INIT_FAILED;
+     }
 
-//--- Apply offsets and sub-point display settings for fractional precision
+   string ha_tag    = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   string tf_str    = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string sig_str   = "";
+   if(InpShowSignal)
+     {
+      string sig_name = EnumToString(InpSignalType);
+      StringToUpper(sig_name);
+      sig_str = StringFormat(" | %s(%d)", sig_name, InpSignalPeriod);
+     }
+
+   string short_name = StringFormat("Laguerre Slope%s%s(γ=%.3f, %.5f)%s",
+                                    ha_tag, tf_str,
+                                    InpGamma, InpThreshold,
+                                    sig_str);
+   IndicatorSetString(INDICATOR_SHORTNAME, short_name);
+   PlotIndexSetString(0, PLOT_LABEL, "Laguerre Slope");
+
+   int draw_begin = InpSignalPeriod + 2;
+   if(g_is_mtf_mode)
+      draw_begin = 0;
+
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, 2);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, InpSignalPeriod + 2);
+   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits + 2);
+
+// 5. Initialize Background Synchronization Timer (Only for MTF mode)
+   if(g_is_mtf_mode)
+      EventSetTimer(1);
 
    return(INIT_SUCCEEDED);
   }
@@ -132,11 +176,19 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(CheckPointer(g_calculator) != POINTER_INVALID)
-      delete g_calculator;
+   if(g_is_mtf_mode)
+      EventKillTimer();
 
+   if(CheckPointer(g_calculator) != POINTER_INVALID)
+     {
+      delete g_calculator;
+      g_calculator = NULL;
+     }
    if(CheckPointer(g_ma_calc) != POINTER_INVALID)
+     {
       delete g_ma_calc;
+      g_ma_calc = NULL;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -153,64 +205,250 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < InpSignalPeriod + 5 || CheckPointer(g_calculator) == POINTER_INVALID || CheckPointer(g_ma_calc) == POINTER_INVALID)
+   int required_bars = InpSignalPeriod + 10;
+   if(rates_total < required_bars || CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
-//--- Chronological safeguarding of critical calculation arrays
-   ArraySetAsSeries(time,  false);
-   ArraySetAsSeries(open,  false);
-   ArraySetAsSeries(high,  false);
-   ArraySetAsSeries(low,   false);
-   ArraySetAsSeries(close, false);
+// Force chronological indexing
+   ArraySetAsSeries(time,        false);
+   ArraySetAsSeries(open,        false);
+   ArraySetAsSeries(high,        false);
+   ArraySetAsSeries(low,         false);
+   ArraySetAsSeries(close,       false);
+   ArraySetAsSeries(tick_volume, false);
+   ArraySetAsSeries(volume,      false);
 
-//--- 1. Sync Volume to local double array incrementally (O(1)) for VWMA support
-   long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-
-   if(ArraySize(g_double_volume) != rates_total)
+//===================================================================
+// MODE 1: Direct Current Timeframe Calculation (Zero-Lag O(1))
+//===================================================================
+   if(!g_is_mtf_mode)
      {
-      ArrayResize(g_double_volume, rates_total);
-      ArraySetAsSeries(g_double_volume, false);
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(ArraySize(g_double_volume) != rates_total)
+        {
+         ArrayResize(g_double_volume, rates_total);
+         ArraySetAsSeries(g_double_volume, false);
+        }
+
+      int start_sync = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      if(volume_limit > 0)
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)volume[i];
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)tick_volume[i];
+        }
+
+      // 1. Calculate Laguerre Slope & Colors
+      g_calculator.Calculate(rates_total, prev_calculated, open, high, low, close,
+                             BufferSlope, BufferSlopeColor, InpThreshold);
+
+      // 2. Calculate Signal MA Line
+      if(InpShowSignal && CheckPointer(g_ma_calc) != POINTER_INVALID)
+        {
+         g_ma_calc.CalculateOnArray(rates_total, prev_calculated, BufferSlope, g_double_volume, BufferSignalMA, 1);
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            BufferSignalMA[i] = EMPTY_VALUE;
+        }
+
+      return rates_total;
      }
 
-   int start_sync = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   if(volume_limit > 0)
+//===================================================================
+// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
+//===================================================================
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
-      for(int i = start_sync; i < rates_total; i++)
-         g_double_volume[i] = (double)volume[i];
-     }
-   else
-     {
-      for(int i = start_sync; i < rates_total; i++)
-         g_double_volume[i] = (double)tick_volume[i];
+      g_data_synced = false;
+      return 0;
      }
 
-//--- 2. Handle negative-index Heikin Ashi pricing conversions transparently
-   ENUM_APPLIED_PRICE price_type;
-   if(InpSourcePrice <= PRICE_HA_CLOSE)
-      price_type = (ENUM_APPLIED_PRICE)(-(int)InpSourcePrice);
-   else
-      price_type = (ENUM_APPLIED_PRICE)InpSourcePrice;
+   g_data_synced = true;
 
-//--- 3. Calculate Laguerre Slope & Colors (O(1) incremental update)
-   g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
-                          BufferSlope, BufferSlopeColor, InpThreshold);
+   datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
+   bool htf_updated = (htf_time_current != g_last_htf_time);
 
-//--- 4. Calculate or Clear Signal MA Line
-   if(InpShowSignal)
+   if(htf_updated || prev_calculated == 0)
      {
-      // VWMA calculations are handled seamlessly by passing the synced g_double_volume array
-      g_ma_calc.CalculateOnArray(rates_total, prev_calculated, BufferSlope, g_double_volume, BufferSignalMA, 1);
-     }
-   else
-     {
-      // If disabled, dynamically wipe the buffer using optimized incremental loop
-      int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-      for(int i = start_index; i < rates_total; i++)
-         BufferSignalMA[i] = EMPTY_VALUE;
+      g_last_htf_time = htf_time_current;
+
+      int htf_bars = iBars(_Symbol, g_calc_timeframe);
+      if(htf_bars < required_bars)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
+      g_htf_count = MathMin(htf_bars, 3000);
+
+      // Resize all HTF caching arrays
+      ArrayResize(h_time,       g_htf_count);
+      ArrayResize(h_open,       g_htf_count);
+      ArrayResize(h_high,       g_htf_count);
+      ArrayResize(h_low,        g_htf_count);
+      ArrayResize(h_close,      g_htf_count);
+      ArrayResize(h_tick_vol,   g_htf_count);
+      ArrayResize(h_vol,        g_htf_count);
+      ArrayResize(h_res_slope,  g_htf_count);
+      ArrayResize(h_res_color,  g_htf_count);
+      ArrayResize(h_res_signal, g_htf_count);
+
+      ArraySetAsSeries(h_time,       false);
+      ArraySetAsSeries(h_open,       false);
+      ArraySetAsSeries(h_high,       false);
+      ArraySetAsSeries(h_low,        false);
+      ArraySetAsSeries(h_close,      false);
+      ArraySetAsSeries(h_tick_vol,   false);
+      ArraySetAsSeries(h_vol,        false);
+      ArraySetAsSeries(h_res_slope,  false);
+      ArraySetAsSeries(h_res_color,  false);
+      ArraySetAsSeries(h_res_signal, false);
+
+      if(CopyTime(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_time)     != g_htf_count ||
+         CopyOpen(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_open)     != g_htf_count ||
+         CopyHigh(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_high)     != g_htf_count ||
+         CopyLow(_Symbol,        g_calc_timeframe, 0, g_htf_count, h_low)      != g_htf_count ||
+         CopyClose(_Symbol,      g_calc_timeframe, 0, g_htf_count, h_close)    != g_htf_count ||
+         CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_tick_vol) != g_htf_count)
+        {
+         g_data_ready = false;
+         return 0;
+        }
+
+      long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(vol_limit > 0)
+         CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, h_vol);
+      else
+         ArrayCopy(h_vol, h_tick_vol, 0, 0, g_htf_count);
+
+      // Compute HTF Laguerre Slope Values
+      g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close,
+                             h_res_slope, h_res_color, InpThreshold);
+
+      if(InpShowSignal && CheckPointer(g_ma_calc) != POINTER_INVALID)
+        {
+         double htf_double_vol[];
+         ArrayResize(htf_double_vol, g_htf_count);
+         ArraySetAsSeries(htf_double_vol, false);
+         for(int k = 0; k < g_htf_count; k++)
+            htf_double_vol[k] = (double)h_vol[k];
+
+         g_ma_calc.CalculateOnArray(g_htf_count, 0, h_res_slope, htf_double_vol, h_res_signal, 1);
+        }
+
+      g_data_ready = true;
      }
 
-   return(rates_total);
+   if(!g_data_ready)
+      return 0;
+
+// 5. Stateful live-bar update for active forming HTF candle
+   int live_idx = g_htf_count - 1;
+   if(live_idx >= required_bars)
+     {
+      double o[1], h[1], l[1], c[1];
+      datetime t_bar[1];
+      long tv[1], v[1];
+
+      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
+      if(shift >= 0 &&
+         CopyTime(_Symbol,       g_calc_timeframe, shift, 1, t_bar) == 1 &&
+         CopyOpen(_Symbol,       g_calc_timeframe, shift, 1, o)     == 1 &&
+         CopyHigh(_Symbol,       g_calc_timeframe, shift, 1, h)     == 1 &&
+         CopyLow(_Symbol,        g_calc_timeframe, shift, 1, l)     == 1 &&
+         CopyClose(_Symbol,      g_calc_timeframe, shift, 1, c)     == 1 &&
+         CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, tv)    == 1)
+        {
+         h_time[live_idx]     = t_bar[0];
+         h_open[live_idx]     = o[0];
+         h_high[live_idx]     = h[0];
+         h_low[live_idx]      = l[0];
+         h_close[live_idx]    = c[0];
+         h_tick_vol[live_idx] = tv[0];
+
+         long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+         if(vol_limit > 0 && CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
+            h_vol[live_idx] = v[0];
+         else
+            h_vol[live_idx] = tv[0];
+
+         // Mock update on live bar
+         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close,
+                                h_res_slope, h_res_color, InpThreshold);
+
+         if(InpShowSignal && CheckPointer(g_ma_calc) != POINTER_INVALID)
+           {
+            double htf_double_vol[];
+            ArrayResize(htf_double_vol, g_htf_count);
+            ArraySetAsSeries(htf_double_vol, false);
+            for(int k = 0; k < g_htf_count; k++)
+               htf_double_vol[k] = (double)h_vol[k];
+
+            g_ma_calc.CalculateOnArray(g_htf_count, g_htf_count, h_res_slope, htf_double_vol, h_res_signal, 1);
+           }
+        }
+     }
+
+// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
+   int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+
+   int first_bar_of_forming_htf = rates_total - 1;
+   while(first_bar_of_forming_htf > 0 &&
+         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
+     {
+      first_bar_of_forming_htf--;
+     }
+   first_bar_of_forming_htf++;
+
+   if(start > first_bar_of_forming_htf)
+      start = first_bar_of_forming_htf;
+
+// 7. Chronological Mapping Loop to Chart Timeframe (3 Buffers)
+   for(int i = start; i < rates_total; i++)
+     {
+      datetime t = time[i];
+      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+
+      if(shift_htf >= 0)
+        {
+         int idx_htf = g_htf_count - 1 - shift_htf;
+         if(idx_htf >= 0 && idx_htf < g_htf_count)
+           {
+            BufferSlope[i]      = h_res_slope[idx_htf];
+            BufferSlopeColor[i] = h_res_color[idx_htf];
+            BufferSignalMA[i]   = InpShowSignal ? h_res_signal[idx_htf] : EMPTY_VALUE;
+           }
+         else
+           {
+            BufferSlope[i]      = 0.0;
+            BufferSlopeColor[i] = 0.0;
+            BufferSignalMA[i]   = EMPTY_VALUE;
+           }
+        }
+      else
+        {
+         BufferSlope[i]      = 0.0;
+         BufferSlopeColor[i] = 0.0;
+         BufferSignalMA[i]   = EMPTY_VALUE;
+        }
+     }
+
+   return rates_total;
+  }
+
+//+------------------------------------------------------------------+
+//| OnTimer Event Handler (Data Synchronization Daemon)              |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   int required_bars = InpSignalPeriod + 10;
+   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
