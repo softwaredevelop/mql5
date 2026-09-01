@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                               Laguerre_Acceleration_Calculator.mqh |
+//|      Engine for Analyzing the Acceleration of Ehlers' Laguerre   |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Performance optimized for 2nd derivative tracking
-#property description "Calculator engine for analyzing the acceleration (2nd derivative) of Ehlers Laguerre Filter."
+#property version   "3.00" // Overloaded initialization, leak-free pointer management & bounds protection
 
 #ifndef LAGUERRE_ACCELERATION_CALCULATOR_MQH
 #define LAGUERRE_ACCELERATION_CALCULATOR_MQH
@@ -17,7 +17,12 @@
 class CLaguerreAccelerationCalculator
   {
 private:
+   double                     m_gamma;
+   ENUM_INPUT_SOURCE          m_source_type;
+   ENUM_APPLIED_PRICE_HA_ALL  m_source_price;
    CLaguerreFilterCalculator *m_filter_calc;
+
+   //--- Persistent State Buffers
    double                     m_filter_buffer[];
    double                     m_dummy_fir[];
 
@@ -25,18 +30,43 @@ public:
                      CLaguerreAccelerationCalculator(void);
                     ~CLaguerreAccelerationCalculator(void);
 
-   bool              Init(double gamma, ENUM_INPUT_SOURCE source_type, bool is_ha);
-   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &accel_buffer[], double &color_buffer[], double threshold);
+   //--- Legacy Compatible Init (3 Parameters)
+   bool                       Init(const double gamma, const ENUM_INPUT_SOURCE source_type, const bool is_ha)
+     {
+      ENUM_APPLIED_PRICE_HA_ALL src = is_ha ? PRICE_HA_CLOSE : PRICE_CLOSE_STD;
+      return Init(gamma, source_type, src);
+     }
+
+   //--- Enhanced Pro Init (3 Parameters with Full Price Enum)
+   bool                       Init(const double gamma, const ENUM_INPUT_SOURCE source_type, const ENUM_APPLIED_PRICE_HA_ALL price_source);
+
+   void                       Calculate(const int rates_total, const int prev_calculated,
+                                        const double &open[], const double &high[],
+                                        const double &low[], const double &close[],
+                                        double &accel_buffer[], double &color_buffer[],
+                                        const double threshold);
+
+   //--- Legacy Overload with price_type parameter
+   void                       Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
+                                        const double &open[], const double &high[],
+                                        const double &low[], const double &close[],
+                                        double &accel_buffer[], double &color_buffer[],
+                                        const double threshold)
+     {
+      Calculate(rates_total, prev_calculated, open, high, low, close, accel_buffer, color_buffer, threshold);
+     }
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CLaguerreAccelerationCalculator::CLaguerreAccelerationCalculator(void)
-   : m_filter_calc(NULL)
+CLaguerreAccelerationCalculator::CLaguerreAccelerationCalculator(void) : m_gamma(0.5),
+   m_source_type(SOURCE_PRICE),
+   m_source_price(PRICE_CLOSE_STD),
+   m_filter_calc(NULL)
   {
+   ArraySetAsSeries(m_filter_buffer, false);
+   ArraySetAsSeries(m_dummy_fir,     false);
   }
 
 //+------------------------------------------------------------------+
@@ -45,18 +75,28 @@ CLaguerreAccelerationCalculator::CLaguerreAccelerationCalculator(void)
 CLaguerreAccelerationCalculator::~CLaguerreAccelerationCalculator(void)
   {
    if(CheckPointer(m_filter_calc) != POINTER_INVALID)
+     {
       delete m_filter_calc;
+      m_filter_calc = NULL;
+     }
   }
 
 //+------------------------------------------------------------------+
-//| Init                                                             |
+//| Enhanced Pro Initialization                                      |
 //+------------------------------------------------------------------+
-bool CLaguerreAccelerationCalculator::Init(double gamma, ENUM_INPUT_SOURCE source_type, bool is_ha)
+bool CLaguerreAccelerationCalculator::Init(const double gamma, const ENUM_INPUT_SOURCE source_type, const ENUM_APPLIED_PRICE_HA_ALL price_source)
   {
-   if(CheckPointer(m_filter_calc) != POINTER_INVALID)
-      delete m_filter_calc;
+   m_gamma        = fmax(0.0, fmin(1.0, gamma));
+   m_source_type  = source_type;
+   m_source_price = price_source;
 
-   if(is_ha)
+   if(CheckPointer(m_filter_calc) != POINTER_INVALID)
+     {
+      delete m_filter_calc;
+      m_filter_calc = NULL;
+     }
+
+   if(m_source_price <= PRICE_HA_CLOSE)
       m_filter_calc = new CLaguerreFilterCalculator_HA();
    else
       m_filter_calc = new CLaguerreFilterCalculator();
@@ -64,35 +104,50 @@ bool CLaguerreAccelerationCalculator::Init(double gamma, ENUM_INPUT_SOURCE sourc
    if(CheckPointer(m_filter_calc) == POINTER_INVALID)
       return false;
 
-   return m_filter_calc.Init(gamma, source_type);
+   return m_filter_calc.Init(m_gamma, m_source_type, m_source_price);
   }
 
 //+------------------------------------------------------------------+
-//| Calculate                                                        |
+//| Main Incremental Acceleration Calculation Loop                   |
 //+------------------------------------------------------------------+
-void CLaguerreAccelerationCalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
-      const double &open[], const double &high[], const double &low[], const double &close[],
-      double &accel_buffer[], double &color_buffer[], double threshold)
+void CLaguerreAccelerationCalculator::Calculate(const int rates_total, const int prev_calculated,
+      const double &open[], const double &high[],
+      const double &low[], const double &close[],
+      double &accel_buffer[], double &color_buffer[],
+      const double threshold)
   {
-   if(CheckPointer(m_filter_calc) == POINTER_INVALID || rates_total < 3)
+   if(rates_total < 4 || CheckPointer(m_filter_calc) == POINTER_INVALID)
       return;
 
-//--- Prevent continuous memory reallocations, ensuring state buffer alignment
+// Safe allocation of destination arrays
+   if(ArraySize(accel_buffer) != rates_total)
+     {
+      ArrayResize(accel_buffer, rates_total);
+      ArraySetAsSeries(accel_buffer, false);
+      ArrayInitialize(accel_buffer, 0.0);
+     }
+   if(ArraySize(color_buffer) != rates_total)
+     {
+      ArrayResize(color_buffer, rates_total);
+      ArraySetAsSeries(color_buffer, false);
+      ArrayInitialize(color_buffer, 0.0);
+     }
+
+// Resize internal filter cache
    if(ArraySize(m_filter_buffer) != rates_total)
      {
       ArrayResize(m_filter_buffer, rates_total);
-      ArrayResize(m_dummy_fir, rates_total);
+      ArrayResize(m_dummy_fir,     rates_total);
       ArraySetAsSeries(m_filter_buffer, false);
-      ArraySetAsSeries(m_dummy_fir, false);
+      ArraySetAsSeries(m_dummy_fir,     false);
      }
 
-//--- Compute underlying filter
-   m_filter_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, m_filter_buffer, m_dummy_fir);
+// 1. Calculate Underlying Laguerre Filter
+   m_filter_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_filter_buffer, m_dummy_fir);
 
-   int start_index = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
 
-//--- Warm-up initialization for index 0 and 1
-   if(start_index < 2)
+   if(prev_calculated == 0)
      {
       accel_buffer[0] = 0.0;
       color_buffer[0] = 0.0;
@@ -101,15 +156,25 @@ void CLaguerreAccelerationCalculator::Calculate(int rates_total, int prev_calcul
       start_index = 2;
      }
 
-//--- Calculate Acceleration (2nd Derivative: Accel = Filter[t] - 2*Filter[t-1] + Filter[t-2])
+   if(start_index < 2)
+      start_index = 2;
+
+// 2. Primary Acceleration Loop: Accel = Laguerre[t] - 2*Laguerre[t-1] + Laguerre[t-2]
    for(int i = start_index; i < rates_total; i++)
      {
+      if(m_filter_buffer[i] == EMPTY_VALUE || m_filter_buffer[i - 1] == EMPTY_VALUE || m_filter_buffer[i - 2] == EMPTY_VALUE)
+        {
+         accel_buffer[i] = 0.0;
+         color_buffer[i] = 0.0;
+         continue;
+        }
+
       accel_buffer[i] = m_filter_buffer[i] - 2.0 * m_filter_buffer[i - 1] + m_filter_buffer[i - 2];
 
       double current_accel  = accel_buffer[i];
       double previous_accel = accel_buffer[i - 1];
 
-      //--- Classify into 5-zone Symmetrical Thermal Acceleration Matrix
+      // 3. Symmetrical Thermal 5-Zone Momentum Matrix
       if(MathAbs(current_accel) <= threshold)
         {
          color_buffer[i] = 0.0; // Index 0: clrGray (Neutral / Consolidation)
@@ -118,16 +183,16 @@ void CLaguerreAccelerationCalculator::Calculate(int rates_total, int prev_calcul
          if(current_accel > 0.0)
            {
             if(current_accel > previous_accel)
-               color_buffer[i] = 1.0; // Index 1: clrDodgerBlue (Strong Bull Acceleration)
+               color_buffer[i] = 1.0; // Index 1: clrDodgerBlue (Strong Bull Force)
             else
-               color_buffer[i] = 2.0; // Index 2: clrLightSkyBlue (Weak Bull Acceleration/Deceleration)
+               color_buffer[i] = 2.0; // Index 2: clrLightSkyBlue (Weak Bull Force)
            }
          else // current_accel < 0.0
            {
             if(current_accel < previous_accel)
-               color_buffer[i] = 3.0; // Index 3: clrCrimson (Strong Bear Acceleration)
+               color_buffer[i] = 3.0; // Index 3: clrCrimson (Strong Bear Force)
             else
-               color_buffer[i] = 4.0; // Index 4: clrCoral (Weak Bear Acceleration/Deceleration)
+               color_buffer[i] = 4.0; // Index 4: clrCoral (Weak Bear Force)
            }
      }
   }
