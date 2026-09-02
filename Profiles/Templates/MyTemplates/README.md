@@ -63,7 +63,12 @@ Tokens describe the indicator stack. Main token glossary:
 | `fibo` | Fibonacci parameter pair (e.g. 0.500 / 0.236) |
 | `tsi` | TSI Combo |
 | `sqz` | Squeeze (BB + KC) |
-| `gpivot` / `tpivot` | Broker pivot: Go Markets / Tickmill |
+| `pivot` | PivotPoints_Pro (unified; replaces broker-specific `gpivot`/`tpivot`) |
+
+> **`pivot` note:** since the PivotPoints_Pro unification, all pivot setups use
+> the unified `pivot` token (the broker-specific `gpivot`/`tpivot` tokens are
+> retired). New-gen pivot setups typically use `PivotPro(PERIOD_H4)` or
+> `PivotPro(PERIOD_D1)` alongside VWAP Bands / V-Score Bands.
 | `keltner` / `ema` / `macd` / `kama` / `madh` / `polyreg` | Other indicators |
 
 ### `[Session]` (optional) — session configuration
@@ -106,6 +111,7 @@ Tokens encode the combination of market sessions and daylight-saving state
 | `trend.ha.adx_dmi.base.tpl` | trend / HA / ADX+DMI base variant, no sessions |
 | `trend.ha.adx_dmi_murrey_ss_vwap.tlxn_sum.tpl` | trend / HA / ADX+DMI+Murrey+SS+VWAP / tlxn summer session |
 | `trend.ha.adx_dmi_murrey_ss_vwap_vbands_vel_stocha.lxn_sum_short.tpl` | + VWAP Bands + Velocity + Stoch Adaptive / shortened lxn session |
+| `trend.ha.laguerre_pivot_absorption_mtf_lscore_vel_rsi.tlxn_sum.tpl` | trend / HA / Laguerre + PivotPro (H4) + Absorption MTF + LScore + Velocity + RSI |
 | `scalp.ha.sessions.tlxn_sum.tpl` | scalp / HA / 4 session indicators / tlxn summer |
 | `sr.std.murrey_sessions.tlxn_win.full.tpl` | sr / std / Murrey + sessions / tlxn winter |
 | `demo.std.macd.tpl` | indicator showcase: MACD Pro |
