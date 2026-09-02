@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.20" // Smart Base Directory & Auto-Path Normalization
+#property version     "3.21" // 100% Warning-Free: In-Place String Normalization
 #property description "Automated Workspace & Template Bulk Loader."
 #property description "Opens and organizes multi-symbol, multi-timeframe chart layouts with templates."
 #property script_show_inputs
@@ -23,7 +23,7 @@ input int             InpDelayMs              = 50;                    // Delay 
 
 input group "--- Chart Configuration 1 ---"
 input ENUM_TIMEFRAMES InpPeriod_1             = PERIOD_M15;            // Slot 1 Timeframe
-input string          InpTemplate_1           = "trend.std.tsi_vbands.tpl"; // Slot 1 Template Name/Path (empty to skip)
+input string          InpTemplate_1           = "trend.std.tsi_vbands"; // Slot 1 Template Name/Path (empty to skip)
 
 input group "--- Chart Configuration 2 ---"
 input ENUM_TIMEFRAMES InpPeriod_2             = PERIOD_H1;             // Slot 2 Timeframe
@@ -84,8 +84,11 @@ string FormatTemplatePath(string tpl, string base_dir)
 // If base_dir is specified and tpl does not already start with base_dir or root
    if(base_dir != "")
      {
+      string check_tpl = tpl;
+      StringToLower(check_tpl);
+
       // If template is explicitly at root (e.g. "default.tpl")
-      if(StringToLower(tpl) == "default.tpl")
+      if(check_tpl == "default.tpl")
          return "default.tpl";
 
       // If user already typed full relative path matching base_dir, don't duplicate
