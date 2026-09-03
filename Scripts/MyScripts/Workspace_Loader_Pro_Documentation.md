@@ -155,6 +155,7 @@ Each configuration slot allows independent timeframe and template assignment. If
 Upon completion, `Workspace Loader Pro` outputs a structured audit trail to the **Experts / Journal** log:
 
 ```text
+
 --- Starting Workspace Loader Pro: Processing 3 symbols ---
 Success: Opened EURUSD [PERIOD_M15] with template 'MyTemplates\Strategies\trend.std.tsi_vbands.tpl'
 Success: Opened EURUSD [PERIOD_H1] with template 'MyTemplates\Strategies\macro_trend.tpl'
@@ -163,3 +164,5 @@ Success: Opened GBPUSD [PERIOD_H1] with template 'MyTemplates\Strategies\macro_t
 Success: Opened USDJPY [PERIOD_M15] with template 'MyTemplates\Strategies\trend.std.tsi_vbands.tpl'
 Success: Opened USDJPY [PERIOD_H1] with template 'MyTemplates\Strategies\macro_trend.tpl'
 --- Workspace Loader Pro Completed: 5 charts opened, 5 templates applied, 1 skipped duplicates ---
+
+```
