@@ -97,24 +97,36 @@ expertmode=4
 fixed_height=-1
 
 <graph>
-name=Laguerre Filter
+name=Laguerre Filter(γ=0.500)
 draw=1
 style=0
 width=1
-color=3937500
+color=7346457
 </graph>
 
 <graph>
 name=FIR Filter
-draw=1
+draw=0
 style=0
 width=1
 color=9109504
 </graph>
 <inputs>
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Laguerre Settings ---=
 InpGamma=0.5
 InpSourcePrice=1
+--- FIR Comparison Filter Settings ---=
 InpShowFIR=false
+--- Visual Settings - Laguerre Filter ---=
+InpColorLaguerre=7346457
+InpStyleLaguerre=0
+InpWidthLaguerre=1
+--- Visual Settings - FIR Filter ---=
+InpColorFIR=9109504
+InpStyleFIR=0
+InpWidthFIR=1
 </inputs>
 </indicator>
 </window>
