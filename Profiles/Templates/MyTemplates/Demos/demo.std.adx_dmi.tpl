@@ -93,11 +93,11 @@ show_data=1
 scale_inherit=0
 scale_line=0
 scale_line_percent=50
-scale_line_value=0.000000
+scale_line_value=24.859500
 scale_fix_min=0
-scale_fix_min_val=0.000000
+scale_fix_min_val=2.596050
 scale_fix_max=0
-scale_fix_max_val=0.000000
+scale_fix_max_val=47.122950
 expertmode=4
 fixed_height=-1
 
@@ -141,9 +141,26 @@ width=1
 descr=
 </level>
 <inputs>
-ADX Settings=
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- ADX Core Settings ---=
 InpPeriodADX=13
 InpCandleSource=0
+--- Indicator Levels ---=
+InpLevelTrend=25.0
+InpLevelExtreme=40.0
+InpLevelColor=12632256
+InpLevelStyle=2
+--- Visual Settings ---=
+InpColorADX=16748574
+InpStyleADX=0
+InpWidthADX=1
+InpColorPDI=2330219
+InpStylePDI=0
+InpWidthPDI=1
+InpColorNDI=4678655
+InpStyleNDI=0
+InpWidthNDI=1
 </inputs>
 </indicator>
 </window>
@@ -224,6 +241,9 @@ width=1
 descr=
 </level>
 <inputs>
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- DMI & Stochastic Settings ---=
 InpCandleSource=0
 InpOscType=0
 InpDMIPeriod=13
@@ -232,6 +252,21 @@ InpSlowKPeriod=3
 InpStochMethod=0
 InpSmoothPeriod=3
 InpSignalMethod=4
+--- Indicator Levels (0-100 Range) ---=
+InpLevelExtrHigh=90.0
+InpLevelHigh=80.0
+InpLevelMid=50.0
+InpLevelLow=20.0
+InpLevelExtrLow=10.0
+InpLevelColor=12632256
+InpLevelStyle=2
+--- Visual Settings ---=
+InpColorK=16748574
+InpStyleK=0
+InpWidthK=1
+InpColorD=5275647
+InpStyleD=0
+InpWidthD=1
 </inputs>
 </indicator>
 </window>
