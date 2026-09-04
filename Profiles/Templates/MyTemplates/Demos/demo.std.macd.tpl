@@ -101,12 +101,19 @@ name=EMA(13)
 draw=1
 style=0
 width=1
-color=3937500
+color=7346457
 </graph>
 <inputs>
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Moving Average Core Settings ---=
 InpPeriod=13
 InpMAType=1
 InpSourcePrice=1
+--- Visual Settings ---=
+InpColorMA=7346457
+InpStyleMA=0
+InpWidthMA=1
 </inputs>
 </indicator>
 
@@ -131,12 +138,19 @@ name=EMA(21)
 draw=1
 style=0
 width=1
-color=16748574
+color=17919
 </graph>
 <inputs>
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Moving Average Core Settings ---=
 InpPeriod=21
 InpMAType=1
 InpSourcePrice=1
+--- Visual Settings ---=
+InpColorMA=17919
+InpStyleMA=0
+InpWidthMA=1
 </inputs>
 </indicator>
 </window>
@@ -155,9 +169,9 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=0.000000
+scale_fix_min_val=-0.000348
 scale_fix_max=0
-scale_fix_max_val=0.000000
+scale_fix_max_val=0.000783
 expertmode=4
 fixed_height=-1
 
@@ -185,12 +199,27 @@ width=1
 color=17919
 </graph>
 <inputs>
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- MACD Core Settings ---=
 InpFastPeriod=13
 InpSlowPeriod=21
 InpSignalPeriod=8
-InpSourcePrice=1
 InpSourceMAType=1
 InpSignalMAType=1
+InpSourcePrice=1
+--- Visual Settings - MACD Line ---=
+InpColorMACD=16748574
+InpStyleMACD=0
+InpWidthMACD=1
+--- Visual Settings - Signal Line ---=
+InpColorSignal=17919
+InpStyleSignal=0
+InpWidthSignal=1
+--- Visual Settings - Histogram ---=
+InpColorHist=12632256
+InpStyleHist=0
+InpWidthHist=1
 </inputs>
 </indicator>
 </window>
