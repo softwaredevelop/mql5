@@ -97,18 +97,23 @@ expertmode=4
 fixed_height=-1
 
 <graph>
-name=Smoother
+name=SuperSmoother(21)
 draw=1
 style=0
 width=1
-arrow=251
 color=7346457
 </graph>
 <inputs>
-Smoother Settings=
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Smoother Settings ---=
 InpSmootherType=0
 InpPeriod=21
 InpSourcePrice=1
+--- Visual Settings ---=
+InpColorFilter=7346457
+InpStyleFilter=0
+InpWidthFilter=1
 </inputs>
 </indicator>
 </window>
