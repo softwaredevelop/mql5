@@ -82,7 +82,7 @@ fixed_height=-1
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -166,7 +166,7 @@ InpWidthNDI=1
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
