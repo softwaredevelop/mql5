@@ -113,7 +113,7 @@ color=42495
 </graph>
 
 <graph>
-name=Bull Flow (+1.50)
+name=Bull Flow (+1.50σ)
 draw=1
 style=0
 width=1
@@ -129,7 +129,7 @@ color=16436871
 </graph>
 
 <graph>
-name=Bear Flow (-1.50)
+name=Bear Flow (-1.50σ)
 draw=1
 style=0
 width=1
@@ -145,39 +145,7 @@ color=5275647
 </graph>
 
 <graph>
-name=Bull Extr (+2.00)
-draw=1
-style=0
-width=1
-color=16436871
-</graph>
-
-<graph>
-name=
-draw=1
-style=0
-width=1
-color=16436871
-</graph>
-
-<graph>
-name=Bear Extr (-2.00)
-draw=1
-style=0
-width=1
-color=5275647
-</graph>
-
-<graph>
-name=
-draw=1
-style=0
-width=1
-color=5275647
-</graph>
-
-<graph>
-name=Bull Wall (+2.50)
+name=Bull Extr (+2.00σ)
 draw=1
 style=0
 width=1
@@ -193,7 +161,7 @@ color=16760576
 </graph>
 
 <graph>
-name=Bear Wall (-2.50)
+name=Bear Extr (-2.00σ)
 draw=1
 style=0
 width=1
@@ -206,16 +174,74 @@ draw=1
 style=0
 width=1
 color=17919
+</graph>
+
+<graph>
+name=Bull Wall (+2.50σ)
+draw=1
+style=0
+width=1
+color=7346457
+</graph>
+
+<graph>
+name=
+draw=1
+style=0
+width=1
+color=7346457
+</graph>
+
+<graph>
+name=Bear Wall (-2.50σ)
+draw=1
+style=0
+width=1
+color=139
+</graph>
+
+<graph>
+name=
+draw=1
+style=0
+width=1
+color=139
 </graph>
 <inputs>
-V-Score Core Settings=
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- V-Score Core Settings ---=
 InpPeriod=21
 InpVWAPReset=0
+InpTzShift=0
+InpCustomSessionStart=09:30
+InpCustomSessionEnd=16:00
+--- Calculation Settings ---=
 InpVolumeType=0
-V-Score Z-Levels (Standard Deviations)=
+InpCandleSource=0
+--- V-Score Z-Levels (Standard Deviations) ---=
 InpLevelFlow=1.5
 InpLevelExtreme=2.0
 InpLevelWall=2.5
+--- Visual Settings - Centerline ---=
+InpColorVWAP=42495
+InpStyleVWAP=0
+InpWidthVWAP=1
+--- Visual Settings - Flow Bands (+/- 1.5σ) ---=
+InpColorUpFlow=16436871
+InpColorDnFlow=5275647
+InpStyleFlow=0
+InpWidthFlow=1
+--- Visual Settings - Extreme Bands (+/- 2.0σ) ---=
+InpColorUpExtr=16760576
+InpColorDnExtr=17919
+InpStyleExtr=0
+InpWidthExtr=1
+--- Visual Settings - Wall Bands (+/- 2.5σ) ---=
+InpColorUpWall=7346457
+InpColorDnWall=139
+InpStyleWall=0
+InpWidthWall=1
 </inputs>
 </indicator>
 
@@ -243,20 +269,26 @@ width=1
 color=
 </graph>
 <inputs>
-Heads-Up Display Settings=
+--- Heads-Up Display Settings ---=
 InpTimeframe=15
 InpRefreshSeconds=3
-V-Score Settings=
+--- V-Score Settings ---=
 InpVScorePeriod=21
 InpVWAPReset=0
---- Indicator Levels ---=
+InpTzShift=0
+InpCustomSessionStart=09:30
+InpCustomSessionEnd=16:00
+--- Calculation Settings ---=
+InpVolumeType=0
+InpCandleSource=0
+--- Indicator Levels (Sigma Units) ---=
 InpLevelFlowHigh=1.5
 InpLevelFlowLow=-1.5
 InpLevelClimaxHigh=2.0
 InpLevelClimaxLow=-2.0
 InpLevelExtremeHigh=2.5
 InpLevelExtremeLow=-2.5
-Widget Placement (Pixels)=
+--- Widget Placement (Pixels) ---=
 InpTableX=20
 InpTableY=30
 InpFontSize=9
@@ -265,7 +297,7 @@ InpFontSize=9
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -348,14 +380,23 @@ width=1
 descr=
 </level>
 <inputs>
-V-Score Settings=
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- V-Score Settings ---=
 InpPeriod=21
 InpVWAPReset=0
-Signal Line Settings=
+InpTzShift=0
+InpCustomSessionStart=09:30
+InpCustomSessionEnd=16:00
+--- Calculation Settings ---=
+InpVolumeType=0
+InpCandleSource=0
+--- Signal Line Settings ---=
 InpShowSignal=true
 InpSignalPeriod=5
 InpSignalType=3
-Indicator Levels=
+InpColorSignal=2237106
+--- Indicator Levels (Sigma Units) ---=
 InpLevelFlowHigh=1.5
 InpLevelFlowLow=-1.5
 InpLevelClimaxHigh=2.0
