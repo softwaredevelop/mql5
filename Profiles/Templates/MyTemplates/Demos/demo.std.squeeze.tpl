@@ -120,10 +120,21 @@ width=1
 color=2330219
 </graph>
 <inputs>
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Bollinger Bands Core Settings ---=
 InpPeriod=21
 InpDeviation=2.0
 InpMAType=0
 InpSourcePrice=1
+--- Visual Settings - Centerline ---=
+InpColorMiddle=2330219
+InpStyleMiddle=0
+InpWidthMiddle=1
+--- Visual Settings - Outer Bands ---=
+InpColorBands=2330219
+InpStyleBands=2
+InpWidthBands=1
 </inputs>
 </indicator>
 
@@ -148,7 +159,7 @@ name=Upper Band
 draw=1
 style=2
 width=1
-color=3937500
+color=17919
 </graph>
 
 <graph>
@@ -156,7 +167,7 @@ name=Lower Band
 draw=1
 style=2
 width=1
-color=3937500
+color=17919
 </graph>
 
 <graph>
@@ -164,23 +175,33 @@ name=Basis
 draw=1
 style=0
 width=1
-color=3937500
+color=17919
 </graph>
 <inputs>
-Middle Line (MA) Settings=
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Middle Line (MA) Settings ---=
 InpMaPeriod=21
 InpMaMethod=1
 InpSourcePrice=6
-Channel (ATR) Settings=
+--- Channel (ATR) Settings ---=
 InpAtrPeriod=13
 InpMultiplier=1.5
 InpAtrSource=0
+--- Visual Settings - Centerline (Basis) ---=
+InpColorMiddle=17919
+InpStyleMiddle=0
+InpWidthMiddle=1
+--- Visual Settings - Outer Bands ---=
+InpColorBands=17919
+InpStyleBands=2
+InpWidthBands=1
 </inputs>
 </indicator>
 </window>
 
 <window>
-height=50.000000
+height=30.000000
 objects=0
 
 <indicator>
@@ -193,18 +214,18 @@ scale_line=0
 scale_line_percent=50
 scale_line_value=0.000000
 scale_fix_min=0
-scale_fix_min_val=0.000000
+scale_fix_min_val=-1731.197675
 scale_fix_max=0
-scale_fix_max_val=0.000000
+scale_fix_max_val=2337.972155
 expertmode=4
 fixed_height=-1
 
 <graph>
 name=Momentum
-draw=2
+draw=11
 style=0
 width=2
-color=16748574,3937500,16760576,2237106
+color=16436871,16760576,17919,5275647
 </graph>
 
 <graph>
@@ -216,13 +237,24 @@ arrow=159
 color=65280,255
 </graph>
 <inputs>
-Squeeze Settings=
+--- Timeframe Settings ---=
+InpTimeframe=0
+--- Squeeze Core Settings ---=
 InpPeriod=21
 InpBBMult=2.0
 InpKCMult=1.5
-InpPrice=1
-Momentum Settings=
+InpSourcePrice=1
+--- Momentum Settings (Linear Regression) ---=
 InpMomPeriod=13
+--- Visual Settings - Momentum Histogram ---=
+InpColorBullExp=16436871
+InpColorBullDec=16760576
+InpColorBearExp=17919
+InpColorBearDec=5275647
+--- Visual Settings - Squeeze Dots ---=
+InpColorSqzOff=65280
+InpColorSqzOn=255
+InpDotSize=2
 </inputs>
 </indicator>
 </window>
