@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "1.20"
+#property version     "1.30"
 #property description "Ultra-Lightweight 3x9 Multi-Asset Symbol Switcher Matrix."
-#property description "Clean borderless grid with solid foreground Z-order buttons and 1-click chart switching."
+#property description "Features per-button solid opaque shielding, persistent Z-order forefront priority, and 1-click chart switching."
 
 #property indicator_chart_window
 #property indicator_buffers 0
@@ -49,6 +49,8 @@ input color                  InpColorIdleTxt    = clrBlack;            // Inacti
 string g_symbols[];
 int    g_symbols_count = 0;
 string g_prefix        = "";
+string g_active_sym    = "";
+ulong  g_last_check_ms = 0;
 
 //+------------------------------------------------------------------+
 //| Parse Symbols from Input String or Market Watch                  |
@@ -104,34 +106,57 @@ void ParseSymbols()
   }
 
 //+------------------------------------------------------------------+
-//| Create or Update Native Button Primitive (Forefront Z-Order 100) |
+//| Create Dual-Layer Button with Opaque Raster Shield (Z-Order 1000)|
 //+------------------------------------------------------------------+
-void CreateButton(const string name, const string text, const int x, const int y, const int w, const int h, const color bg_color, const color text_color)
+void CreateButtonWithShield(const int index, const string sym, const int x, const int y, const int w, const int h, const bool is_active)
   {
-   if(ObjectFind(0, name) < 0)
-     {
-      ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, InpAnchorCorner);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpFontSize);
-      ObjectSetString(0,  name, OBJPROP_FONT, "Trebuchet MS");
-      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-     }
+   string shield_name = g_prefix + "Shld_" + IntegerToString(index);
+   string btn_name    = g_prefix + "Btn_"  + IntegerToString(index);
 
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
-   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
-   ObjectSetString(0,  name, OBJPROP_TEXT, text);
-   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg_color);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, text_color);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);       // Pure foreground: above all chart drawings
-   ObjectSetInteger(0, name, OBJPROP_ZORDER, 100);       // Maximum priority
-   ObjectSetInteger(0, name, OBJPROP_STATE, false);
+   color bg_col  = is_active ? InpColorActiveBg  : InpColorIdleBg;
+   color txt_col = is_active ? InpColorActiveTxt : InpColorIdleTxt;
+
+// 1. Layer 1: Solid Opaque Raster Shield (Obliterates any underlying chart objects)
+   if(ObjectFind(0, shield_name) < 0)
+     {
+      ObjectCreate(0, shield_name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, shield_name, OBJPROP_CORNER, InpAnchorCorner);
+      ObjectSetInteger(0, shield_name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, shield_name, OBJPROP_SELECTABLE, false);
+     }
+   ObjectSetInteger(0, shield_name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, shield_name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, shield_name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, shield_name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, shield_name, OBJPROP_BGCOLOR, bg_col);
+   ObjectSetInteger(0, shield_name, OBJPROP_COLOR, bg_col); // Invisible matching border
+   ObjectSetInteger(0, shield_name, OBJPROP_BACK, false);   // Strict foreground
+   ObjectSetInteger(0, shield_name, OBJPROP_ZORDER, 999);   // Directly below button
+
+// 2. Layer 2: Interactive Flat Button (Carries Text & Click Events)
+   if(ObjectFind(0, btn_name) < 0)
+     {
+      ObjectCreate(0, btn_name, OBJ_BUTTON, 0, 0, 0);
+      ObjectSetInteger(0, btn_name, OBJPROP_CORNER, InpAnchorCorner);
+      ObjectSetInteger(0, btn_name, OBJPROP_FONTSIZE, InpFontSize);
+      ObjectSetString(0,  btn_name, OBJPROP_FONT, "Trebuchet MS");
+      ObjectSetInteger(0, btn_name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, btn_name, OBJPROP_SELECTABLE, false);
+     }
+   ObjectSetInteger(0, btn_name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, btn_name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, btn_name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, btn_name, OBJPROP_YSIZE, h);
+   ObjectSetString(0,  btn_name, OBJPROP_TEXT, sym);
+   ObjectSetInteger(0, btn_name, OBJPROP_BGCOLOR, bg_col);
+   ObjectSetInteger(0, btn_name, OBJPROP_COLOR, txt_col);
+   ObjectSetInteger(0, btn_name, OBJPROP_BACK, false);      // Strict foreground
+   ObjectSetInteger(0, btn_name, OBJPROP_ZORDER, 1000);     // Highest priority on entire chart
+   ObjectSetInteger(0, btn_name, OBJPROP_STATE, false);
   }
 
 //+------------------------------------------------------------------+
-//| Render Solid Foreground 3x9 Grid (No Backplate)                  |
+//| Render Grid Matrix                                               |
 //+------------------------------------------------------------------+
 void RenderGrid()
   {
@@ -139,7 +164,7 @@ void RenderGrid()
       return;
 
    int num_rows = MathMin(g_symbols_count, GRID_ROWS);
-   string active_chart_sym = _Symbol;
+   g_active_sym = _Symbol;
 
    for(int k = 0; k < g_symbols_count; k++)
      {
@@ -163,14 +188,9 @@ void RenderGrid()
         }
 
       string sym = g_symbols[k];
-      string btn_name = g_prefix + "Btn_" + IntegerToString(k);
+      bool is_current = (sym == g_active_sym);
 
-      // Contrast Active Asset vs Inactive Assets
-      bool is_current = (sym == active_chart_sym);
-      color bg_col    = is_current ? InpColorActiveBg  : InpColorIdleBg;
-      color txt_col   = is_current ? InpColorActiveTxt : InpColorIdleTxt;
-
-      CreateButton(btn_name, sym, x, y, InpButtonWidth, InpButtonHeight, bg_col, txt_col);
+      CreateButtonWithShield(k, sym, x, y, InpButtonWidth, InpButtonHeight, is_current);
      }
 
    ChartRedraw(0);
@@ -181,7 +201,8 @@ void RenderGrid()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_prefix = StringFormat("SSW_%I64d_", ChartID());
+   g_prefix        = StringFormat("SSW_%I64d_", ChartID());
+   g_last_check_ms = 0;
 
 // Clean any prior artifacts from this chart instance
    ObjectsDeleteAll(0, g_prefix);
@@ -189,7 +210,7 @@ int OnInit()
 // Load Asset Manifest
    ParseSymbols();
 
-// Draw Clean Grid
+// Draw Shielded Grid
    RenderGrid();
 
    return(INIT_SUCCEEDED);
@@ -200,7 +221,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-// Wipe all graphical objects completely
+// Wipe all graphical shields and buttons completely
    ObjectsDeleteAll(0, g_prefix);
    ChartRedraw(0);
   }
@@ -219,7 +240,19 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-// Zero-overhead mandate: No calculation cycles executed on ticks
+// Forefront Layer Maintenance: Reassert state if external indicators modify objects
+   ulong current_ms = GetTickCount64();
+   if(current_ms - g_last_check_ms >= 500)
+     {
+      g_last_check_ms = current_ms;
+
+      // If active symbol changed externally or screen needs sync
+      if(g_active_sym != _Symbol)
+        {
+         RenderGrid();
+        }
+     }
+
    return rates_total;
   }
 
@@ -231,23 +264,32 @@ void OnChartEvent(const int id,
                   const double &dparam,
                   const string &sparam)
   {
-// Intercept User Button Clicks
+// Intercept User Clicks on either the Button or the Underlying Shield
    if(id == CHARTEVENT_OBJECT_CLICK)
      {
+      string target_symbol = "";
+
       if(StringFind(sparam, g_prefix + "Btn_") == 0)
         {
-         string target_symbol = ObjectGetString(0, sparam, OBJPROP_TEXT);
-
-         if(target_symbol != "" && target_symbol != NULL)
+         target_symbol = ObjectGetString(0, sparam, OBJPROP_TEXT);
+         ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+        }
+      else
+         if(StringFind(sparam, g_prefix + "Shld_") == 0)
            {
-            // Reset button physical state to prevent sticking
-            ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+            // If click registered on shield, retrieve corresponding button symbol
+            string idx_str = StringSubstr(sparam, StringLen(g_prefix + "Shld_"));
+            string btn_name = g_prefix + "Btn_" + idx_str;
+            target_symbol = ObjectGetString(0, btn_name, OBJPROP_TEXT);
+            ObjectSetInteger(0, btn_name, OBJPROP_STATE, false);
+           }
 
-            // Switch Active Chart to Selected Symbol (Preserves Chart Timeframe & Indicators)
-            if(target_symbol != _Symbol)
-              {
-               ChartSetSymbolPeriod(0, target_symbol, _Period);
-              }
+      if(target_symbol != "" && target_symbol != NULL)
+        {
+         // Switch Active Chart to Selected Symbol (Preserves Chart Timeframe & Indicators)
+         if(target_symbol != _Symbol)
+           {
+            ChartSetSymbolPeriod(0, target_symbol, _Period);
            }
         }
      }
