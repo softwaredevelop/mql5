@@ -4,9 +4,10 @@
 //|                                        Copyright 2025, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, xxxxxxxx"
+#property version   "1.10"
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Class CMurreyMathDrawer                                          |
 //+------------------------------------------------------------------+
 class CMurreyMathDrawer
   {
@@ -15,7 +16,8 @@ private:
    string            m_prefix;
    string            m_font_face;
    int               m_font_size;
-   bool              m_label_side_right; // Converted from enum in Init
+   bool              m_label_side_right;
+   bool              m_labels_as_background; // Control for background z-layering
 
    color             m_colors[13];
    int               m_widths[13];
@@ -28,7 +30,8 @@ public:
                      CMurreyMathDrawer(void);
                     ~CMurreyMathDrawer(void);
 
-   void              Init(string prefix, string font, int size, bool right_side);
+   // Fully backward-compatible Init signature with optional background control
+   void              Init(string prefix, string font, int size, bool right_side, bool labels_as_background = true);
    void              SetLineStyles(const color &colors[], const int &widths[]);
    void              Draw(const datetime &time[], const double &levels[]);
   };
@@ -36,7 +39,9 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CMurreyMathDrawer::CMurreyMathDrawer(void) : m_chart_id(0)
+CMurreyMathDrawer::CMurreyMathDrawer(void) :
+   m_chart_id(0),
+   m_labels_as_background(true)
   {
    m_line_text[0]  = "[-2/8]P Extreme Overshoot";
    m_line_text[1]  = "[-1/8]P Overshoot";
@@ -63,15 +68,16 @@ CMurreyMathDrawer::~CMurreyMathDrawer(void)
   }
 
 //+------------------------------------------------------------------+
-//| Initialization                                                   |
+//| Initialization (Enhanced with Background Drawing Toggle)        |
 //+------------------------------------------------------------------+
-void CMurreyMathDrawer::Init(string prefix, string font, int size, bool right_side)
+void CMurreyMathDrawer::Init(string prefix, string font, int size, bool right_side, bool labels_as_background)
   {
-   m_chart_id = ChartID();
-   m_prefix = prefix;
-   m_font_face = font;
-   m_font_size = size;
-   m_label_side_right = right_side;
+   m_chart_id              = ChartID();
+   m_prefix                = prefix;
+   m_font_face             = font;
+   m_font_size             = size;
+   m_label_side_right      = right_side;
+   m_labels_as_background  = labels_as_background;
 
 // Cleanup old objects immediately
    ObjectsDeleteAll(m_chart_id, m_prefix);
@@ -97,10 +103,9 @@ void CMurreyMathDrawer::Draw(const datetime &time[], const double &levels[])
 
    int first_bar_idx = (int)ChartGetInteger(m_chart_id, CHART_FIRST_VISIBLE_BAR, 0);
 
-// Logic for label positioning based on original code
    if(m_label_side_right)
      {
-      first_bar_idx = 1; // Or logic to push to right
+      first_bar_idx = 1;
      }
 
    if(first_bar_idx < 1 || first_bar_idx >= rates_total)
@@ -118,7 +123,7 @@ void CMurreyMathDrawer::Draw(const datetime &time[], const double &levels[])
   }
 
 //+------------------------------------------------------------------+
-//| Helper: Create/Move Line                                         |
+//| Helper: Create/Move Line (Drawn in Background)                   |
 //+------------------------------------------------------------------+
 void CMurreyMathDrawer::CreateOrMoveHLine(int index, double price)
   {
@@ -129,17 +134,18 @@ void CMurreyMathDrawer::CreateOrMoveHLine(int index, double price)
       ObjectSetInteger(m_chart_id, name, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(m_chart_id, name, OBJPROP_COLOR, m_colors[index]);
       ObjectSetInteger(m_chart_id, name, OBJPROP_WIDTH, m_widths[index]);
-      ObjectSetInteger(m_chart_id, name, OBJPROP_BACK, true);
+      ObjectSetInteger(m_chart_id, name, OBJPROP_BACK, true); // Strictly in background
       ObjectSetInteger(m_chart_id, name, OBJPROP_SELECTABLE, false);
      }
    else
      {
       ObjectMove(m_chart_id, name, 0, 0, price);
+      ObjectSetInteger(m_chart_id, name, OBJPROP_BACK, true);
      }
   }
 
 //+------------------------------------------------------------------+
-//| Helper: Create/Move Text                                         |
+//| Helper: Create/Move Text (With Configurable Background Layer)    |
 //+------------------------------------------------------------------+
 void CMurreyMathDrawer::CreateOrMoveText(int index, datetime time, double price)
   {
@@ -153,10 +159,16 @@ void CMurreyMathDrawer::CreateOrMoveText(int index, datetime time, double price)
       ObjectSetInteger(m_chart_id, name, OBJPROP_COLOR, m_colors[index]);
       ObjectSetInteger(m_chart_id, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
       ObjectSetInteger(m_chart_id, name, OBJPROP_SELECTABLE, false);
+      // Enforce user-defined background layer setting
+      ObjectSetInteger(m_chart_id, name, OBJPROP_BACK, m_labels_as_background);
+      ObjectSetInteger(m_chart_id, name, OBJPROP_ZORDER, 0);
      }
    else
      {
       ObjectMove(m_chart_id, name, 0, time, price);
+      // Keep background state updated in case parameters change dynamically
+      ObjectSetInteger(m_chart_id, name, OBJPROP_BACK, m_labels_as_background);
      }
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+

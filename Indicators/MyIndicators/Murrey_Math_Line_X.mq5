@@ -2,8 +2,8 @@
 //|                                       Murrey_Math_Line_X_Pro.mq5 |
 //|                                         Copyright 2025, xxxxxxxx |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
-#property version   "3.00" // REFACTORED: Refactored Murrey Math Lines with modular architecture
+#property copyright   "Copyright 2025, xxxxxxxx"
+#property version     "3.10" // Enhanced with configurable label background layering
 #property description "A clean, object-oriented Murrey Math Lines indicator with MTF support."
 
 #property indicator_chart_window
@@ -14,18 +14,19 @@
 #include <MyIncludes\MurreyMath_Drawer.mqh>
 
 //--- Input Parameters
-input int             InpPeriod         = 64;          // Calculation Period
-input ENUM_TIMEFRAMES InpUpperTimeframe = PERIOD_H4;   // Calculation Timeframe
-input int             InpStepBack       = 0;           // Step Back (Shift)
+input int             InpPeriod            = 64;          // Calculation Period
+input ENUM_TIMEFRAMES InpUpperTimeframe    = PERIOD_H4;   // Calculation Timeframe
+input int             InpStepBack          = 0;           // Step Back (Shift)
 
 //--- Restored Enum exactly as requested
 enum enum_side { Left, Right };
-input enum_side       InpLabelSide      = Left;        // Label Position
+input enum_side       InpLabelSide         = Left;        // Label Position
 
 input group "Visual Settings"
-input string          InpFontFace       = "Verdana";   // Font Face
-input int             InpFontSize       = 10;          // Font Size
-input string          InpObjectPrefix   = "MML_Pro-";  // Object Prefix
+input bool            InpLabelsAsBackground= true;        // Draw Labels as Background (Behind Panels/Candles)
+input string          InpFontFace          = "Verdana";   // Font Face
+input int             InpFontSize          = 10;          // Font Size
+input string          InpObjectPrefix      = "MML_Pro-";  // Object Prefix
 
 input group "Line Colors"
 input color InpClr_m2_8 = clrDimGray;
@@ -72,16 +73,15 @@ int OnInit()
 
    ENUM_TIMEFRAMES calc_tf = (InpUpperTimeframe == PERIOD_CURRENT) ? Period() : InpUpperTimeframe;
 
-//--- Init Calculator
+//--- Init Calculator (100% Untouched and Safe)
    if(!g_calculator.Init(_Symbol, calc_tf, InpPeriod, InpStepBack))
       return(INIT_FAILED);
 
-//--- Init Drawer
-//--- We convert the enum to bool here for the drawer, keeping the drawer simple
+//--- Init Drawer with User-Configured Background Layer Preference
    bool is_right = (InpLabelSide == Right);
    string final_prefix = InpObjectPrefix + IntegerToString(ChartID()) + "_";
 
-   g_drawer.Init(final_prefix, InpFontFace, InpFontSize, is_right);
+   g_drawer.Init(final_prefix, InpFontFace, InpFontSize, is_right, InpLabelsAsBackground);
 
 //--- Set Styles
    color colors[13] = {InpClr_m2_8, InpClr_m1_8, InpClr_0_8, InpClr_1_8, InpClr_2_8, InpClr_3_8,
@@ -127,21 +127,16 @@ int OnCalculate(const int rates_total,
 //--- Ensure time array is series for drawing logic
    ArraySetAsSeries(time, true);
 
-//--- 1. Try to Calculate
-//--- If this returns false (not enough data), we do NOT draw.
+//--- Calculate levels
    bool success = g_calculator.Calculate(g_levels);
 
    if(success)
      {
-      //--- 2. Draw only on success
+      //--- Draw levels and labels with configured layer priority
       g_drawer.Draw(time, g_levels);
-     }
-   else
-     {
-      // Optional: Logic for when data is loading (e.g. Comment)
-      // But per request, we just don't draw the levels yet.
      }
 
    return(rates_total);
   }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
