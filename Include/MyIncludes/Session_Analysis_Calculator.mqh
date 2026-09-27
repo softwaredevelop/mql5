@@ -3,8 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.22" // Patched PRICE_WEIGHTED indexing error and disabled trendline infinite rays
-#property description "Stateful calculator implementing session-box analysis with advanced ray bounds."
+#property version   "2.30" // Upgraded with graphic object change guards to eliminate GDI overhead
 
 #ifndef SESSION_ANALYSIS_CALCULATOR_MQH
 #define SESSION_ANALYSIS_CALCULATOR_MQH
@@ -25,7 +24,7 @@ protected:
    bool              m_fill_box;
    bool              m_show_mean;
    bool              m_show_linreg;
-   int               m_max_history_days; // Limit object history
+   int               m_max_history_days;
 
    //--- Persistent Data Buffers
    double            m_src_high[], m_src_low[], m_src_price[];
@@ -34,6 +33,11 @@ protected:
    bool              m_in_session;
    int               m_session_start_bar;
    datetime          m_session_start_time;
+
+   //--- Object Modification Change Guards (Prevents redundant GDI calls)
+   double            m_last_drawn_high;
+   double            m_last_drawn_low;
+   int               m_last_drawn_end_bar;
 
    bool              IsTimeInSession(const MqlDateTime &dt);
 
@@ -55,12 +59,15 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CSessionAnalyzer::CSessionAnalyzer(void)
+CSessionAnalyzer::CSessionAnalyzer(void) :
+   m_in_session(false),
+   m_session_start_bar(-1),
+   m_session_start_time(0),
+   m_max_history_days(0),
+   m_last_drawn_high(0.0),
+   m_last_drawn_low(0.0),
+   m_last_drawn_end_bar(-1)
   {
-   m_in_session = false;
-   m_session_start_bar = -1;
-   m_session_start_time = 0;
-   m_max_history_days = 0;
   }
 
 //+------------------------------------------------------------------+
@@ -68,12 +75,12 @@ CSessionAnalyzer::CSessionAnalyzer(void)
 //+------------------------------------------------------------------+
 void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, color box_color, bool fill_box, bool show_mean, bool show_linreg, string prefix, int max_history_days)
   {
-   m_enabled     = enabled;
-   m_prefix      = prefix;
-   m_color       = box_color;
-   m_fill_box    = fill_box;
-   m_show_mean   = show_mean;
-   m_show_linreg = show_linreg;
+   m_enabled          = enabled;
+   m_prefix           = prefix;
+   m_color            = box_color;
+   m_fill_box         = fill_box;
+   m_show_mean        = show_mean;
+   m_show_linreg      = show_linreg;
    m_max_history_days = max_history_days;
 
    string parts[];
@@ -95,12 +102,12 @@ void CSessionAnalyzer::Init(bool enabled, string start_time, string end_time, co
 bool CSessionAnalyzer::IsTimeInSession(const MqlDateTime &dt)
   {
    int current_time_in_minutes = dt.hour * 60 + dt.min;
-   int start_time_in_minutes = m_start_hour * 60 + m_start_min;
-   int end_time_in_minutes = m_end_hour * 60 + m_end_min;
+   int start_time_in_minutes   = m_start_hour * 60 + m_start_min;
+   int end_time_in_minutes     = m_end_hour * 60 + m_end_min;
 
-   if(end_time_in_minutes < start_time_in_minutes) // Overnight session
+   if(end_time_in_minutes < start_time_in_minutes)
       return (current_time_in_minutes >= start_time_in_minutes || current_time_in_minutes < end_time_in_minutes);
-   else // Same-day session
+   else
       return (current_time_in_minutes >= start_time_in_minutes && current_time_in_minutes < end_time_in_minutes);
   }
 
@@ -122,20 +129,21 @@ void CSessionAnalyzer::Update(int rates_total, int prev_calculated, const dateti
 
    int start_index = 0;
 
-//--- Incremental state preservation
    if(prev_calculated == 0)
      {
-      m_in_session = false;
-      m_session_start_bar = -1;
+      m_in_session         = false;
+      m_session_start_bar  = -1;
       m_session_start_time = 0;
-      start_index = 0;
+      m_last_drawn_high    = 0.0;
+      m_last_drawn_low     = 0.0;
+      m_last_drawn_end_bar = -1;
+      start_index          = 0;
      }
    else
      {
       start_index = prev_calculated - 1;
      }
 
-//--- Enforce chronological safety on price caches
    if(ArraySize(m_src_high) != rates_total)
      {
       ArrayResize(m_src_high,  rates_total);
@@ -150,16 +158,14 @@ void CSessionAnalyzer::Update(int rates_total, int prev_calculated, const dateti
    if(!PrepareSourceData(rates_total, start_index, open, high, low, close, price_type))
       return;
 
-// Calculate cutoff time for history limit
    datetime cutoff_time = 0;
    if(m_max_history_days > 0)
-      cutoff_time = TimeCurrent() - m_max_history_days * 86400;
+      cutoff_time = TimeCurrent() - (datetime)(m_max_history_days * 86400);
 
    int i = start_index;
    if(i == 0)
       i = 1;
 
-//--- Sequential scanning loop (Runs O(1) on live ticks!)
    for(; i < rates_total; i++)
      {
       MqlDateTime dt;
@@ -168,16 +174,18 @@ void CSessionAnalyzer::Update(int rates_total, int prev_calculated, const dateti
 
       if(is_in_current_session && !m_in_session)
         {
-         m_in_session = true;
-         m_session_start_bar = i;
+         m_in_session         = true;
+         m_session_start_bar  = i;
          m_session_start_time = time[i];
+         m_last_drawn_high    = 0.0;
+         m_last_drawn_low     = 0.0;
+         m_last_drawn_end_bar = -1;
         }
       else
          if(!is_in_current_session && m_in_session)
            {
             m_in_session = false;
 
-            // Draw/Update completed session
             if(time[i] >= cutoff_time)
               {
                MqlDateTime start_dt;
@@ -186,10 +194,13 @@ void CSessionAnalyzer::Update(int rates_total, int prev_calculated, const dateti
 
                DrawSession(m_session_start_bar, i - 1, session_id, time);
               }
-            m_session_start_bar = -1;
+            m_session_start_bar  = -1;
+            m_last_drawn_high    = 0.0;
+            m_last_drawn_low     = 0.0;
+            m_last_drawn_end_bar = -1;
            }
 
-      // Live update of active forming session on every tick
+      // Live update of active forming session on ticks
       if(m_in_session)
         {
          if(time[i] >= cutoff_time)
@@ -205,21 +216,27 @@ void CSessionAnalyzer::Update(int rates_total, int prev_calculated, const dateti
   }
 
 //+------------------------------------------------------------------+
-//| DrawSession: Flicker-free Object Modification                    |
+//| DrawSession: Flicker-free Object Modification with Change Guard  |
 //+------------------------------------------------------------------+
 void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, const datetime &time[])
   {
    if(start_bar < 0 || end_bar < start_bar)
       return;
 
-   int count = end_bar - start_bar + 1;
+   int count    = end_bar - start_bar + 1;
    int high_idx = ArrayMaximum(m_src_high, start_bar, count);
-   int low_idx = ArrayMinimum(m_src_low, start_bar, count);
+   int low_idx  = ArrayMinimum(m_src_low,  start_bar, count);
 
    double session_high = m_src_high[high_idx];
-   double session_low = m_src_low[low_idx];
+   double session_low  = m_src_low[low_idx];
+
+// Guard: Avoid heavy GDI redraw if boundaries are identical
+   bool boundaries_changed = (session_high != m_last_drawn_high ||
+                              session_low  != m_last_drawn_low  ||
+                              end_bar      != m_last_drawn_end_bar);
 
    string box_name = m_prefix + "Box_" + (string)session_id;
+
    if(ObjectFind(0, box_name) < 0)
      {
       ObjectCreate(0, box_name, OBJ_RECTANGLE, 0, time[start_bar], session_high, time[end_bar], session_low);
@@ -230,13 +247,18 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
       ObjectSetInteger(0, box_name, OBJPROP_SELECTABLE, false);
      }
    else
-     {
-      ObjectMove(0, box_name, 0, time[start_bar], session_high);
-      ObjectMove(0, box_name, 1, time[end_bar], session_low);
-     }
+      if(boundaries_changed)
+        {
+         ObjectMove(0, box_name, 0, time[start_bar], session_high);
+         ObjectMove(0, box_name, 1, time[end_bar], session_low);
+        }
 
-// --- Mean and LinReg ---
-   if(m_show_mean || m_show_linreg)
+   m_last_drawn_high    = session_high;
+   m_last_drawn_low     = session_low;
+   m_last_drawn_end_bar = end_bar;
+
+// Mean and LinReg Processing (Only executed if explicitly enabled)
+   if((m_show_mean || m_show_linreg) && boundaries_changed)
      {
       double cumulative_price = 0;
       double sum_x = 0, sum_y = 0, sum_xy = 0, sum_x2 = 0;
@@ -246,8 +268,8 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
          cumulative_price += m_src_price[i];
          double x = i - start_bar;
          double y = m_src_price[i];
-         sum_x += x;
-         sum_y += y;
+         sum_x  += x;
+         sum_y  += y;
          sum_xy += x * y;
          sum_x2 += x * x;
         }
@@ -267,10 +289,10 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
          ObjectSetInteger(0, mean_line_name, OBJPROP_COLOR, m_color);
          ObjectSetInteger(0, mean_line_name, OBJPROP_STYLE, STYLE_SOLID);
          ObjectSetInteger(0, mean_line_name, OBJPROP_SELECTABLE, false);
-         // Prevent infinite trendline extension (Force boundary locking)
          ObjectSetInteger(0, mean_line_name, OBJPROP_RAY_RIGHT, false);
          ObjectSetInteger(0, mean_line_name, OBJPROP_RAY_LEFT, false);
         }
+
       if(m_show_linreg && bar_count > 1)
         {
          double denominator = (bar_count * sum_x2 - sum_x * sum_x);
@@ -279,7 +301,7 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
             double b = (bar_count * sum_xy - sum_x * sum_y) / denominator;
             double a = (sum_y - b * sum_x) / bar_count;
             double start_price = a;
-            double end_price = a + b * (bar_count - 1);
+            double end_price   = a + b * (bar_count - 1);
             string lr_line_name = m_prefix + "LinReg_" + (string)session_id;
             if(ObjectFind(0, lr_line_name) < 0)
                ObjectCreate(0, lr_line_name, OBJ_TREND, 0, time[start_bar], start_price, time[end_bar], end_price);
@@ -292,7 +314,6 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
             ObjectSetInteger(0, lr_line_name, OBJPROP_STYLE, STYLE_SOLID);
             ObjectSetInteger(0, lr_line_name, OBJPROP_WIDTH, 1);
             ObjectSetInteger(0, lr_line_name, OBJPROP_SELECTABLE, false);
-            // Prevent infinite trendline extension (Force boundary locking)
             ObjectSetInteger(0, lr_line_name, OBJPROP_RAY_RIGHT, false);
             ObjectSetInteger(0, lr_line_name, OBJPROP_RAY_LEFT, false);
            }
@@ -301,7 +322,7 @@ void CSessionAnalyzer::DrawSession(int start_bar, int end_bar, long session_id, 
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Source Data (Fixed formula errors)                       |
+//| Prepare Source Data                                              |
 //+------------------------------------------------------------------+
 bool CSessionAnalyzer::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
@@ -327,7 +348,6 @@ bool CSessionAnalyzer::PrepareSourceData(int rates_total, int start_index, const
          case PRICE_TYPICAL:
             m_src_price[i] = (high[i] + low[i] + close[i]) / 3.0;
             break;
-         // FIXED: Changed close[i * 2.0] crash to proper 2.0 * close[i] value weighting
          case PRICE_WEIGHTED:
             m_src_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
             break;
@@ -353,7 +373,7 @@ protected:
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Source Data (Heikin Ashi - Optimized & Fixed)            |
+//| Prepare Source Data (Heikin Ashi)                                |
 //+------------------------------------------------------------------+
 bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[], ENUM_APPLIED_PRICE price_type)
   {
@@ -394,7 +414,6 @@ bool CSessionAnalyzer_HA::PrepareSourceData(int rates_total, int start_index, co
          case PRICE_TYPICAL:
             m_src_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
             break;
-         // FIXED: Changed m_ha_close[i * 2.0] crash to proper 2.0 * m_ha_close[i] value weighting
          case PRICE_WEIGHTED:
             m_src_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
             break;
