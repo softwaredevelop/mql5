@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|      VERSION 3.20: True O(1) Incremental Calculation Engine       |
+//|      VERSION 3.21: Restored Real Volume Broker Warning & O(1)     |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Refactored from O(N) full history loop to O(1) stateful caching
+#property version   "3.21" // Restored real volume broker diagnostic warning
 
 #ifndef VWAP_CALCULATOR_MQH
 #define VWAP_CALCULATOR_MQH
@@ -107,8 +107,10 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
    m_tz_shift_seconds = (long)tz_shift_hours * 3600;
    m_max_history_days = max_history_days;
 
+// Real Volume Broker Capability Verification & Diagnostic Notification
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
+      PrintFormat("VWAP Warning: Real Volume not available for '%s'. Falling back to Tick Volume.", _Symbol);
       m_volume_type = VOLUME_TICK;
      }
 
@@ -141,8 +143,10 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
       m_end_min  = (int)StringToInteger(end_parts[1]);
      }
 
+// Real Volume Broker Capability Verification & Diagnostic Notification
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
+      PrintFormat("VWAP Warning: Real Volume not available for '%s'. Falling back to Tick Volume.", _Symbol);
       m_volume_type = VOLUME_TICK;
      }
 
