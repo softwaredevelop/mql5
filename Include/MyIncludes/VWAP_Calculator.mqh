@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|      VERSION 3.01: Public Session Query & Bounds Protection       |
+//|      VERSION 3.20: True O(1) Incremental Calculation Engine       |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.01" // Made IsTimeInSession public for external indicator integration
+#property version   "3.20" // Refactored from O(N) full history loop to O(1) stateful caching
 
 #ifndef VWAP_CALCULATOR_MQH
 #define VWAP_CALCULATOR_MQH
@@ -38,6 +38,12 @@ protected:
    //--- Persistent Price Buffer
    double              m_typical_price[];
 
+   //--- Persistent State-Safe Caches for True O(1) Incremental Processing
+   double              m_cache_tpv[];
+   double              m_cache_vol[];
+   int                 m_cache_period_idx[];
+   bool                m_cache_in_session[];
+
    //--- Custom Session Parameters
    int                 m_start_hour, m_start_min;
    int                 m_end_hour, m_end_min;
@@ -50,10 +56,8 @@ public:
                      CVWAPCalculator(void);
    virtual            ~CVWAPCalculator(void) {};
 
-   //--- Public Session Query Helper
    bool                IsTimeInSession(const datetime bar_time);
 
-   //--- Backward-Compatible Initialization Signatures
    bool                Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true, int max_history_days=0);
    bool                Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true, int max_history_days=0, int tz_shift_hours=0);
 
@@ -73,7 +77,8 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CVWAPCalculator::CVWAPCalculator(void) : m_period(PERIOD_SESSION),
+CVWAPCalculator::CVWAPCalculator(void) :
+   m_period(PERIOD_SESSION),
    m_volume_type(VOLUME_TICK),
    m_enabled(true),
    m_tz_shift_seconds(0),
@@ -81,7 +86,11 @@ CVWAPCalculator::CVWAPCalculator(void) : m_period(PERIOD_SESSION),
    m_start_hour(9), m_start_min(30),
    m_end_hour(16), m_end_min(0)
   {
-   ArraySetAsSeries(m_typical_price, false);
+   ArraySetAsSeries(m_typical_price,     false);
+   ArraySetAsSeries(m_cache_tpv,         false);
+   ArraySetAsSeries(m_cache_vol,         false);
+   ArraySetAsSeries(m_cache_period_idx,  false);
+   ArraySetAsSeries(m_cache_in_session,  false);
   }
 
 //+------------------------------------------------------------------+
@@ -100,7 +109,6 @@ bool CVWAPCalculator::Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type
 
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
-      PrintFormat("VWAP Warning: Real Volume not available for '%s'. Falling back to Tick Volume.", _Symbol);
       m_volume_type = VOLUME_TICK;
      }
 
@@ -135,7 +143,6 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
 
    if(m_volume_type == VOLUME_REAL && SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT) <= 0)
      {
-      PrintFormat("VWAP Warning: Real Volume not available for '%s'. Falling back to Tick Volume.", _Symbol);
       m_volume_type = VOLUME_TICK;
      }
 
@@ -143,7 +150,7 @@ bool CVWAPCalculator::Init(string start_time, string end_time, ENUM_APPLIED_VOLU
   }
 
 //+------------------------------------------------------------------+
-//| Stateless Custom Session In-Time Check (Public)                  |
+//| Stateless Custom Session In-Time Check                           |
 //+------------------------------------------------------------------+
 bool CVWAPCalculator::IsTimeInSession(const datetime bar_time)
   {
@@ -155,22 +162,16 @@ bool CVWAPCalculator::IsTimeInSession(const datetime bar_time)
    int end_min     = m_end_hour * 60 + m_end_min;
 
    if(end_min > start_min)
-     {
       return (current_min >= start_min && current_min < end_min);
-     }
    else
       if(end_min < start_min)
-        {
          return (current_min >= start_min || current_min < end_min);
-        }
       else
-        {
          return true;
-        }
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Deterministic & Zero-Flicker)                  |
+//| High-Performance Incremental O(1) Calculation Kernel             |
 //+------------------------------------------------------------------+
 void CVWAPCalculator::Calculate(const int rates_total,
                                 const int prev_calculated,
@@ -187,18 +188,27 @@ void CVWAPCalculator::Calculate(const int rates_total,
    if(!m_enabled || rates_total < 1)
       return;
 
-//--- Safe array allocation
+// 1. Safe Array Allocation
    if(ArraySize(vwap_odd) != rates_total)
      {
-      ArrayResize(vwap_odd, rates_total);
-      ArraySetAsSeries(vwap_odd, false);
-      ArrayInitialize(vwap_odd, EMPTY_VALUE);
-     }
-   if(ArraySize(vwap_even) != rates_total)
-     {
+      ArrayResize(vwap_odd,  rates_total);
       ArrayResize(vwap_even, rates_total);
+      ArraySetAsSeries(vwap_odd,  false);
       ArraySetAsSeries(vwap_even, false);
+      ArrayInitialize(vwap_odd,  EMPTY_VALUE);
       ArrayInitialize(vwap_even, EMPTY_VALUE);
+     }
+
+   if(ArraySize(m_cache_tpv) != rates_total)
+     {
+      ArrayResize(m_cache_tpv,        rates_total);
+      ArrayResize(m_cache_vol,        rates_total);
+      ArrayResize(m_cache_period_idx, rates_total);
+      ArrayResize(m_cache_in_session, rates_total);
+      ArraySetAsSeries(m_cache_tpv,        false);
+      ArraySetAsSeries(m_cache_vol,        false);
+      ArraySetAsSeries(m_cache_period_idx, false);
+      ArraySetAsSeries(m_cache_in_session, false);
      }
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
@@ -210,13 +220,23 @@ void CVWAPCalculator::Calculate(const int rates_total,
    if(m_max_history_days > 0)
       cutoff_time = TimeCurrent() - (datetime)(m_max_history_days * 86400);
 
-// Deterministic Scan
+// 2. State Seeding (Loads previous committed bar state in O(1))
    double cum_tpv       = 0.0;
    double cum_vol       = 0.0;
    int    period_index  = 0;
    bool   in_session    = false;
 
-   for(int i = 0; i < rates_total; i++)
+   if(start_index > 0)
+     {
+      int base = start_index - 1;
+      cum_tpv      = m_cache_tpv[base];
+      cum_vol      = m_cache_vol[base];
+      period_index = m_cache_period_idx[base];
+      in_session   = m_cache_in_session[base];
+     }
+
+// 3. True Incremental Loop: ONLY runs from start_index to rates_total (1 bar on ticks!)
+   for(int i = start_index; i < rates_total; i++)
      {
       bool new_period = false;
 
@@ -240,7 +260,7 @@ void CVWAPCalculator::Calculate(const int rates_total,
               {
                case PERIOD_SESSION:
                  {
-                  datetime curr_t = time[i] + (datetime)m_tz_shift_seconds;
+                  datetime curr_t = time[i]     + (datetime)m_tz_shift_seconds;
                   datetime prev_t = time[i - 1] + (datetime)m_tz_shift_seconds;
                   MqlDateTime dt_c, dt_p;
                   TimeToStruct(curr_t, dt_c);
@@ -307,6 +327,12 @@ void CVWAPCalculator::Calculate(const int rates_total,
          vwap_odd[i]  = EMPTY_VALUE;
          vwap_even[i] = EMPTY_VALUE;
         }
+
+      // Commit persistent state to cache
+      m_cache_tpv[i]        = cum_tpv;
+      m_cache_vol[i]        = cum_vol;
+      m_cache_period_idx[i] = period_index;
+      m_cache_in_session[i] = in_session;
      }
   }
 
