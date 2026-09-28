@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.00" // Unified Native & MTF Release with Dynamic Levels
+#property version     "3.10" // Enterprise Refactor: Zero-Lag MTF Fast-Path & Fused DMI Pipeline
 #property description "Professional ADX & DMI Suite by Welles Wilder with Native & MTF Support."
 #property description "Features state-safe incremental calculation and selectable candle source."
 
@@ -86,12 +86,12 @@ datetime  h_time[];
 //--- Global Objects & State Management
 CADXCalculator *g_calculator = NULL;
 
-bool            g_is_mtf_mode         = false;
+bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool            g_data_ready    = false;
+bool            g_data_synced   = false;
+int             g_htf_count     = 0;
+datetime        g_last_htf_time = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -174,10 +174,9 @@ int OnInit()
       return INIT_FAILED;
      }
 
-   string ha_tag    = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
-   string tf_str    = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string ha_tag     = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
+   string tf_str     = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
    string short_name = StringFormat("ADX Pro%s%s(%d)", ha_tag, tf_str, InpPeriodADX);
-
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
 
 // 5. Initialize Background Synchronization Timer (Only for MTF mode)
@@ -217,7 +216,7 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
    int required_bars = InpPeriodADX * 2 + 10;
-   if(rates_total < required_bars || CheckPointer(g_calculator) == POINTER_INVALID)
+   if(rates_total < required_bars || g_calculator == NULL)
       return 0;
 
 // Force chronological indexing
@@ -238,7 +237,7 @@ int OnCalculate(const int rates_total,
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
+// MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
@@ -251,6 +250,7 @@ int OnCalculate(const int rates_total,
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
+// A) HTF Bar Closure / Startup: Perform full history sync once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
@@ -262,26 +262,26 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      g_htf_count = MathMin(htf_bars, 3000);
+      g_htf_count = MathMin(htf_bars, 3000); // Memory safeguard
 
       // Resize all HTF caching arrays
-      ArrayResize(h_time,      g_htf_count);
-      ArrayResize(h_open,      g_htf_count);
-      ArrayResize(h_high,      g_htf_count);
-      ArrayResize(h_low,       g_htf_count);
-      ArrayResize(h_close,     g_htf_count);
-      ArrayResize(h_res_adx,   g_htf_count);
-      ArrayResize(h_res_pdi,   g_htf_count);
-      ArrayResize(h_res_ndi,   g_htf_count);
+      ArrayResize(h_time,    g_htf_count);
+      ArrayResize(h_open,    g_htf_count);
+      ArrayResize(h_high,    g_htf_count);
+      ArrayResize(h_low,     g_htf_count);
+      ArrayResize(h_close,   g_htf_count);
+      ArrayResize(h_res_adx, g_htf_count);
+      ArrayResize(h_res_pdi, g_htf_count);
+      ArrayResize(h_res_ndi, g_htf_count);
 
-      ArraySetAsSeries(h_time,      false);
-      ArraySetAsSeries(h_open,      false);
-      ArraySetAsSeries(h_high,      false);
-      ArraySetAsSeries(h_low,       false);
-      ArraySetAsSeries(h_close,     false);
-      ArraySetAsSeries(h_res_adx,   false);
-      ArraySetAsSeries(h_res_pdi,   false);
-      ArraySetAsSeries(h_res_ndi,   false);
+      ArraySetAsSeries(h_time,    false);
+      ArraySetAsSeries(h_open,    false);
+      ArraySetAsSeries(h_high,    false);
+      ArraySetAsSeries(h_low,     false);
+      ArraySetAsSeries(h_close,   false);
+      ArraySetAsSeries(h_res_adx, false);
+      ArraySetAsSeries(h_res_pdi, false);
+      ArraySetAsSeries(h_res_ndi, false);
 
       if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
          CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
@@ -293,66 +293,31 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      // Compute HTF ADX Values
+      // Compute HTF ADX Values across history
       g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close,
                              h_res_adx, h_res_pdi, h_res_ndi);
       g_data_ready = true;
-     }
 
-   if(!g_data_ready)
-      return 0;
-
-// 5. Stateful live-bar update for active forming HTF candle
-   int live_idx = g_htf_count - 1;
-   if(live_idx >= required_bars)
-     {
-      double o[1], h[1], l[1], c[1];
-      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
-      if(shift >= 0 &&
-         CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
-         CopyHigh(_Symbol,  g_calc_timeframe, shift, 1, h) == 1 &&
-         CopyLow(_Symbol,   g_calc_timeframe, shift, 1, l) == 1 &&
-         CopyClose(_Symbol, g_calc_timeframe, shift, 1, c) == 1)
+      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      for(int i = 0; i < rates_total; i++)
         {
-         h_open[live_idx]  = o[0];
-         h_high[live_idx]  = h[0];
-         h_low[live_idx]   = l[0];
-         h_close[live_idx] = c[0];
-
-         // Mock update on live HTF bar
-         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close,
-                                h_res_adx, h_res_pdi, h_res_ndi);
-        }
-     }
-
-// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
-   int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   int first_bar_of_forming_htf = rates_total - 1;
-   while(first_bar_of_forming_htf > 0 &&
-         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-     {
-      first_bar_of_forming_htf--;
-     }
-   first_bar_of_forming_htf++;
-
-   if(start > first_bar_of_forming_htf)
-      start = first_bar_of_forming_htf;
-
-// 7. Chronological Mapping Loop to Chart Timeframe (3 Buffers)
-   for(int i = start; i < rates_total; i++)
-     {
-      datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-
-      if(shift_htf >= 0)
-        {
-         int idx_htf = g_htf_count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < g_htf_count)
+         datetime t = time[i];
+         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+         if(shift_htf >= 0)
            {
-            BufferADX[i] = h_res_adx[idx_htf];
-            BufferPDI[i] = h_res_pdi[idx_htf];
-            BufferNDI[i] = h_res_ndi[idx_htf];
+            int idx_htf = g_htf_count - 1 - shift_htf;
+            if(idx_htf >= 0 && idx_htf < g_htf_count)
+              {
+               BufferADX[i] = h_res_adx[idx_htf];
+               BufferPDI[i] = h_res_pdi[idx_htf];
+               BufferNDI[i] = h_res_ndi[idx_htf];
+              }
+            else
+              {
+               BufferADX[i] = EMPTY_VALUE;
+               BufferPDI[i] = EMPTY_VALUE;
+               BufferNDI[i] = EMPTY_VALUE;
+              }
            }
          else
            {
@@ -361,12 +326,52 @@ int OnCalculate(const int rates_total,
             BufferNDI[i] = EMPTY_VALUE;
            }
         }
-      else
+      return rates_total;
+     }
+
+   if(!g_data_ready)
+      return 0;
+
+// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
+   int live_idx = g_htf_count - 1;
+   if(live_idx >= required_bars)
+     {
+      MqlRates htf_rate[1];
+      // Single atomic API call instead of 4 separate copies!
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         BufferADX[i] = EMPTY_VALUE;
-         BufferPDI[i] = EMPTY_VALUE;
-         BufferNDI[i] = EMPTY_VALUE;
+         h_open[live_idx]  = htf_rate[0].open;
+         h_high[live_idx]  = htf_rate[0].high;
+         h_low[live_idx]   = htf_rate[0].low;
+         h_close[live_idx] = htf_rate[0].close;
+
+         // Mock update strictly on forming candle
+         g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close,
+                                h_res_adx, h_res_pdi, h_res_ndi);
         }
+     }
+
+// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+   int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
+   if(first_bar_of_forming_htf < 0)
+      first_bar_of_forming_htf = 0;
+   if(time[first_bar_of_forming_htf] < htf_time_current && first_bar_of_forming_htf < rates_total - 1)
+      first_bar_of_forming_htf++;
+
+   int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   if(start > first_bar_of_forming_htf)
+      start = first_bar_of_forming_htf;
+
+// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution)
+   double adx_val = h_res_adx[live_idx];
+   double pdi_val = h_res_pdi[live_idx];
+   double ndi_val = h_res_ndi[live_idx];
+
+   for(int i = start; i < rates_total; i++)
+     {
+      BufferADX[i] = adx_val;
+      BufferPDI[i] = pdi_val;
+      BufferNDI[i] = ndi_val;
      }
 
    return rates_total;
