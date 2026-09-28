@@ -2,8 +2,8 @@
 //|                                                DMI_Engine.mqh    |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.20" // Upgraded with robust bounds safety and chronological alignment
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "1.30" // Optimized: Fused Wilder Smoothing Loop & Pipelined Multiplication
 #property description "Core engine for Directional Movement Index calculations."
 
 #ifndef DMI_ENGINE_MQH
@@ -18,6 +18,8 @@ class CDMIEngine
   {
 protected:
    int               m_period;
+   double            m_decay;      // Precalculated (period - 1) / period
+   double            m_inv_period; // Precalculated 1.0 / period
 
    //--- Persistent State Buffers
    double            m_pDM[], m_nDM[], m_TR[];
@@ -31,7 +33,7 @@ protected:
                                  const double &low[], const double &close[]);
 
 public:
-                     CDMIEngine(void) : m_period(14) {};
+                     CDMIEngine(void);
    virtual          ~CDMIEngine(void) {};
 
    bool              Init(const int period);
@@ -44,16 +46,28 @@ public:
   };
 
 //+------------------------------------------------------------------+
-//| Init                                                             |
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CDMIEngine::CDMIEngine(void) :
+   m_period(14),
+   m_decay(0.0),
+   m_inv_period(0.0)
+  {
+  }
+
+//+------------------------------------------------------------------+
+//| Init (Precalculates Wilder Multipliers)                          |
 //+------------------------------------------------------------------+
 bool CDMIEngine::Init(const int period)
   {
-   m_period = (period < 1) ? 1 : period;
+   m_period     = (period < 1) ? 1 : period;
+   m_inv_period = 1.0 / (double)m_period;
+   m_decay      = (double)(m_period - 1) * m_inv_period;
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation                                                 |
+//| Main Calculation (Fused FMA Architecture)                        |
 //+------------------------------------------------------------------+
 void CDMIEngine::Calculate(const int rates_total, const int prev_calculated,
                            const double &open[], const double &high[],
@@ -82,32 +96,31 @@ void CDMIEngine::Calculate(const int rates_total, const int prev_calculated,
 // Resize Internal State Buffers
    if(ArraySize(m_pDM) != rates_total)
      {
-      ArrayResize(m_pDM, rates_total);
-      ArrayResize(m_nDM, rates_total);
-      ArrayResize(m_TR, rates_total);
+      ArrayResize(m_pDM,          rates_total);
+      ArraySetAsSeries(m_pDM,          false);
+      ArrayResize(m_nDM,          rates_total);
+      ArraySetAsSeries(m_nDM,          false);
+      ArrayResize(m_TR,           rates_total);
+      ArraySetAsSeries(m_TR,           false);
       ArrayResize(m_smoothed_pdm, rates_total);
-      ArrayResize(m_smoothed_ndm, rates_total);
-      ArrayResize(m_smoothed_tr, rates_total);
-
-      ArrayResize(m_high, rates_total);
-      ArrayResize(m_low, rates_total);
-      ArrayResize(m_close, rates_total);
-
-      ArraySetAsSeries(m_pDM, false);
-      ArraySetAsSeries(m_nDM, false);
-      ArraySetAsSeries(m_TR, false);
       ArraySetAsSeries(m_smoothed_pdm, false);
+      ArrayResize(m_smoothed_ndm, rates_total);
       ArraySetAsSeries(m_smoothed_ndm, false);
-      ArraySetAsSeries(m_smoothed_tr, false);
-      ArraySetAsSeries(m_high, false);
-      ArraySetAsSeries(m_low, false);
+      ArrayResize(m_smoothed_tr,  rates_total);
+      ArraySetAsSeries(m_smoothed_tr,  false);
+
+      ArrayResize(m_high,  rates_total);
+      ArraySetAsSeries(m_high,  false);
+      ArrayResize(m_low,   rates_total);
+      ArraySetAsSeries(m_low,   false);
+      ArrayResize(m_close, rates_total);
       ArraySetAsSeries(m_close, false);
      }
 
 // 1. Prepare Price Data
    PrepareData(rates_total, start_index, open, high, low, close);
 
-// 2. Calculate Raw DM and TR
+// 2. Calculate Raw Directional Movements and True Range
    int loop_start_dm = MathMax(1, start_index);
    for(int i = loop_start_dm; i < rates_total; i++)
      {
@@ -119,11 +132,12 @@ void CDMIEngine::Calculate(const int rates_total, const int prev_calculated,
       m_TR[i]  = MathMax(m_high[i], m_close[i - 1]) - MathMin(m_low[i], m_close[i - 1]);
      }
 
-// 3. Calculate Smoothed Values (Wilder's Smoothing)
+// 3. Fused Smoothing & DI Calculation Pass (Combines Loops 3 & 4 into One Pass)
    int loop_start_smooth = MathMax(m_period, start_index);
+
    for(int i = loop_start_smooth; i < rates_total; i++)
      {
-      if(i == m_period) // Initial Cumulative Sum
+      if(i == m_period) // Initial Cumulative Baseline Sum
         {
          double sum_pdm = 0.0, sum_ndm = 0.0, sum_tr = 0.0;
          for(int j = 1; j <= m_period; j++)
@@ -136,21 +150,19 @@ void CDMIEngine::Calculate(const int rates_total, const int prev_calculated,
          m_smoothed_ndm[i] = sum_ndm;
          m_smoothed_tr[i]  = sum_tr;
         }
-      else // Wilder's RMA recursion
+      else // Fast Hardware Multiplication (Zero Divisions in Loop)
         {
-         m_smoothed_pdm[i] = m_smoothed_pdm[i - 1] - (m_smoothed_pdm[i - 1] / (double)m_period) + m_pDM[i];
-         m_smoothed_ndm[i] = m_smoothed_ndm[i - 1] - (m_smoothed_ndm[i - 1] / (double)m_period) + m_nDM[i];
-         m_smoothed_tr[i]  = m_smoothed_tr[i - 1]  - (m_smoothed_tr[i - 1]  / (double)m_period) + m_TR[i];
+         m_smoothed_pdm[i] = m_smoothed_pdm[i - 1] * m_decay + m_pDM[i];
+         m_smoothed_ndm[i] = m_smoothed_ndm[i - 1] * m_decay + m_nDM[i];
+         m_smoothed_tr[i]  = m_smoothed_tr[i - 1]  * m_decay + m_TR[i];
         }
-     }
 
-// 4. Calculate +DI and -DI
-   for(int i = loop_start_smooth; i < rates_total; i++)
-     {
-      if(m_smoothed_tr[i] > 1.0e-9)
+      // Immediate Fused Normalization into DI Buffers
+      double tr_val = m_smoothed_tr[i];
+      if(tr_val > 1.0e-9)
         {
-         pdi_buffer[i] = (m_smoothed_pdm[i] / m_smoothed_tr[i]) * 100.0;
-         ndi_buffer[i] = (m_smoothed_ndm[i] / m_smoothed_tr[i]) * 100.0;
+         pdi_buffer[i] = (m_smoothed_pdm[i] / tr_val) * 100.0;
+         ndi_buffer[i] = (m_smoothed_ndm[i] / tr_val) * 100.0;
         }
       else
         {
