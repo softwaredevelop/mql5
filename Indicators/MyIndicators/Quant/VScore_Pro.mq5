@@ -2,8 +2,8 @@
 //|                                                   VScore_Pro.mq5 |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Unified Native & MTF V-Score with Custom Session & Thermal Matrix
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.21" // Fixed: Strict MQL5 Pointer Comparison in Logical Operations
 #property description "Statistical V-Score Oscillator (VWAP-based Z-Score in Sigma units)."
 #property description "Measures standardized statistical price deviations from Volume Weighted Average Price."
 
@@ -14,12 +14,6 @@
 //--- Plot 1: V-Score Histogram (Swapped Thermal Palette)
 #property indicator_label1  "V-Score"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-// Swapped Palette:
-// 0: Noise/Neutral     (Gray)
-// 1: Bullish Flow      (LightSkyBlue)
-// 2: Bullish Climax    (DeepSkyBlue)
-// 3: Bearish Flow      (Coral)
-// 4: Bearish Climax    (OrangeRed)
 #property indicator_color1  clrGray, clrLightSkyBlue, clrDeepSkyBlue, clrCoral, clrOrangeRed
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
@@ -85,7 +79,7 @@ double    ExtVScoreBuffer[];
 double    ExtColorsBuffer[];
 double    ExtSignalBuffer[];
 
-//--- Volume Cache (For Current Timeframe VWMA)
+//--- Volume Cache
 double    g_double_volume[];
 
 //--- Internal HTF Data Caches
@@ -98,12 +92,12 @@ datetime  h_time[];
 CVScoreCalculator        *g_calc = NULL;
 CMovingAverageCalculator *g_signal_calculator = NULL;
 
-bool            g_is_mtf_mode         = false;
+bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool            g_data_ready    = false;
+bool            g_data_synced   = false;
+int             g_htf_count     = 0;
+datetime        g_last_htf_time = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -115,7 +109,7 @@ int OnInit()
    g_htf_count     = 0;
    g_last_htf_time = 0;
 
-// 1. Resolve Timeframe and validate direction
+// 1. Resolve Timeframe
    g_calc_timeframe = InpTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
       g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
@@ -158,24 +152,18 @@ int OnInit()
 // 4. Initialize Core V-Score Calculator
    g_calc = new CVScoreCalculator();
    if(CheckPointer(g_calc) == POINTER_INVALID)
-     {
-      Print("Critical Error: Failed to create VScore Calculator object.");
       return INIT_FAILED;
-     }
 
-   bool init_success = false;
    bool is_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
+   bool init_success = false;
 
    if(InpVWAPReset == PERIOD_CUSTOM_SESSION)
-      init_success = g_calc.Init(InpPeriod, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, InpPeriod * 5);
+      init_success = g_calc.Init(InpPeriod, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, 100);
    else
-      init_success = g_calc.Init(InpPeriod, InpVWAPReset, InpVolumeType, InpTzShift, is_ha, InpPeriod * 5);
+      init_success = g_calc.Init(InpPeriod, InpVWAPReset, InpVolumeType, InpTzShift, is_ha, 100);
 
    if(!init_success)
-     {
-      Print("Critical Error: Failed to initialize VScore Calculator logic.");
       return INIT_FAILED;
-     }
 
 // 5. Initialize Optional Signal Line Calculator
    if(InpShowSignal)
@@ -188,7 +176,6 @@ int OnInit()
       if(CheckPointer(g_signal_calculator) == POINTER_INVALID ||
          !g_signal_calculator.Init(InpSignalPeriod, InpSignalType))
         {
-         Print("Critical Error: Failed to initialize Signal Line Calculator Engine.");
          return INIT_FAILED;
         }
      }
@@ -198,7 +185,7 @@ int OnInit()
       PlotIndexSetString(1,  PLOT_LABEL, NULL);
      }
 
-// 6. Dynamic Indicator Shortname Setup
+// 6. Dynamic Shortname Setup
    string ha_tag = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
    string sig_str = "";
@@ -224,7 +211,7 @@ int OnInit()
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
-// 7. Initialize Background Synchronization Timer (Only for MTF mode)
+// 7. Background Timer for MTF
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
@@ -266,10 +253,9 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
    int required_bars = InpPeriod + InpSignalPeriod + 10;
-   if(rates_total < required_bars || CheckPointer(g_calc) == POINTER_INVALID)
+   if(rates_total < required_bars || g_calc == NULL)
       return 0;
 
-// Force chronological indexing on current timeframe arrays
    ArraySetAsSeries(time,        false);
    ArraySetAsSeries(open,        false);
    ArraySetAsSeries(high,        false);
@@ -302,11 +288,11 @@ int OnCalculate(const int rates_total,
             g_double_volume[i] = (double)tick_volume[i];
         }
 
-      // 1. Calculate V-Score
+      // 1. Calculate V-Score in O(1)
       g_calc.Calculate(rates_total, prev_calculated, time, open, high, low, close, tick_volume, volume, ExtVScoreBuffer);
 
-      // 2. Calculate Signal MA Line
-      if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+      // 2. Calculate Signal Line (Strict MQL5 pointer check)
+      if(InpShowSignal && g_signal_calculator != NULL)
         {
          g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, ExtVScoreBuffer, g_double_volume, ExtSignalBuffer, InpPeriod);
         }
@@ -321,29 +307,34 @@ int OnCalculate(const int rates_total,
       for(int i = start_index; i < rates_total; i++)
         {
          double v = ExtVScoreBuffer[i];
-
          if(v >= InpLevelClimaxHigh)
-            ExtColorsBuffer[i] = 2.0; // DeepSkyBlue (Bullish Climax)
+            ExtColorsBuffer[i] = 2.0; // DeepSkyBlue
          else
             if(v >= InpLevelFlowHigh)
-               ExtColorsBuffer[i] = 1.0; // LightSkyBlue (Bullish Flow)
+               ExtColorsBuffer[i] = 1.0; // LightSkyBlue
             else
                if(v <= InpLevelClimaxLow)
-                  ExtColorsBuffer[i] = 4.0; // OrangeRed (Bearish Climax)
+                  ExtColorsBuffer[i] = 4.0; // OrangeRed
                else
                   if(v <= InpLevelFlowLow)
-                     ExtColorsBuffer[i] = 3.0; // Coral (Bearish Flow)
+                     ExtColorsBuffer[i] = 3.0; // Coral
                   else
-                     ExtColorsBuffer[i] = 0.0; // Gray (Neutral Noise Zone)
+                     ExtColorsBuffer[i] = 0.0; // Gray
         }
 
       return rates_total;
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
+// MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
-   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+   int htf_required = 100;
+   if(InpVWAPReset == PERIOD_WEEK)
+      htf_required = 1000;
+   if(InpVWAPReset == PERIOD_MONTH)
+      htf_required = 2000;
+
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, htf_required))
      {
       g_data_synced = false;
       return 0;
@@ -354,20 +345,20 @@ int OnCalculate(const int rates_total,
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
+// A) HTF Bar Closure: Full History Pass once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
 
       int htf_bars = iBars(_Symbol, g_calc_timeframe);
-      if(htf_bars < required_bars)
+      if(htf_bars < htf_required)
         {
          g_data_ready = false;
          return 0;
         }
 
-      g_htf_count = MathMin(htf_bars, 3000); // Memory safeguard
+      g_htf_count = MathMin(htf_bars, 3000);
 
-      // Resize all HTF caching arrays
       ArrayResize(h_time,       g_htf_count);
       ArrayResize(h_open,       g_htf_count);
       ArrayResize(h_high,       g_htf_count);
@@ -379,7 +370,6 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_res_color,  g_htf_count);
       ArrayResize(h_res_signal, g_htf_count);
 
-      // Force chronological alignment
       ArraySetAsSeries(h_time,       false);
       ArraySetAsSeries(h_open,       false);
       ArraySetAsSeries(h_high,       false);
@@ -391,7 +381,6 @@ int OnCalculate(const int rates_total,
       ArraySetAsSeries(h_res_color,  false);
       ArraySetAsSeries(h_res_signal, false);
 
-      // Copy pricing & volume data
       if(CopyTime(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_time)     != g_htf_count ||
          CopyOpen(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_open)     != g_htf_count ||
          CopyHigh(_Symbol,       g_calc_timeframe, 0, g_htf_count, h_high)     != g_htf_count ||
@@ -412,7 +401,8 @@ int OnCalculate(const int rates_total,
       // Compute HTF V-Score Values
       g_calc.Calculate(g_htf_count, 0, h_time, h_open, h_high, h_low, h_close, h_tick_vol, h_vol, h_res_vscore);
 
-      if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+      // Strict MQL5 pointer check
+      if(InpShowSignal && g_signal_calculator != NULL)
         {
          double htf_double_vol[];
          ArrayResize(htf_double_vol, g_htf_count);
@@ -443,45 +433,61 @@ int OnCalculate(const int rates_total,
         }
 
       g_data_ready = true;
+
+      // Full Historical Mapping (Only on new HTF candle)
+      for(int i = 0; i < rates_total; i++)
+        {
+         datetime t = time[i];
+         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+         if(shift_htf >= 0)
+           {
+            int idx_htf = g_htf_count - 1 - shift_htf;
+            if(idx_htf >= 0 && idx_htf < g_htf_count)
+              {
+               ExtVScoreBuffer[i] = h_res_vscore[idx_htf];
+               ExtColorsBuffer[i] = h_res_color[idx_htf];
+               ExtSignalBuffer[i] = InpShowSignal ? h_res_signal[idx_htf] : EMPTY_VALUE;
+              }
+            else
+              {
+               ExtVScoreBuffer[i] = 0.0;
+               ExtColorsBuffer[i] = 0.0;
+               ExtSignalBuffer[i] = EMPTY_VALUE;
+              }
+           }
+         else
+           {
+            ExtVScoreBuffer[i] = 0.0;
+            ExtColorsBuffer[i] = 0.0;
+            ExtSignalBuffer[i] = EMPTY_VALUE;
+           }
+        }
+      return rates_total;
      }
 
    if(!g_data_ready)
       return 0;
 
-// 5. Stateful live-bar update for active forming HTF candle
+// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
    int live_idx = g_htf_count - 1;
-   if(live_idx >= required_bars)
+   if(live_idx >= htf_required)
      {
-      double o[1], h[1], l[1], c[1];
-      datetime t_bar[1];
-      long tv[1], v[1];
-
-      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
-      if(shift >= 0 &&
-         CopyTime(_Symbol,       g_calc_timeframe, shift, 1, t_bar) == 1 &&
-         CopyOpen(_Symbol,       g_calc_timeframe, shift, 1, o)     == 1 &&
-         CopyHigh(_Symbol,       g_calc_timeframe, shift, 1, h)     == 1 &&
-         CopyLow(_Symbol,        g_calc_timeframe, shift, 1, l)     == 1 &&
-         CopyClose(_Symbol,      g_calc_timeframe, shift, 1, c)     == 1 &&
-         CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, tv)    == 1)
+      MqlRates htf_rate[1];
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_time[live_idx]     = t_bar[0];
-         h_open[live_idx]     = o[0];
-         h_high[live_idx]     = h[0];
-         h_low[live_idx]      = l[0];
-         h_close[live_idx]    = c[0];
-         h_tick_vol[live_idx] = tv[0];
+         h_time[live_idx]     = htf_rate[0].time;
+         h_open[live_idx]     = htf_rate[0].open;
+         h_high[live_idx]     = htf_rate[0].high;
+         h_low[live_idx]      = htf_rate[0].low;
+         h_close[live_idx]    = htf_rate[0].close;
+         h_tick_vol[live_idx] = htf_rate[0].tick_volume;
+         h_vol[live_idx]      = (htf_rate[0].real_volume > 0) ? htf_rate[0].real_volume : htf_rate[0].tick_volume;
 
-         long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-         if(vol_limit > 0 && CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-            h_vol[live_idx] = v[0];
-         else
-            h_vol[live_idx] = tv[0];
-
-         // Mock update on live bar
+         // Mock update strictly on forming candle
          g_calc.Calculate(g_htf_count, g_htf_count, h_time, h_open, h_high, h_low, h_close, h_tick_vol, h_vol, h_res_vscore);
 
-         if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+         // Strict MQL5 pointer check
+         if(InpShowSignal && g_signal_calculator != NULL)
            {
             double htf_double_vol[];
             ArrayResize(htf_double_vol, g_htf_count);
@@ -509,48 +515,27 @@ int OnCalculate(const int rates_total,
         }
      }
 
-// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
+// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+   int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
+   if(first_bar_of_forming_htf < 0)
+      first_bar_of_forming_htf = 0;
+   if(time[first_bar_of_forming_htf] < htf_time_current && first_bar_of_forming_htf < rates_total - 1)
+      first_bar_of_forming_htf++;
+
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   int first_bar_of_forming_htf = rates_total - 1;
-   while(first_bar_of_forming_htf > 0 &&
-         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-     {
-      first_bar_of_forming_htf--;
-     }
-   first_bar_of_forming_htf++;
-
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-// 7. Chronological Mapping Loop to Chart Timeframe
+// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution)
+   double score_val  = h_res_vscore[live_idx];
+   double color_val  = h_res_color[live_idx];
+   double signal_val = InpShowSignal ? h_res_signal[live_idx] : EMPTY_VALUE;
+
    for(int i = start; i < rates_total; i++)
      {
-      datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-
-      if(shift_htf >= 0)
-        {
-         int idx_htf = g_htf_count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < g_htf_count)
-           {
-            ExtVScoreBuffer[i] = h_res_vscore[idx_htf];
-            ExtColorsBuffer[i] = h_res_color[idx_htf];
-            ExtSignalBuffer[i] = InpShowSignal ? h_res_signal[idx_htf] : EMPTY_VALUE;
-           }
-         else
-           {
-            ExtVScoreBuffer[i] = 0.0;
-            ExtColorsBuffer[i] = 0.0;
-            ExtSignalBuffer[i] = EMPTY_VALUE;
-           }
-        }
-      else
-        {
-         ExtVScoreBuffer[i] = 0.0;
-         ExtColorsBuffer[i] = 0.0;
-         ExtSignalBuffer[i] = EMPTY_VALUE;
-        }
+      ExtVScoreBuffer[i] = score_val;
+      ExtColorsBuffer[i] = color_val;
+      ExtSignalBuffer[i] = signal_val;
      }
 
    return rates_total;
@@ -561,8 +546,12 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   int required_bars = InpPeriod + InpSignalPeriod + 10;
-   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
+   int htf_required = 100;
+   if(InpVWAPReset == PERIOD_WEEK)
+      htf_required = 1000;
+   if(InpVWAPReset == PERIOD_MONTH)
+      htf_required = 2000;
+   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, htf_required, g_data_synced);
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
