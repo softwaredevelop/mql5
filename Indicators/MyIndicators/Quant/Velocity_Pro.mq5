@@ -2,8 +2,8 @@
 //|                                                 Velocity_Pro.mq5 |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "4.00" // Unified Native & MTF Release with Modular Kinematics Engine
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "4.10" // Enterprise Refactor: Zero-Lag MTF Fast-Path & Fused Kinematics
 #property description "Kinematic Velocity Vector vs. Speed Envelope Indicator."
 #property description "Displays Velocity (Histogram), Speed Envelopes, and customizable Signal Line with Native & MTF support."
 
@@ -14,12 +14,6 @@
 //--- Plot 1: Velocity Histogram (Swapped Bull/Bear Thermal Palette)
 #property indicator_label1  "Velocity"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
-// Swapped Palette:
-// 0: Noise/Neutral     (Gray)
-// 1: Bullish Flow      (LightSkyBlue)
-// 2: Bullish Climax    (DeepSkyBlue)
-// 3: Bearish Flow      (Coral)
-// 4: Bearish Climax    (OrangeRed)
 #property indicator_color1  clrGray, clrLightSkyBlue, clrDeepSkyBlue, clrCoral, clrOrangeRed
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
@@ -36,7 +30,7 @@
 #property indicator_type3   DRAW_LINE
 #property indicator_color3  clrDarkOrange
 #property indicator_style3  STYLE_SOLID
-#property indicator_width3  1
+#property indicator_width2  1
 
 //--- Plot 4: Optional Smoothed Signal Line
 #property indicator_label4  "Signal"
@@ -103,12 +97,12 @@ datetime h_time[];
 CVelocityCalculator      *g_velocity_calc    = NULL;
 CMovingAverageCalculator *g_signal_calculator = NULL;
 
-bool            g_is_mtf_mode         = false;
+bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool            g_data_ready    = false;
+bool            g_data_synced   = false;
+int             g_htf_count     = 0;
+datetime        g_last_htf_time = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -152,7 +146,6 @@ int OnInit()
    ArrayInitialize(BufSpeedNeg, EMPTY_VALUE);
    ArrayInitialize(BufSignal,   EMPTY_VALUE);
 
-// Prevent drawing to 0.0 for empty values
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
@@ -230,9 +223,9 @@ int OnInit()
       return INIT_FAILED;
      }
 
-   string ha_tag = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   string tf_str = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
-   string sig_str = "";
+   string ha_tag     = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   string tf_str     = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string sig_str    = "";
    if(InpShowSignal)
      {
       string sig_name = EnumToString(InpSignalType);
@@ -291,7 +284,7 @@ int OnCalculate(const int rates_total,
    int warmup = InpATRPeriod + InpVelPeriod;
    int required_bars = warmup + InpSignalPeriod + 10;
 
-   if(rates_total < required_bars || CheckPointer(g_velocity_calc) == POINTER_INVALID)
+   if(rates_total < required_bars || g_velocity_calc == NULL)
       return 0;
 
 // Force chronological indexing
@@ -327,13 +320,13 @@ int OnCalculate(const int rates_total,
             g_double_volume[i] = (double)tick_volume[i];
         }
 
-      // 1. Compute Velocity & Speed Envelopes
+      // 1. Compute Velocity & Speed Envelopes in O(1)
       g_velocity_calc.Calculate(rates_total, prev_calculated, open, high, low, close,
                                 BufVel, BufCol, BufSpeedPos, BufSpeedNeg,
                                 InpThresholdLow, InpThresholdHigh);
 
       // 2. Compute Signal MA Line
-      if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+      if(InpShowSignal && g_signal_calculator != NULL)
         {
          g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufVel, g_double_volume, BufSignal, warmup);
         }
@@ -347,7 +340,7 @@ int OnCalculate(const int rates_total,
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
+// MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
@@ -360,6 +353,7 @@ int OnCalculate(const int rates_total,
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
+// A) HTF Bar Closure / Startup: Perform full history sync once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
@@ -371,7 +365,7 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      g_htf_count = MathMin(htf_bars, 3000);
+      g_htf_count = MathMin(htf_bars, 3000); // Memory safeguard
 
       // Resize all HTF caching arrays
       ArrayResize(h_time,        g_htf_count);
@@ -417,12 +411,12 @@ int OnCalculate(const int rates_total,
       else
          ArrayCopy(h_vol, h_tick_vol, 0, 0, g_htf_count);
 
-      // Compute HTF Velocity & Envelopes
+      // Compute HTF Velocity & Envelopes across history
       g_velocity_calc.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close,
                                 h_res_vel, h_res_col, h_res_sp_pos, h_res_sp_neg,
                                 InpThresholdLow, InpThresholdHigh);
 
-      if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+      if(InpShowSignal && g_signal_calculator != NULL)
         {
          double htf_double_vol[];
          ArrayResize(htf_double_vol, g_htf_count);
@@ -434,47 +428,69 @@ int OnCalculate(const int rates_total,
         }
 
       g_data_ready = true;
+
+      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      for(int i = 0; i < rates_total; i++)
+        {
+         datetime t = time[i];
+         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+         if(shift_htf >= 0)
+           {
+            int idx_htf = g_htf_count - 1 - shift_htf;
+            if(idx_htf >= 0 && idx_htf < g_htf_count)
+              {
+               BufVel[i]      = h_res_vel[idx_htf];
+               BufCol[i]      = h_res_col[idx_htf];
+               BufSpeedPos[i] = InpShowSpeed  ? h_res_sp_pos[idx_htf] : EMPTY_VALUE;
+               BufSpeedNeg[i] = InpShowSpeed  ? h_res_sp_neg[idx_htf] : EMPTY_VALUE;
+               BufSignal[i]   = InpShowSignal ? h_res_sig[idx_htf]    : EMPTY_VALUE;
+              }
+            else
+              {
+               BufVel[i] = 0.0;
+               BufCol[i] = 0.0;
+               BufSpeedPos[i] = EMPTY_VALUE;
+               BufSpeedNeg[i] = EMPTY_VALUE;
+               BufSignal[i] = EMPTY_VALUE;
+              }
+           }
+         else
+           {
+            BufVel[i] = 0.0;
+            BufCol[i] = 0.0;
+            BufSpeedPos[i] = EMPTY_VALUE;
+            BufSpeedNeg[i] = EMPTY_VALUE;
+            BufSignal[i] = EMPTY_VALUE;
+           }
+        }
+      return rates_total;
      }
 
    if(!g_data_ready)
       return 0;
 
-// 5. Stateful live-bar update for active forming HTF candle
+// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
    int live_idx = g_htf_count - 1;
    if(live_idx >= required_bars)
      {
-      double o[1], h[1], l[1], c[1];
-      datetime t_bar[1];
-      long tv[1], v[1];
-
-      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
-      if(shift >= 0 &&
-         CopyTime(_Symbol,       g_calc_timeframe, shift, 1, t_bar) == 1 &&
-         CopyOpen(_Symbol,       g_calc_timeframe, shift, 1, o)     == 1 &&
-         CopyHigh(_Symbol,       g_calc_timeframe, shift, 1, h)     == 1 &&
-         CopyLow(_Symbol,        g_calc_timeframe, shift, 1, l)     == 1 &&
-         CopyClose(_Symbol,      g_calc_timeframe, shift, 1, c)     == 1 &&
-         CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, tv)    == 1)
+      MqlRates htf_rate[1];
+      // Single atomic API call instead of 6 separate copies!
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_time[live_idx]     = t_bar[0];
-         h_open[live_idx]     = o[0];
-         h_high[live_idx]     = h[0];
-         h_low[live_idx]      = l[0];
-         h_close[live_idx]    = c[0];
-         h_tick_vol[live_idx] = tv[0];
+         h_time[live_idx]     = htf_rate[0].time;
+         h_open[live_idx]     = htf_rate[0].open;
+         h_high[live_idx]     = htf_rate[0].high;
+         h_low[live_idx]      = htf_rate[0].low;
+         h_close[live_idx]    = htf_rate[0].close;
+         h_tick_vol[live_idx] = htf_rate[0].tick_volume;
+         h_vol[live_idx]      = (htf_rate[0].real_volume > 0) ? htf_rate[0].real_volume : htf_rate[0].tick_volume;
 
-         long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-         if(vol_limit > 0 && CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-            h_vol[live_idx] = v[0];
-         else
-            h_vol[live_idx] = tv[0];
-
-         // Mock update on live HTF bar
+         // Mock update strictly on forming candle
          g_velocity_calc.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close,
                                    h_res_vel, h_res_col, h_res_sp_pos, h_res_sp_neg,
                                    InpThresholdLow, InpThresholdHigh);
 
-         if(InpShowSignal && CheckPointer(g_signal_calculator) != POINTER_INVALID)
+         if(InpShowSignal && g_signal_calculator != NULL)
            {
             double htf_double_vol[];
             ArrayResize(htf_double_vol, g_htf_count);
@@ -487,54 +503,31 @@ int OnCalculate(const int rates_total,
         }
      }
 
-// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
+// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+   int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
+   if(first_bar_of_forming_htf < 0)
+      first_bar_of_forming_htf = 0;
+   if(time[first_bar_of_forming_htf] < htf_time_current && first_bar_of_forming_htf < rates_total - 1)
+      first_bar_of_forming_htf++;
+
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   int first_bar_of_forming_htf = rates_total - 1;
-   while(first_bar_of_forming_htf > 0 &&
-         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-     {
-      first_bar_of_forming_htf--;
-     }
-   first_bar_of_forming_htf++;
-
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-// 7. Chronological Mapping Loop to Chart Timeframe (5 Buffers)
+// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution)
+   double vel_val    = h_res_vel[live_idx];
+   double col_val    = h_res_col[live_idx];
+   double sp_pos_val = InpShowSpeed  ? h_res_sp_pos[live_idx] : EMPTY_VALUE;
+   double sp_neg_val = InpShowSpeed  ? h_res_sp_neg[live_idx] : EMPTY_VALUE;
+   double sig_val    = InpShowSignal ? h_res_sig[live_idx]    : EMPTY_VALUE;
+
    for(int i = start; i < rates_total; i++)
      {
-      datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-
-      if(shift_htf >= 0)
-        {
-         int idx_htf = g_htf_count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < g_htf_count)
-           {
-            BufVel[i]      = h_res_vel[idx_htf];
-            BufCol[i]      = h_res_col[idx_htf];
-            BufSpeedPos[i] = InpShowSpeed ? h_res_sp_pos[idx_htf] : EMPTY_VALUE;
-            BufSpeedNeg[i] = InpShowSpeed ? h_res_sp_neg[idx_htf] : EMPTY_VALUE;
-            BufSignal[i]   = InpShowSignal ? h_res_sig[idx_htf] : EMPTY_VALUE;
-           }
-         else
-           {
-            BufVel[i]      = 0.0;
-            BufCol[i]      = 0.0;
-            BufSpeedPos[i] = EMPTY_VALUE;
-            BufSpeedNeg[i] = EMPTY_VALUE;
-            BufSignal[i]   = EMPTY_VALUE;
-           }
-        }
-      else
-        {
-         BufVel[i]      = 0.0;
-         BufCol[i]      = 0.0;
-         BufSpeedPos[i] = EMPTY_VALUE;
-         BufSpeedNeg[i] = EMPTY_VALUE;
-         BufSignal[i]   = EMPTY_VALUE;
-        }
+      BufVel[i]      = vel_val;
+      BufCol[i]      = col_val;
+      BufSpeedPos[i] = sp_pos_val;
+      BufSpeedNeg[i] = sp_neg_val;
+      BufSignal[i]   = sig_val;
      }
 
    return rates_total;
