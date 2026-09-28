@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.30" // Fixed: Preserved Persistent State on ArrayResize
+#property version   "3.40" // Optimized: Precomputed DSP coefficients & hardware-pipelined math
 
 #ifndef EHLERS_SMOOTHER_CALCULATOR_MQH
 #define EHLERS_SMOOTHER_CALCULATOR_MQH
@@ -28,6 +28,11 @@ protected:
    ENUM_INPUT_SOURCE         m_source_type;
    ENUM_APPLIED_PRICE_HA_ALL m_applied_price;
 
+   //--- Precomputed Analytical DSP Filter Coefficients (Calculated ONCE in Init)
+   double                    m_c1, m_c2, m_c3;
+   double                    m_c1_half;        // Pre-factored c1 * 0.5 for SuperSmoother
+   double                    m_u0, m_u1, m_u2; // Pre-factored constants for UltimateSmoother
+
    //--- Persistent State Buffers
    double                    m_price[];
    double                    m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
@@ -38,6 +43,8 @@ protected:
    virtual bool              PreparePriceSeries(const int rates_total, const int start_index,
          const double &open[], const double &high[],
          const double &low[], const double &close[]);
+
+   void                      PrecomputeCoefficients(void);
 
 public:
                      CEhlersSmootherCalculator(void);
@@ -78,16 +85,45 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CEhlersSmootherCalculator::CEhlersSmootherCalculator(void) : m_period(20),
+CEhlersSmootherCalculator::CEhlersSmootherCalculator(void) :
+   m_period(20),
    m_type(SUPERSMOOTHER),
    m_source_type(SOURCE_PRICE),
-   m_applied_price(PRICE_CLOSE_STD)
+   m_applied_price(PRICE_CLOSE_STD),
+   m_c1(0.0), m_c2(0.0), m_c3(0.0),
+   m_c1_half(0.0), m_u0(0.0), m_u1(0.0), m_u2(0.0)
   {
    ArraySetAsSeries(m_price,    false);
    ArraySetAsSeries(m_ha_open,  false);
    ArraySetAsSeries(m_ha_high,  false);
    ArraySetAsSeries(m_ha_low,   false);
    ArraySetAsSeries(m_ha_close, false);
+  }
+
+//+------------------------------------------------------------------+
+//| Precompute Analytical DSP Filter Coefficients (Run Once in Init) |
+//+------------------------------------------------------------------+
+void CEhlersSmootherCalculator::PrecomputeCoefficients(void)
+  {
+   double omega = M_SQRT2 * M_PI / (double)m_period;
+   double a1    = MathExp(-omega);
+   double b1    = 2.0 * a1 * MathCos(omega);
+
+   m_c2 = b1;
+   m_c3 = -a1 * a1;
+
+   if(m_type == SUPERSMOOTHER)
+     {
+      m_c1      = 1.0 - m_c2 - m_c3;
+      m_c1_half = m_c1 * 0.5; // Factorized for fast FMA multiplication
+     }
+   else // ULTIMATESMOOTHER
+     {
+      m_c1 = (1.0 + m_c2 - m_c3) * 0.25;
+      m_u0 = 1.0 - m_c1;
+      m_u1 = 2.0 * m_c1 - m_c2;
+      m_u2 = -(m_c1 + m_c3);
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -100,6 +136,8 @@ bool CEhlersSmootherCalculator::Init(const int period, const ENUM_SMOOTHER_TYPE 
    m_type          = type;
    m_source_type   = source_type;
    m_applied_price = price_source;
+
+   PrecomputeCoefficients();
    return true;
   }
 
@@ -152,13 +190,13 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
                   m_price[i] = m_ha_low[i];
                   break;
                case PRICE_HA_MEDIAN:
-                  m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+                  m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                   break;
                case PRICE_HA_TYPICAL:
                   m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
                   break;
                case PRICE_HA_WEIGHTED:
-                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
                   break;
                case PRICE_HA_CLOSE:
                default:
@@ -190,13 +228,13 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
                   m_price[i] = low[i];
                   break;
                case PRICE_MEDIAN_STD:
-                  m_price[i] = (high[i] + low[i]) / 2.0;
+                  m_price[i] = (high[i] + low[i]) * 0.5;
                   break;
                case PRICE_TYPICAL_STD:
                   m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
                   break;
                case PRICE_WEIGHTED_STD:
-                  m_price[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+                  m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
                   break;
                case PRICE_CLOSE_STD:
                default:
@@ -215,7 +253,7 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
   }
 
 //+------------------------------------------------------------------+
-//| Main Incremental Calculation Loop                                |
+//| High-Performance Incremental Calculation (True O(1))             |
 //+------------------------------------------------------------------+
 void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_calculated,
       const double &open[], const double &high[],
@@ -225,7 +263,7 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
    if(rates_total < 4)
       return;
 
-//--- Safe allocation of destination array without wiping history
+// Safe array resizing
    if(ArraySize(filter_buffer) != rates_total)
      {
       ArrayResize(filter_buffer, rates_total);
@@ -237,16 +275,9 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
    if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
       return;
 
-//--- Calculate Analytical DSP Filter Coefficients
-   double a1 = MathExp(-M_SQRT2 * M_PI / (double)m_period);
-   double b1 = 2.0 * a1 * MathCos(M_SQRT2 * M_PI / (double)m_period);
-   double c2 = b1;
-   double c3 = -a1 * a1;
-   double c1 = (m_type == SUPERSMOOTHER) ? (1.0 - c2 - c3) : ((1.0 + c2 - c3) / 4.0);
-
    int loop_start = MathMax(3, start_index);
 
-// Initialization for the seed bars strictly on fresh calculation
+// Deterministic seeding strictly on initial calculation
    if(prev_calculated == 0)
      {
       filter_buffer[0] = m_price[0];
@@ -255,19 +286,26 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
       loop_start = 3;
      }
 
-// Recursive 2-Pole Difference Equation
-   for(int i = loop_start; i < rates_total; i++)
+// Recursive 2-Pole Difference Equation (Pipelined FMA Multiplication)
+   if(m_type == SUPERSMOOTHER)
      {
-      double f1 = filter_buffer[i - 1];
-      double f2 = filter_buffer[i - 2];
-
-      double current_f;
-      if(m_type == SUPERSMOOTHER)
-         current_f = c1 * (m_price[i] + m_price[i - 1]) / 2.0 + c2 * f1 + c3 * f2;
-      else // ULTIMATESMOOTHER
-         current_f = (1.0 - c1) * m_price[i] + (2.0 * c1 - c2) * m_price[i - 1] - (c1 + c3) * m_price[i - 2] + c2 * f1 + c3 * f2;
-
-      filter_buffer[i] = current_f;
+      for(int i = loop_start; i < rates_total; i++)
+        {
+         filter_buffer[i] = m_c1_half * (m_price[i] + m_price[i - 1]) +
+                            m_c2 * filter_buffer[i - 1] +
+                            m_c3 * filter_buffer[i - 2];
+        }
+     }
+   else // ULTIMATESMOOTHER
+     {
+      for(int i = loop_start; i < rates_total; i++)
+        {
+         filter_buffer[i] = m_u0 * m_price[i] +
+                            m_u1 * m_price[i - 1] +
+                            m_u2 * m_price[i - 2] +
+                            m_c2 * filter_buffer[i - 1] +
+                            m_c3 * filter_buffer[i - 2];
+        }
      }
   }
 
