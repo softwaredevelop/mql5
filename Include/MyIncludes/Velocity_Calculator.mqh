@@ -3,8 +3,9 @@
 //|      Engine for Kinematic Velocity Vector & Speed Envelopes      |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Performance-optimized Kinematic Velocity & Speed Engine
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "1.10" // Optimized: Precomputed kinematic multipliers & FMA acceleration
+#property description "Performance-optimized Kinematic Velocity & Speed Engine."
 
 #ifndef VELOCITY_CALCULATOR_MQH
 #define VELOCITY_CALCULATOR_MQH
@@ -20,6 +21,7 @@ class CVelocityCalculator
 private:
    int                       m_vel_period;
    int                       m_atr_period;
+   double                    m_inv_vel_period; // Precalculated 1.0 / vel_period
    ENUM_APPLIED_PRICE_HA_ALL m_source_price;
    ENUM_ATR_SOURCE           m_atr_source;
 
@@ -57,8 +59,10 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CVelocityCalculator::CVelocityCalculator(void) : m_vel_period(3),
+CVelocityCalculator::CVelocityCalculator(void) :
+   m_vel_period(3),
    m_atr_period(14),
+   m_inv_vel_period(1.0 / 3.0),
    m_source_price(PRICE_CLOSE_STD),
    m_atr_source(ATR_SOURCE_STANDARD),
    m_atr_calc(NULL)
@@ -90,10 +94,11 @@ bool CVelocityCalculator::Init(const int vel_p, const int atr_p,
                                const ENUM_APPLIED_PRICE_HA_ALL price_source,
                                const ENUM_ATR_SOURCE atr_source)
   {
-   m_vel_period   = (vel_p < 1) ? 1 : vel_p;
-   m_atr_period   = (atr_p < 1) ? 1 : atr_p;
-   m_source_price = price_source;
-   m_atr_source   = atr_source;
+   m_vel_period     = (vel_p < 1) ? 1 : vel_p;
+   m_atr_period     = (atr_p < 1) ? 1 : atr_p;
+   m_inv_vel_period = 1.0 / (double)m_vel_period;
+   m_source_price   = price_source;
+   m_atr_source     = atr_source;
 
    if(CheckPointer(m_atr_calc) != POINTER_INVALID)
      {
@@ -132,13 +137,12 @@ bool CVelocityCalculator::PreparePriceSeries(const int rates_total, const int st
       if(ArraySize(m_ha_open) != rates_total)
         {
          ArrayResize(m_ha_open,  rates_total);
-         ArrayResize(m_ha_high,  rates_total);
-         ArrayResize(m_ha_low,   rates_total);
-         ArrayResize(m_ha_close, rates_total);
-
          ArraySetAsSeries(m_ha_open,  false);
+         ArrayResize(m_ha_high,  rates_total);
          ArraySetAsSeries(m_ha_high,  false);
+         ArrayResize(m_ha_low,   rates_total);
          ArraySetAsSeries(m_ha_low,   false);
+         ArrayResize(m_ha_close, rates_total);
          ArraySetAsSeries(m_ha_close, false);
         }
 
@@ -159,13 +163,13 @@ bool CVelocityCalculator::PreparePriceSeries(const int rates_total, const int st
                m_price_buf[i] = m_ha_low[i];
                break;
             case PRICE_HA_MEDIAN:
-               m_price_buf[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+               m_price_buf[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                break;
             case PRICE_HA_TYPICAL:
                m_price_buf[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
                break;
             case PRICE_HA_WEIGHTED:
-               m_price_buf[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+               m_price_buf[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
                break;
             case PRICE_HA_CLOSE:
             default:
@@ -190,13 +194,13 @@ bool CVelocityCalculator::PreparePriceSeries(const int rates_total, const int st
                m_price_buf[i] = low[i];
                break;
             case PRICE_MEDIAN_STD:
-               m_price_buf[i] = (high[i] + low[i]) / 2.0;
+               m_price_buf[i] = (high[i] + low[i]) * 0.5;
                break;
             case PRICE_TYPICAL_STD:
                m_price_buf[i] = (high[i] + low[i] + close[i]) / 3.0;
                break;
             case PRICE_WEIGHTED_STD:
-               m_price_buf[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+               m_price_buf[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
                break;
             case PRICE_CLOSE_STD:
             default:
@@ -253,7 +257,7 @@ void CVelocityCalculator::Calculate(const int rates_total, const int prev_calcul
    if(start < warmup)
       start = warmup;
 
-// 3. Kinematic Vector & Scalar Envelope Loop
+// 3. Kinematic Vector & Scalar Envelope Loop (Pipelined Multipliers)
    for(int i = start; i < rates_total; i++)
      {
       double atr = m_atr_buf[i];
@@ -266,32 +270,32 @@ void CVelocityCalculator::Calculate(const int rates_total, const int prev_calcul
          continue;
         }
 
-      // Velocity Vector (Directional Normalized Displacement)
+      // Velocity Vector (Normalized Directional Displacement)
       double displacement = m_price_buf[i] - m_price_buf[i - m_vel_period];
-      double vel = displacement / (atr * (double)m_vel_period);
+      double vel = (displacement * m_inv_vel_period) / atr;
       vel_buffer[i] = vel;
 
       // Swapped Thermal 5-Zone Palette Classification
       if(vel >= th_high)
-         color_buffer[i] = 2.0; // Index 2: DeepSkyBlue (Bull Climax)
+         color_buffer[i] = 2.0; // DeepSkyBlue (Bull Climax)
       else
          if(vel >= th_low)
-            color_buffer[i] = 1.0; // Index 1: LightSkyBlue (Bull Flow)
+            color_buffer[i] = 1.0; // LightSkyBlue (Bull Flow)
          else
             if(vel <= -th_high)
-               color_buffer[i] = 4.0; // Index 4: OrangeRed (Bear Climax)
+               color_buffer[i] = 4.0; // OrangeRed (Bear Climax)
             else
                if(vel <= -th_low)
-                  color_buffer[i] = 3.0; // Index 3: Coral (Bear Flow)
+                  color_buffer[i] = 3.0; // Coral (Bear Flow)
                else
-                  color_buffer[i] = 0.0; // Index 0: Gray (Neutral Noise)
+                  color_buffer[i] = 0.0; // Gray (Neutral Noise)
 
       // Speed Scalar (Cumulative Path Length / ATR)
       double path_length = 0.0;
       for(int k = 0; k < m_vel_period; k++)
          path_length += MathAbs(m_price_buf[i - k] - m_price_buf[i - k - 1]);
 
-      double speed = (path_length / (double)m_vel_period) / atr;
+      double speed = (path_length * m_inv_vel_period) / atr;
       speed_pos[i] = speed;
       speed_neg[i] = -speed;
      }
