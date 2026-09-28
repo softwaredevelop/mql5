@@ -2,10 +2,10 @@
 //|                                         VScore_Dual_Widget_Pro.mq5 |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.00" // Fully Configurable Dual-Slot HUD Telemetry with Heap-Free Execution
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.00" // Enterprise Refactor: Persistent O(1) Slot Engines & Atomic CopyRates
 #property description "Dual-Timeframe Volume-Weighted Z-Score (V-Score) Chart HUD Widget."
-#property description "Displays Tactical and Strategic V-Score metrics side-by-side with 7-zone thermal telemetry."
+#property description "Optimized for massive multi-window execution with zero heap allocations."
 
 #property indicator_chart_window
 #property indicator_buffers 0
@@ -73,17 +73,38 @@ input int                       InpTableX               = 20;                   
 input int                       InpTableY               = 30;                    // Widget Y Offset (From Bottom)
 input int                       InpFontSize             = 9;                     // UI Font Size
 
-//--- Global Variables ---
-string g_prefix         = "";
-bool   g_updating       = false;
-ulong  g_last_update_ms = 0;
+//--- Persistent Global Engines (Zero heap allocation, zero new/delete on ticks)
+CVScoreCalculator g_calc_slot1;
+CVScoreCalculator g_calc_slot2;
+
+//--- Persistent Slot State Tracking for True Incremental O(1) Processing
+int               g_s1_prev_calc = 0;
+int               g_s2_prev_calc = 0;
+datetime          g_s1_last_bar_time = 0;
+datetime          g_s2_last_bar_time = 0;
+
+//--- Persistent Reusable Caches (Zero GC pauses)
+MqlRates          g_s1_rates[], g_s2_rates[];
+double            g_s1_open[], g_s1_high[], g_s1_low[], g_s1_close[], g_s1_res[];
+long              g_s1_tvol[], g_s1_vol[];
+datetime          g_s1_time[];
+
+double            g_s2_open[], g_s2_high[], g_s2_low[], g_s2_close[], g_s2_res[];
+long              g_s2_tvol[], g_s2_vol[];
+datetime          g_s2_time[];
+
+//--- UI State Guards
+string            g_prefix = "";
+bool              g_updating = false;
+ulong             g_last_update_ms = 0;
+double            g_last_rendered_vs1 = EMPTY_VALUE;
+double            g_last_rendered_vs2 = EMPTY_VALUE;
 
 //+------------------------------------------------------------------+
-//| Heap-Free V-Score Calculation for Widget Slots                   |
+//| Dynamic Lookback Bar Resolver                                    |
 //+------------------------------------------------------------------+
-double GetVScoreValue(const string symbol, const ENUM_TIMEFRAMES tf, const ENUM_VWAP_PERIOD reset, const int period)
+int ResolveRequiredBars(const ENUM_TIMEFRAMES tf, const ENUM_VWAP_PERIOD reset, const int period)
   {
-// 1. Calculate Required Lookback Dynamically
    int tf_sec = PeriodSeconds(tf);
    if(tf_sec < 1)
       tf_sec = 60;
@@ -105,76 +126,94 @@ double GetVScoreValue(const string symbol, const ENUM_TIMEFRAMES tf, const ENUM_
          break;
      }
 
-   int required_bars = period + anchor_bars;
-   required_bars = MathMin(required_bars, 3000);
+   int req = period + anchor_bars;
+   return MathMin(req, 3000);
+  }
 
-// 2. Data Readiness Check
-   if(!CDataSync::EnsureHTFDataReady(symbol, tf, required_bars))
+//+------------------------------------------------------------------+
+//| High-Performance O(1) Slot Value Processor                       |
+//+------------------------------------------------------------------+
+double UpdateSlotValue(CVScoreCalculator &calc,
+                       const ENUM_TIMEFRAMES tf,
+                       const ENUM_VWAP_PERIOD reset,
+                       const int period,
+                       int &prev_calc,
+                       datetime &last_bar_time,
+                       MqlRates &rates_cache[],
+                       double &open_cache[], double &high_cache[], double &low_cache[], double &close_cache[],
+                       long &tvol_cache[], long &vol_cache[], datetime &time_cache[],
+                       double &res_cache[])
+  {
+   int required_bars = ResolveRequiredBars(tf, reset, period);
+
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, tf, required_bars))
       return EMPTY_VALUE;
 
-   int htf_bars = iBars(symbol, tf);
+   int htf_bars = iBars(_Symbol, tf);
    if(htf_bars < required_bars)
       return EMPTY_VALUE;
 
    int count = MathMin(htf_bars, required_bars);
 
-// 3. Fetch Price & Volume Data
-   double   h_open[], h_high[], h_low[], h_close[];
-   long     h_tick_vol[], h_vol[];
-   datetime h_time[];
-
-   ArrayResize(h_open,     count);
-   ArraySetAsSeries(h_open,     false);
-   ArrayResize(h_high,     count);
-   ArraySetAsSeries(h_high,     false);
-   ArrayResize(h_low,      count);
-   ArraySetAsSeries(h_low,      false);
-   ArrayResize(h_close,    count);
-   ArraySetAsSeries(h_close,    false);
-   ArrayResize(h_tick_vol, count);
-   ArraySetAsSeries(h_tick_vol, false);
-   ArrayResize(h_vol,      count);
-   ArraySetAsSeries(h_vol,      false);
-   ArrayResize(h_time,     count);
-   ArraySetAsSeries(h_time,     false);
-
-   if(CopyTime(symbol,       tf, 0, count, h_time)     != count ||
-      CopyOpen(symbol,       tf, 0, count, h_open)     != count ||
-      CopyHigh(symbol,       tf, 0, count, h_high)     != count ||
-      CopyLow(symbol,        tf, 0, count, h_low)      != count ||
-      CopyClose(symbol,      tf, 0, count, h_close)    != count ||
-      CopyTickVolume(symbol, tf, 0, count, h_tick_vol) != count)
-     {
+// Single Atomic API Query (Replaces 7 separate Copy calls!)
+   if(CopyRates(_Symbol, tf, 0, count, rates_cache) != count)
       return EMPTY_VALUE;
+
+// Detect Bar Rollover or History Resync
+   datetime current_htf_time = rates_cache[count - 1].time;
+   bool new_bar = (current_htf_time != last_bar_time);
+
+   if(new_bar || prev_calc == 0 || ArraySize(res_cache) != count)
+     {
+      last_bar_time = current_htf_time;
+      prev_calc = 0; // Force full pass strictly on new HTF candle opening
+
+      ArrayResize(open_cache,  count);
+      ArraySetAsSeries(open_cache,  false);
+      ArrayResize(high_cache,  count);
+      ArraySetAsSeries(high_cache,  false);
+      ArrayResize(low_cache,   count);
+      ArraySetAsSeries(low_cache,   false);
+      ArrayResize(close_cache, count);
+      ArraySetAsSeries(close_cache, false);
+      ArrayResize(tvol_cache,  count);
+      ArraySetAsSeries(tvol_cache,  false);
+      ArrayResize(vol_cache,   count);
+      ArraySetAsSeries(vol_cache,   false);
+      ArrayResize(time_cache,  count);
+      ArraySetAsSeries(time_cache,  false);
+      ArrayResize(res_cache,   count);
+      ArraySetAsSeries(res_cache,   false);
+
+      for(int i = 0; i < count; i++)
+        {
+         open_cache[i]  = rates_cache[i].open;
+         high_cache[i]  = rates_cache[i].high;
+         low_cache[i]   = rates_cache[i].low;
+         close_cache[i] = rates_cache[i].close;
+         tvol_cache[i]  = rates_cache[i].tick_volume;
+         vol_cache[i]   = (rates_cache[i].real_volume > 0) ? rates_cache[i].real_volume : rates_cache[i].tick_volume;
+         time_cache[i]  = rates_cache[i].time;
+        }
+     }
+   else
+     {
+      // Fast Live Tick Path: Update only the active forming bar in RAM
+      int last_idx = count - 1;
+      open_cache[last_idx]  = rates_cache[last_idx].open;
+      high_cache[last_idx]  = rates_cache[last_idx].high;
+      low_cache[last_idx]   = rates_cache[last_idx].low;
+      close_cache[last_idx] = rates_cache[last_idx].close;
+      tvol_cache[last_idx]  = rates_cache[last_idx].tick_volume;
+      vol_cache[last_idx]   = (rates_cache[last_idx].real_volume > 0) ? rates_cache[last_idx].real_volume : rates_cache[last_idx].tick_volume;
+      time_cache[last_idx]  = rates_cache[last_idx].time;
      }
 
-   long vol_limit = (long)SymbolInfoDouble(symbol, SYMBOL_VOLUME_LIMIT);
-   if(vol_limit > 0)
-      CopyRealVolume(symbol, tf, 0, count, h_vol);
-   else
-      ArrayCopy(h_vol, h_tick_vol, 0, 0, count);
+// Incremental O(1) Calculation (Executes strictly 1 bar on live ticks!)
+   calc.Calculate(count, prev_calc, time_cache, open_cache, high_cache, low_cache, close_cache, tvol_cache, vol_cache, res_cache);
+   prev_calc = count;
 
-// 4. Heap-Free Stack Calculator Execution
-   CVScoreCalculator calc;
-   bool is_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
-   bool init_ok = false;
-
-   if(reset == PERIOD_CUSTOM_SESSION)
-      init_ok = calc.Init(period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, period * 5);
-   else
-      init_ok = calc.Init(period, reset, InpVolumeType, InpTzShift, is_ha, period * 5);
-
-   if(!init_ok)
-      return EMPTY_VALUE;
-
-   double h_res[];
-   ArrayResize(h_res, count);
-   ArraySetAsSeries(h_res, false);
-   ArrayInitialize(h_res, 0.0);
-
-   calc.Calculate(count, 0, h_time, h_open, h_high, h_low, h_close, h_tick_vol, h_vol, h_res);
-
-   return h_res[count - 1];
+   return res_cache[count - 1];
   }
 
 //+------------------------------------------------------------------+
@@ -190,6 +229,8 @@ void CreateButton(const string name, const string text, const int x, const int y
       ObjectSetString(0,  name, OBJPROP_FONT, "Trebuchet MS");
       ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 100);
      }
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
@@ -220,45 +261,44 @@ void RenderVScoreCell(const string symbol, const double val, const string slot_t
      {
       text = DoubleToString(val, 2) + " σ";
 
-      // Symmetrical 7-Zone Super-Thermal Matrix
       if(val >= InpLevelExtremeHigh)
         {
-         bg_color = clrMidnightBlue; // Bull Extreme (Deep Midnight Blue)
+         bg_color = clrMidnightBlue;
          text_color = clrWhite;
         }
       else
          if(val >= InpLevelClimaxHigh)
            {
-            bg_color = clrDeepSkyBlue;  // Bull Climax (Deep Sky Blue)
+            bg_color = clrDeepSkyBlue;
             text_color = clrWhite;
            }
          else
             if(val >= InpLevelFlowHigh)
               {
-               bg_color = clrLightSkyBlue; // Bull Flow (Light Blue)
+               bg_color = clrLightSkyBlue;
                text_color = clrBlack;
               }
             else
                if(val <= InpLevelExtremeLow)
                  {
-                  bg_color = clrDarkRed;      // Bear Extreme (Dark Crimson Red)
+                  bg_color = clrDarkRed;
                   text_color = clrWhite;
                  }
                else
                   if(val <= InpLevelClimaxLow)
                     {
-                     bg_color = clrOrangeRed;    // Bear Climax (Orange Red)
+                     bg_color = clrOrangeRed;
                      text_color = clrWhite;
                     }
                   else
                      if(val <= InpLevelFlowLow)
                        {
-                        bg_color = clrCoral;        // Bear Flow (Coral Pink)
+                        bg_color = clrCoral;
                         text_color = clrBlack;
                        }
                      else
                        {
-                        bg_color = clrWhite;        // Neutral Range
+                        bg_color = clrWhite;
                         text_color = clrDarkGray;
                        }
      }
@@ -282,8 +322,33 @@ void RenderDashboard()
 
    string sym = _Symbol;
 
-// 1. Render Table Header (Placed above baseline Y)
-   int header_y = InpTableY + row_h + 2; // Y coordinates grow UPWARDS
+// 1. Compute Slot 1 and Slot 2 Values in O(1)
+   double vs_slot1 = UpdateSlotValue(g_calc_slot1, InpSlot1TF, InpSlot1Reset, InpSlot1Period,
+                                     g_s1_prev_calc, g_s1_last_bar_time,
+                                     g_s1_rates, g_s1_open, g_s1_high, g_s1_low, g_s1_close,
+                                     g_s1_tvol, g_s1_vol, g_s1_time, g_s1_res);
+
+   double vs_slot2 = UpdateSlotValue(g_calc_slot2, InpSlot2TF, InpSlot2Reset, InpSlot2Period,
+                                     g_s2_prev_calc, g_s2_last_bar_time,
+                                     g_s2_rates, g_s2_open, g_s2_high, g_s2_low, g_s2_close,
+                                     g_s2_tvol, g_s2_vol, g_s2_time, g_s2_res);
+
+// 2. Change Guard: Only touch GDI and Redraw if rounded values changed!
+   bool changed = (MathAbs(vs_slot1 - g_last_rendered_vs1) >= 0.005 ||
+                   MathAbs(vs_slot2 - g_last_rendered_vs2) >= 0.005 ||
+                   g_last_rendered_vs1 == EMPTY_VALUE);
+
+   if(!changed)
+     {
+      g_updating = false;
+      return;
+     }
+
+   g_last_rendered_vs1 = vs_slot1;
+   g_last_rendered_vs2 = vs_slot2;
+
+// 3. Render Table Header (Y coordinates grow UPWARDS)
+   int header_y = InpTableY + row_h + 2;
 
    string s1_tf = StringSubstr(EnumToString(InpSlot1TF), 7);
    string s2_tf = StringSubstr(EnumToString(InpSlot2TF), 7);
@@ -295,13 +360,9 @@ void RenderDashboard()
    CreateButton(g_prefix + "H_S1",  s1_header, InpTableX + col_w_sym + 2, header_y, col_w_vs, row_h, clrDarkSlateGray, clrWhite);
    CreateButton(g_prefix + "H_S2",  s2_header, InpTableX + col_w_sym + col_w_vs + 4, header_y, col_w_vs, row_h, clrDarkSlateGray, clrWhite);
 
-// 2. Render Data Row (Placed at baseline Y)
+// 4. Render Data Row
    int row_y = InpTableY;
    CreateButton(g_prefix + "_SymLbl_" + sym, sym, InpTableX, row_y, col_w_sym, row_h, clrLightGray, clrBlack);
-
-// Compute Slot 1 and Slot 2 Values
-   double vs_slot1 = GetVScoreValue(sym, InpSlot1TF, InpSlot1Reset, InpSlot1Period);
-   double vs_slot2 = GetVScoreValue(sym, InpSlot2TF, InpSlot2Reset, InpSlot2Period);
 
 // Render Dual Cells side-by-side
    RenderVScoreCell(sym, vs_slot1, "Slot1", InpTableX + col_w_sym + 2, row_y, col_w_vs, row_h);
@@ -316,11 +377,30 @@ void RenderDashboard()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_updating = false;
-   g_last_update_ms = 0;
-   g_prefix = StringFormat("VSDW_%I64d_", ChartID());
+   g_updating          = false;
+   g_last_update_ms    = 0;
+   g_last_rendered_vs1 = EMPTY_VALUE;
+   g_last_rendered_vs2 = EMPTY_VALUE;
+   g_s1_prev_calc      = 0;
+   g_s2_prev_calc      = 0;
+   g_s1_last_bar_time  = 0;
+   g_s2_last_bar_time  = 0;
 
+   g_prefix = StringFormat("VSDW_%I64d_", ChartID());
    ObjectsDeleteAll(0, g_prefix);
+
+// Initialize Persistent Slot Engines ONCE on Startup (Zero heap allocations on ticks!)
+   bool is_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
+
+   if(InpSlot1Reset == PERIOD_CUSTOM_SESSION)
+      g_calc_slot1.Init(InpSlot1Period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, InpSlot1Period * 5);
+   else
+      g_calc_slot1.Init(InpSlot1Period, InpSlot1Reset, InpVolumeType, InpTzShift, is_ha, InpSlot1Period * 5);
+
+   if(InpSlot2Reset == PERIOD_CUSTOM_SESSION)
+      g_calc_slot2.Init(InpSlot2Period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, InpSlot2Period * 5);
+   else
+      g_calc_slot2.Init(InpSlot2Period, InpSlot2Reset, InpVolumeType, InpTzShift, is_ha, InpSlot2Period * 5);
 
    RenderDashboard();
 
@@ -352,7 +432,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-// Tick throttling: Maximum 5 UI updates per second (200ms)
+// GUI Throttling: Max 5 updates per second (200ms)
    ulong current_ms = GetTickCount64();
    if(current_ms - g_last_update_ms >= 200)
      {
