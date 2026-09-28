@@ -3,8 +3,9 @@
 //|      Engine for Barbara Star's DMI Stochastic Oscillator         |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Leak-free pointer management, bounds protection & VWMA support
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.30" // Enterprise Refactor: Persistent Volume Cache & Zero Heap Churn
+#property description "High-performance calculation engine for DMI Stochastic Oscillator."
 
 #ifndef DMISTOCHASTIC_CALCULATOR_MQH
 #define DMISTOCHASTIC_CALCULATOR_MQH
@@ -37,9 +38,10 @@ protected:
    int                       m_smooth_period;
    ENUM_DMI_OSC_TYPE         m_osc_type;
 
-   //--- Persistent State Buffers
+   //--- Persistent State Buffers (Zero Heap Churn on Live Ticks)
    double                    m_pDI[], m_nDI[];
    double                    m_dmiOsc[], m_fastK[];
+   double                    m_vol_double[];
 
    virtual void              CreateEngine(void);
 
@@ -67,17 +69,19 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CDMIStochasticCalculator::CDMIStochasticCalculator(void) : m_dmi_engine(NULL),
+CDMIStochasticCalculator::CDMIStochasticCalculator(void) :
+   m_dmi_engine(NULL),
    m_dmi_period(10),
    m_fast_k_period(10),
    m_slow_k_period(3),
    m_smooth_period(3),
    m_osc_type(OSC_PDI_MINUS_NDI)
   {
-   ArraySetAsSeries(m_pDI,    false);
-   ArraySetAsSeries(m_nDI,    false);
-   ArraySetAsSeries(m_dmiOsc, false);
-   ArraySetAsSeries(m_fastK,  false);
+   ArraySetAsSeries(m_pDI,        false);
+   ArraySetAsSeries(m_nDI,        false);
+   ArraySetAsSeries(m_dmiOsc,     false);
+   ArraySetAsSeries(m_fastK,      false);
+   ArraySetAsSeries(m_vol_double, false);
   }
 
 //+------------------------------------------------------------------+
@@ -93,7 +97,7 @@ CDMIStochasticCalculator::~CDMIStochasticCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| Factory Method (Safe Leak-Free Instantiation)                    |
+//| Factory Method                                                   |
 //+------------------------------------------------------------------+
 void CDMIStochasticCalculator::CreateEngine(void)
   {
@@ -156,35 +160,38 @@ void CDMIStochasticCalculator::Calculate(const int rates_total, const int prev_c
       ArrayInitialize(d_buffer, EMPTY_VALUE);
      }
 
-// Resize internal buffers
+// Safe allocation of internal buffers
    if(ArraySize(m_pDI) != rates_total)
      {
       ArrayResize(m_pDI,    rates_total);
-      ArrayResize(m_nDI,    rates_total);
-      ArrayResize(m_dmiOsc, rates_total);
-      ArrayResize(m_fastK,  rates_total);
-
       ArraySetAsSeries(m_pDI,    false);
+      ArrayResize(m_nDI,    rates_total);
       ArraySetAsSeries(m_nDI,    false);
+      ArrayResize(m_dmiOsc, rates_total);
       ArraySetAsSeries(m_dmiOsc, false);
+      ArrayResize(m_fastK,  rates_total);
       ArraySetAsSeries(m_fastK,  false);
      }
 
-// 1. Calculate +DI and -DI values
+// 1. Calculate +DI and -DI values using Fused DMI Engine (v1.30)
    m_dmi_engine.Calculate(rates_total, prev_calculated, open, high, low, close, m_pDI, m_nDI);
 
-// 2. Calculate DMI Oscillator & Fast %K
+// 2. Calculate DMI Oscillator
    int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
    int loop_start  = MathMax(m_dmi_period, start_index);
 
-   for(int i = loop_start; i < rates_total; i++)
+   if(m_osc_type == OSC_PDI_MINUS_NDI)
      {
-      if(m_osc_type == OSC_PDI_MINUS_NDI)
+      for(int i = loop_start; i < rates_total; i++)
          m_dmiOsc[i] = m_pDI[i] - m_nDI[i];
-      else
+     }
+   else
+     {
+      for(int i = loop_start; i < rates_total; i++)
          m_dmiOsc[i] = m_nDI[i] - m_pDI[i];
      }
 
+// 3. Calculate Fast %K via Stochastic Min/Max Normalization
    int fast_k_start = m_dmi_period + m_fast_k_period - 1;
    int loop_start_k = MathMax(fast_k_start, start_index);
 
@@ -202,14 +209,14 @@ void CDMIStochasticCalculator::Calculate(const int rates_total, const int prev_c
       m_fastK[i] = (range > 1.0e-9) ? ((m_dmiOsc[i] - lowest) / range) * 100.0 : 50.0;
      }
 
-// 3. Smooth K and D (Without Volume)
+// 4. Smooth K and D (Incremental O(1))
    m_slow_k_engine.CalculateOnArray(rates_total, prev_calculated, m_fastK, k_buffer, fast_k_start);
    int d_start = fast_k_start + m_slow_k_period - 1;
    m_smooth_d_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, d_buffer, d_start);
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Overloaded - With Volume for VWMA)                    |
+//| Calculate (Overloaded - With Persistent Volume for VWMA)         |
 //+------------------------------------------------------------------+
 void CDMIStochasticCalculator::Calculate(const int rates_total, const int prev_calculated,
       const double &open[], const double &high[],
@@ -221,7 +228,6 @@ void CDMIStochasticCalculator::Calculate(const int rates_total, const int prev_c
    if(rates_total < warmup || CheckPointer(m_dmi_engine) == POINTER_INVALID)
       return;
 
-// Safe allocation of output buffers
    if(ArraySize(k_buffer) != rates_total)
      {
       ArrayResize(k_buffer, rates_total);
@@ -237,32 +243,37 @@ void CDMIStochasticCalculator::Calculate(const int rates_total, const int prev_c
 
    if(ArraySize(m_pDI) != rates_total)
      {
-      ArrayResize(m_pDI,    rates_total);
-      ArrayResize(m_nDI,    rates_total);
-      ArrayResize(m_dmiOsc, rates_total);
-      ArrayResize(m_fastK,  rates_total);
-
-      ArraySetAsSeries(m_pDI,    false);
-      ArraySetAsSeries(m_nDI,    false);
-      ArraySetAsSeries(m_dmiOsc, false);
-      ArraySetAsSeries(m_fastK,  false);
+      ArrayResize(m_pDI,        rates_total);
+      ArraySetAsSeries(m_pDI,        false);
+      ArrayResize(m_nDI,        rates_total);
+      ArraySetAsSeries(m_nDI,        false);
+      ArrayResize(m_dmiOsc,     rates_total);
+      ArraySetAsSeries(m_dmiOsc,     false);
+      ArrayResize(m_fastK,      rates_total);
+      ArraySetAsSeries(m_fastK,      false);
+      ArrayResize(m_vol_double, rates_total);
+      ArraySetAsSeries(m_vol_double, false);
      }
 
 // 1. Calculate +DI and -DI values
    m_dmi_engine.Calculate(rates_total, prev_calculated, open, high, low, close, m_pDI, m_nDI);
 
-// 2. Calculate DMI Oscillator & Fast %K
+// 2. Calculate DMI Oscillator
    int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
    int loop_start  = MathMax(m_dmi_period, start_index);
 
-   for(int i = loop_start; i < rates_total; i++)
+   if(m_osc_type == OSC_PDI_MINUS_NDI)
      {
-      if(m_osc_type == OSC_PDI_MINUS_NDI)
+      for(int i = loop_start; i < rates_total; i++)
          m_dmiOsc[i] = m_pDI[i] - m_nDI[i];
-      else
+     }
+   else
+     {
+      for(int i = loop_start; i < rates_total; i++)
          m_dmiOsc[i] = m_nDI[i] - m_pDI[i];
      }
 
+// 3. Calculate Fast %K
    int fast_k_start = m_dmi_period + m_fast_k_period - 1;
    int loop_start_k = MathMax(fast_k_start, start_index);
 
@@ -280,18 +291,14 @@ void CDMIStochasticCalculator::Calculate(const int rates_total, const int prev_c
       m_fastK[i] = (range > 1.0e-9) ? ((m_dmiOsc[i] - lowest) / range) * 100.0 : 50.0;
      }
 
-// 3. Convert volume to double array for VWMA support
-   double vol_double[];
-   ArrayResize(vol_double, rates_total);
-   ArraySetAsSeries(vol_double, false);
-
+// 4. Update Persistent Double Volume (Zero dynamic heap reallocations!)
    for(int j = start_index; j < rates_total; j++)
-      vol_double[j] = (double)volume[j];
+      m_vol_double[j] = (double)volume[j];
 
-// 4. Smooth K and D (With Volume)
-   m_slow_k_engine.CalculateOnArray(rates_total, prev_calculated, m_fastK, vol_double, k_buffer, fast_k_start);
+// 5. Smooth K and D (With Volume)
+   m_slow_k_engine.CalculateOnArray(rates_total, prev_calculated, m_fastK, m_vol_double, k_buffer, fast_k_start);
    int d_start = fast_k_start + m_slow_k_period - 1;
-   m_smooth_d_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, vol_double, d_buffer, d_start);
+   m_smooth_d_engine.CalculateOnArray(rates_total, prev_calculated, k_buffer, m_vol_double, d_buffer, d_start);
   }
 
 //+==================================================================+
