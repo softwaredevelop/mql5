@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.00" // Enterprise Refactor: Persistent O(1) Slot Engines & Atomic CopyRates
+#property version     "3.10" // Fixed: Weekly/Monthly Multi-Week History Depth Convergence
 #property description "Dual-Timeframe Volume-Weighted Z-Score (V-Score) Chart HUD Widget."
-#property description "Optimized for massive multi-window execution with zero heap allocations."
+#property description "Optimized for massive multi-window execution with full multi-week statistical stability."
 
 #property indicator_chart_window
 #property indicator_buffers 0
@@ -73,7 +73,7 @@ input int                       InpTableX               = 20;                   
 input int                       InpTableY               = 30;                    // Widget Y Offset (From Bottom)
 input int                       InpFontSize             = 9;                     // UI Font Size
 
-//--- Persistent Global Engines (Zero heap allocation, zero new/delete on ticks)
+//--- Persistent Global Engines
 CVScoreCalculator g_calc_slot1;
 CVScoreCalculator g_calc_slot2;
 
@@ -83,7 +83,7 @@ int               g_s2_prev_calc = 0;
 datetime          g_s1_last_bar_time = 0;
 datetime          g_s2_last_bar_time = 0;
 
-//--- Persistent Reusable Caches (Zero GC pauses)
+//--- Persistent Reusable Caches
 MqlRates          g_s1_rates[], g_s2_rates[];
 double            g_s1_open[], g_s1_high[], g_s1_low[], g_s1_close[], g_s1_res[];
 long              g_s1_tvol[], g_s1_vol[];
@@ -101,13 +101,21 @@ double            g_last_rendered_vs1 = EMPTY_VALUE;
 double            g_last_rendered_vs2 = EMPTY_VALUE;
 
 //+------------------------------------------------------------------+
-//| Dynamic Lookback Bar Resolver                                    |
+//| Dynamic Lookback Bar Resolver (Enhanced Multi-Week Depth)        |
 //+------------------------------------------------------------------+
 int ResolveRequiredBars(const ENUM_TIMEFRAMES tf, const ENUM_VWAP_PERIOD reset, const int period)
   {
    int tf_sec = PeriodSeconds(tf);
    if(tf_sec < 1)
       tf_sec = 60;
+
+// FIXED: Guarantee sufficient historical depth for multi-week/multi-month variance convergence
+   int min_depth = 500;
+   if(reset == PERIOD_WEEK)
+      min_depth = 2000;  // Minimum 2000 bars for H1 ensures 12+ full historical weeks
+   else
+      if(reset == PERIOD_MONTH)
+         min_depth = 3000;
 
    int anchor_bars = 100;
    switch(reset)
@@ -116,17 +124,17 @@ int ResolveRequiredBars(const ENUM_TIMEFRAMES tf, const ENUM_VWAP_PERIOD reset, 
          anchor_bars = (int)(86400 / tf_sec) + 20;
          break;
       case PERIOD_WEEK:
-         anchor_bars = (int)(7 * 86400 / tf_sec) + 50;
+         anchor_bars = (int)(7 * 86400 / tf_sec) + 100;
          break;
       case PERIOD_MONTH:
-         anchor_bars = (int)(31 * 86400 / tf_sec) + 100;
+         anchor_bars = (int)(31 * 86400 / tf_sec) + 200;
          break;
       case PERIOD_CUSTOM_SESSION:
          anchor_bars = (int)(86400 / tf_sec) + 20;
          break;
      }
 
-   int req = period + anchor_bars;
+   int req = MathMax(min_depth, period + anchor_bars);
    return MathMin(req, 3000);
   }
 
@@ -155,7 +163,7 @@ double UpdateSlotValue(CVScoreCalculator &calc,
 
    int count = MathMin(htf_bars, required_bars);
 
-// Single Atomic API Query (Replaces 7 separate Copy calls!)
+// Single Atomic API Query
    if(CopyRates(_Symbol, tf, 0, count, rates_cache) != count)
       return EMPTY_VALUE;
 
@@ -166,7 +174,7 @@ double UpdateSlotValue(CVScoreCalculator &calc,
    if(new_bar || prev_calc == 0 || ArraySize(res_cache) != count)
      {
       last_bar_time = current_htf_time;
-      prev_calc = 0; // Force full pass strictly on new HTF candle opening
+      prev_calc = 0; // Full pass on new candle to establish baseline
 
       ArrayResize(open_cache,  count);
       ArraySetAsSeries(open_cache,  false);
@@ -198,7 +206,7 @@ double UpdateSlotValue(CVScoreCalculator &calc,
      }
    else
      {
-      // Fast Live Tick Path: Update only the active forming bar in RAM
+      // Fast Live Tick Path: Update active bar strictly in RAM
       int last_idx = count - 1;
       open_cache[last_idx]  = rates_cache[last_idx].open;
       high_cache[last_idx]  = rates_cache[last_idx].high;
@@ -209,7 +217,7 @@ double UpdateSlotValue(CVScoreCalculator &calc,
       time_cache[last_idx]  = rates_cache[last_idx].time;
      }
 
-// Incremental O(1) Calculation (Executes strictly 1 bar on live ticks!)
+// Incremental O(1) Calculation
    calc.Calculate(count, prev_calc, time_cache, open_cache, high_cache, low_cache, close_cache, tvol_cache, vol_cache, res_cache);
    prev_calc = count;
 
@@ -389,18 +397,17 @@ int OnInit()
    g_prefix = StringFormat("VSDW_%I64d_", ChartID());
    ObjectsDeleteAll(0, g_prefix);
 
-// Initialize Persistent Slot Engines ONCE on Startup (Zero heap allocations on ticks!)
    bool is_ha = (InpCandleSource == CANDLE_HEIKIN_ASHI);
 
    if(InpSlot1Reset == PERIOD_CUSTOM_SESSION)
-      g_calc_slot1.Init(InpSlot1Period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, InpSlot1Period * 5);
+      g_calc_slot1.Init(InpSlot1Period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, 100);
    else
-      g_calc_slot1.Init(InpSlot1Period, InpSlot1Reset, InpVolumeType, InpTzShift, is_ha, InpSlot1Period * 5);
+      g_calc_slot1.Init(InpSlot1Period, InpSlot1Reset, InpVolumeType, InpTzShift, is_ha, 100);
 
    if(InpSlot2Reset == PERIOD_CUSTOM_SESSION)
-      g_calc_slot2.Init(InpSlot2Period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, InpSlot2Period * 5);
+      g_calc_slot2.Init(InpSlot2Period, InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, InpTzShift, is_ha, 100);
    else
-      g_calc_slot2.Init(InpSlot2Period, InpSlot2Reset, InpVolumeType, InpTzShift, is_ha, InpSlot2Period * 5);
+      g_calc_slot2.Init(InpSlot2Period, InpSlot2Reset, InpVolumeType, InpTzShift, is_ha, 100);
 
    RenderDashboard();
 
@@ -432,7 +439,6 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-// GUI Throttling: Max 5 updates per second (200ms)
    ulong current_ms = GetTickCount64();
    if(current_ms - g_last_update_ms >= 200)
      {
