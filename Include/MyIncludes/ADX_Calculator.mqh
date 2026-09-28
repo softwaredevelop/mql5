@@ -2,8 +2,8 @@
 //|                                               ADX_Calculator.mqh |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Upgraded with leak-free pointer management and bounds protection
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.30" // Optimized: Precalculated RMA multipliers & bounds protection
 
 #ifndef ADX_CALCULATOR_MQH
 #define ADX_CALCULATOR_MQH
@@ -18,6 +18,8 @@ class CADXCalculator
 protected:
    CDMIEngine        *m_dmi_engine;
    int               m_adx_period;
+   double            m_adx_decay;      // Precalculated (period - 1) / period
+   double            m_adx_inv_period; // Precalculated 1.0 / period
    double            m_dx[];
 
    virtual void      CreateEngine(void);
@@ -38,7 +40,11 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CADXCalculator::CADXCalculator(void) : m_dmi_engine(NULL), m_adx_period(14)
+CADXCalculator::CADXCalculator(void) :
+   m_dmi_engine(NULL),
+   m_adx_period(14),
+   m_adx_decay(0.0),
+   m_adx_inv_period(0.0)
   {
    ArraySetAsSeries(m_dx, false);
   }
@@ -56,7 +62,7 @@ CADXCalculator::~CADXCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| Factory Method (Safe Leak-Free Instantiation)                    |
+//| Factory Method                                                   |
 //+------------------------------------------------------------------+
 void CADXCalculator::CreateEngine(void)
   {
@@ -73,7 +79,10 @@ void CADXCalculator::CreateEngine(void)
 //+------------------------------------------------------------------+
 bool CADXCalculator::Init(const int period)
   {
-   m_adx_period = (period < 1) ? 1 : period;
+   m_adx_period     = (period < 1) ? 1 : period;
+   m_adx_inv_period = 1.0 / (double)m_adx_period;
+   m_adx_decay      = (double)(m_adx_period - 1) * m_adx_inv_period;
+
    CreateEngine();
    if(CheckPointer(m_dmi_engine) == POINTER_INVALID)
       return false;
@@ -107,10 +116,10 @@ void CADXCalculator::Calculate(const int rates_total, const int prev_calculated,
       ArraySetAsSeries(m_dx, false);
      }
 
-// 1. Calculate DI values using DMI Engine
+// 1. Calculate DI values using Fused DMI Engine
    m_dmi_engine.Calculate(rates_total, prev_calculated, open, high, low, close, pdi_buffer, ndi_buffer);
 
-// 2. Calculate DX
+// 2. Calculate Directional Index (DX)
    int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
    int loop_start  = MathMax(m_adx_period, start_index);
 
@@ -123,7 +132,7 @@ void CADXCalculator::Calculate(const int rates_total, const int prev_calculated,
          m_dx[i] = 0.0;
      }
 
-// 3. Calculate ADX (Wilder's Smoothing on DX)
+// 3. Calculate ADX (Pipelined Wilder's RMA Smoothing on DX)
    int adx_start      = m_adx_period * 2 - 1;
    int loop_start_adx = MathMax(adx_start, start_index);
 
@@ -134,11 +143,12 @@ void CADXCalculator::Calculate(const int rates_total, const int prev_calculated,
          double sum_dx = 0.0;
          for(int j = i - m_adx_period + 1; j <= i; j++)
             sum_dx += m_dx[j];
-         adx_buffer[i] = sum_dx / (double)m_adx_period;
+         adx_buffer[i] = sum_dx * m_adx_inv_period;
         }
       else
         {
-         adx_buffer[i] = (adx_buffer[i - 1] * (double)(m_adx_period - 1) + m_dx[i]) / (double)m_adx_period;
+         // Pipelined FMA Multiplication: Zero divisions in loop!
+         adx_buffer[i] = adx_buffer[i - 1] * m_adx_decay + m_dx[i] * m_adx_inv_period;
         }
      }
   }
