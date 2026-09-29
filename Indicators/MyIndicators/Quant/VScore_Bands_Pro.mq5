@@ -2,8 +2,8 @@
 //|                                             VScore_Bands_Pro.mq5 |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.10" // Open-Ended Session Volatility Bands (No Pinching at Session Start)
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.20" // Enterprise Refactor: Zero-Lag MTF Fast-Path & Fused 14-Buffer Mapping
 #property description "V-Score Projected Dynamic Bands on Main Chart (Rolling Gaussian Envelope around VWAP)."
 #property description "Features open-ended custom session bands, unified Native & MTF pipelines, and thermal palette."
 
@@ -135,9 +135,9 @@ input ENUM_CANDLE_SOURCE        InpCandleSource         = CANDLE_STANDARD;      
 //|                                                                  |
 //+------------------------------------------------------------------+
 input group "--- V-Score Z-Levels (Standard Deviations) ---"
-input double                    InpLevelFlow            = 1.5;                   // Flow Level (Point of No Return)
-input double                    InpLevelExtreme         = 2.0;                   // Extreme Level (Warning)
-input double                    InpLevelWall            = 2.5;                   // Wall Level (Climax Exhaustion)
+input double                    InpLevelFlow            = 1.5;                   // Flow Level (Point of Expansion)
+input double                    InpLevelExtreme         = 2.0;                   // Extreme Level (Climax Warning)
+input double                    InpLevelWall            = 2.5;                   // Wall Level (Capitulation Ceiling/Floor)
 
 input group "--- Visual Settings - Centerline ---"
 input color                     InpColorVWAP            = clrOrange;             // Centerline Color
@@ -201,12 +201,12 @@ datetime h_time[];
 //--- Global Objects & State Management
 CVWAPCalculator *g_vwap = NULL;
 
-bool            g_is_mtf_mode         = false;
+bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool            g_data_ready    = false;
+bool            g_data_synced   = false;
+int             g_htf_count     = 0;
+datetime        g_last_htf_time = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -248,9 +248,7 @@ int OnInit()
    SetIndexBuffer(13, BufDnWall_Even, INDICATOR_DATA);
 
    for(int i = 0; i < 14; i++)
-     {
       PlotIndexSetDouble(i, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-     }
 
    ArraySetAsSeries(BufVWAP_Odd,    false);
    ArraySetAsSeries(BufVWAP_Even,   false);
@@ -332,22 +330,16 @@ int OnInit()
       g_vwap = new CVWAPCalculator();
 
    if(CheckPointer(g_vwap) == POINTER_INVALID)
-     {
-      Print("Critical Error: Failed to create VWAP Calculator object.");
       return INIT_FAILED;
-     }
 
    bool init_success = false;
    if(InpVWAPReset == PERIOD_CUSTOM_SESSION)
-      init_success = g_vwap.Init(InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, true, 0, InpTzShift);
+      init_success = g_vwap.Init(InpCustomSessionStart, InpCustomSessionEnd, InpVolumeType, true, 100, InpTzShift);
    else
-      init_success = g_vwap.Init(InpVWAPReset, InpVolumeType, InpTzShift, true, 0);
+      init_success = g_vwap.Init(InpVWAPReset, InpVolumeType, InpTzShift, true, 100);
 
    if(!init_success)
-     {
-      Print("Critical Error: Failed to initialize VWAP Calculator logic.");
       return INIT_FAILED;
-     }
 
    string ha_tag = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
    string tf_str = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
@@ -395,10 +387,10 @@ void CalculateVScoreBandsEngine(const int total, const int prev_calc,
                                 double &uw_odd[], double &uw_even[],
                                 double &dw_odd[], double &dw_even[])
   {
-   if(total < 2)
+   if(total < 2 || !g_vwap)
       return;
 
-// 1. Run Core VWAP
+// 1. Run Incremental Core VWAP in True O(1)
    g_vwap.Calculate(total, prev_calc, time_arr, open_arr, high_arr, low_arr, close_arr,
                     tick_vol_arr, vol_arr, odd_vwap, even_vwap);
 
@@ -414,7 +406,6 @@ void CalculateVScoreBandsEngine(const int total, const int prev_calc,
       double cur_vwap = is_odd ? odd_vwap[i] : (is_even ? even_vwap[i] : EMPTY_VALUE);
       merged_vwap[i] = cur_vwap;
 
-      // Clear all bands at bar i
       uf_odd[i] = EMPTY_VALUE;
       uf_even[i] = EMPTY_VALUE;
       df_odd[i] = EMPTY_VALUE;
@@ -431,7 +422,6 @@ void CalculateVScoreBandsEngine(const int total, const int prev_calc,
       if(cur_vwap == EMPTY_VALUE || cur_vwap <= 0.0)
          continue;
 
-      // Open-Ended Volatility Sampling: Scan backwards to collect InpPeriod valid in-session bars
       double sum_sq_diff = 0.0;
       int    collected   = 0;
       int    k           = 0;
@@ -487,7 +477,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < 2 || CheckPointer(g_vwap) == POINTER_INVALID)
+   if(rates_total < 2 || !g_vwap)
       return 0;
 
 // Force chronological indexing
@@ -529,10 +519,15 @@ int OnCalculate(const int rates_total,
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
+// MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
-   int required_bars = 10;
-   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+   int htf_required = 100;
+   if(InpVWAPReset == PERIOD_WEEK)
+      htf_required = 1000;
+   if(InpVWAPReset == PERIOD_MONTH)
+      htf_required = 2000;
+
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, htf_required))
      {
       g_data_synced = false;
       return 0;
@@ -543,12 +538,13 @@ int OnCalculate(const int rates_total,
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
+// A) HTF Bar Closure / Startup: Perform full history sync once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
 
       int htf_bars = iBars(_Symbol, g_calc_timeframe);
-      if(htf_bars < required_bars)
+      if(htf_bars < htf_required)
         {
          g_data_ready = false;
          return 0;
@@ -556,7 +552,6 @@ int OnCalculate(const int rates_total,
 
       g_htf_count = MathMin(htf_bars, 3000);
 
-      // Resize all HTF caching arrays
       ArrayResize(h_time,        g_htf_count);
       ArrayResize(h_open,        g_htf_count);
       ArrayResize(h_high,        g_htf_count);
@@ -624,7 +619,7 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_price,  g_htf_count);
       ArraySetAsSeries(h_price,  false);
 
-      // Compute HTF V-Score Projected Bands
+      // Compute HTF V-Score Projected Bands across history
       CalculateVScoreBandsEngine(g_htf_count, 0, h_time, h_open, h_high, h_low, h_close,
                                  h_tick_vol, h_vol, h_res_odd, h_res_even,
                                  h_merged, h_price,
@@ -635,40 +630,89 @@ int OnCalculate(const int rates_total,
                                  h_res_uw_odd, h_res_uw_even,
                                  h_res_dw_odd, h_res_dw_even);
       g_data_ready = true;
+
+      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      for(int i = 0; i < rates_total; i++)
+        {
+         datetime t = time[i];
+         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+         if(shift_htf >= 0)
+           {
+            int idx_htf = g_htf_count - 1 - shift_htf;
+            if(idx_htf >= 0 && idx_htf < g_htf_count)
+              {
+               BufVWAP_Odd[i]    = h_res_odd[idx_htf];
+               BufVWAP_Even[i]   = h_res_even[idx_htf];
+               BufUpFlow_Odd[i]  = h_res_uf_odd[idx_htf];
+               BufUpFlow_Even[i] = h_res_uf_even[idx_htf];
+               BufDnFlow_Odd[i]  = h_res_df_odd[idx_htf];
+               BufDnFlow_Even[i] = h_res_df_even[idx_htf];
+               BufUpExtr_Odd[i]  = h_res_ue_odd[idx_htf];
+               BufUpExtr_Even[i] = h_res_ue_even[idx_htf];
+               BufDnExtr_Odd[i]  = h_res_de_odd[idx_htf];
+               BufDnExtr_Even[i] = h_res_de_even[idx_htf];
+               BufUpWall_Odd[i]  = h_res_uw_odd[idx_htf];
+               BufUpWall_Even[i] = h_res_uw_even[idx_htf];
+               BufDnWall_Odd[i]  = h_res_dw_odd[idx_htf];
+               BufDnWall_Even[i] = h_res_dw_even[idx_htf];
+              }
+            else
+              {
+               BufVWAP_Odd[i] = EMPTY_VALUE;
+               BufVWAP_Even[i] = EMPTY_VALUE;
+               BufUpFlow_Odd[i] = EMPTY_VALUE;
+               BufUpFlow_Even[i] = EMPTY_VALUE;
+               BufDnFlow_Odd[i] = EMPTY_VALUE;
+               BufDnFlow_Even[i] = EMPTY_VALUE;
+               BufUpExtr_Odd[i] = EMPTY_VALUE;
+               BufUpExtr_Even[i] = EMPTY_VALUE;
+               BufDnExtr_Odd[i] = EMPTY_VALUE;
+               BufDnExtr_Even[i] = EMPTY_VALUE;
+               BufUpWall_Odd[i] = EMPTY_VALUE;
+               BufUpWall_Even[i] = EMPTY_VALUE;
+               BufDnWall_Odd[i] = EMPTY_VALUE;
+               BufDnWall_Even[i] = EMPTY_VALUE;
+              }
+           }
+         else
+           {
+            BufVWAP_Odd[i] = EMPTY_VALUE;
+            BufVWAP_Even[i] = EMPTY_VALUE;
+            BufUpFlow_Odd[i] = EMPTY_VALUE;
+            BufUpFlow_Even[i] = EMPTY_VALUE;
+            BufDnFlow_Odd[i] = EMPTY_VALUE;
+            BufDnFlow_Even[i] = EMPTY_VALUE;
+            BufUpExtr_Odd[i] = EMPTY_VALUE;
+            BufUpExtr_Even[i] = EMPTY_VALUE;
+            BufDnExtr_Odd[i] = EMPTY_VALUE;
+            BufDnExtr_Even[i] = EMPTY_VALUE;
+            BufUpWall_Odd[i] = EMPTY_VALUE;
+            BufUpWall_Even[i] = EMPTY_VALUE;
+            BufDnWall_Odd[i] = EMPTY_VALUE;
+            BufDnWall_Even[i] = EMPTY_VALUE;
+           }
+        }
+      return rates_total;
      }
 
    if(!g_data_ready)
       return 0;
 
-// 5. Stateful live-bar update for active forming HTF candle
+// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
    int live_idx = g_htf_count - 1;
-   if(live_idx >= required_bars)
+   if(live_idx >= htf_required)
      {
-      double o[1], h[1], l[1], c[1];
-      datetime t_bar[1];
-      long tv[1], v[1];
-
-      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
-      if(shift >= 0 &&
-         CopyTime(_Symbol,       g_calc_timeframe, shift, 1, t_bar) == 1 &&
-         CopyOpen(_Symbol,       g_calc_timeframe, shift, 1, o)     == 1 &&
-         CopyHigh(_Symbol,       g_calc_timeframe, shift, 1, h)     == 1 &&
-         CopyLow(_Symbol,        g_calc_timeframe, shift, 1, l)     == 1 &&
-         CopyClose(_Symbol,      g_calc_timeframe, shift, 1, c)     == 1 &&
-         CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, tv)    == 1)
+      MqlRates htf_rate[1];
+      // Single atomic API call instead of 6 separate copies!
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_time[live_idx]     = t_bar[0];
-         h_open[live_idx]     = o[0];
-         h_high[live_idx]     = h[0];
-         h_low[live_idx]      = l[0];
-         h_close[live_idx]    = c[0];
-         h_tick_vol[live_idx] = tv[0];
-
-         long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-         if(vol_limit > 0 && CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-            h_vol[live_idx] = v[0];
-         else
-            h_vol[live_idx] = tv[0];
+         h_time[live_idx]     = htf_rate[0].time;
+         h_open[live_idx]     = htf_rate[0].open;
+         h_high[live_idx]     = htf_rate[0].high;
+         h_low[live_idx]      = htf_rate[0].low;
+         h_close[live_idx]    = htf_rate[0].close;
+         h_tick_vol[live_idx] = htf_rate[0].tick_volume;
+         h_vol[live_idx]      = (htf_rate[0].real_volume > 0) ? htf_rate[0].real_volume : htf_rate[0].tick_volume;
 
          double h_merged[], h_price[];
          ArrayResize(h_merged, g_htf_count);
@@ -676,7 +720,7 @@ int OnCalculate(const int rates_total,
          ArrayResize(h_price,  g_htf_count);
          ArraySetAsSeries(h_price,  false);
 
-         // Mock update on live HTF bar
+         // Mock update strictly on forming candle
          CalculateVScoreBandsEngine(g_htf_count, g_htf_count, h_time, h_open, h_high, h_low, h_close,
                                     h_tick_vol, h_vol, h_res_odd, h_res_even,
                                     h_merged, h_price,
@@ -689,81 +733,49 @@ int OnCalculate(const int rates_total,
         }
      }
 
-// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
+// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+   int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
+   if(first_bar_of_forming_htf < 0)
+      first_bar_of_forming_htf = 0;
+   if(time[first_bar_of_forming_htf] < htf_time_current && first_bar_of_forming_htf < rates_total - 1)
+      first_bar_of_forming_htf++;
+
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   int first_bar_of_forming_htf = rates_total - 1;
-   while(first_bar_of_forming_htf > 0 &&
-         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-     {
-      first_bar_of_forming_htf--;
-     }
-   first_bar_of_forming_htf++;
-
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-// 7. Chronological Mapping Loop to Chart Timeframe (14 Buffers)
+// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution across 14 buffers)
+   double vwap_o = h_res_odd[live_idx];
+   double vwap_e = h_res_even[live_idx];
+   double uf_o   = h_res_uf_odd[live_idx];
+   double uf_e   = h_res_uf_even[live_idx];
+   double df_o   = h_res_df_odd[live_idx];
+   double df_e   = h_res_df_even[live_idx];
+   double ue_o   = h_res_ue_odd[live_idx];
+   double ue_e   = h_res_ue_even[live_idx];
+   double de_o   = h_res_de_odd[live_idx];
+   double de_e   = h_res_de_even[live_idx];
+   double uw_o   = h_res_uw_odd[live_idx];
+   double uw_e   = h_res_uw_even[live_idx];
+   double dw_o   = h_res_dw_odd[live_idx];
+   double dw_e   = h_res_dw_even[live_idx];
+
    for(int i = start; i < rates_total; i++)
      {
-      datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-
-      if(shift_htf >= 0)
-        {
-         int idx_htf = g_htf_count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < g_htf_count)
-           {
-            BufVWAP_Odd[i]    = h_res_odd[idx_htf];
-            BufVWAP_Even[i]   = h_res_even[idx_htf];
-            BufUpFlow_Odd[i]  = h_res_uf_odd[idx_htf];
-            BufUpFlow_Even[i] = h_res_uf_even[idx_htf];
-            BufDnFlow_Odd[i]  = h_res_df_odd[idx_htf];
-            BufDnFlow_Even[i] = h_res_df_even[idx_htf];
-            BufUpExtr_Odd[i]  = h_res_ue_odd[idx_htf];
-            BufUpExtr_Even[i] = h_res_ue_even[idx_htf];
-            BufDnExtr_Odd[i]  = h_res_de_odd[idx_htf];
-            BufDnExtr_Even[i] = h_res_de_even[idx_htf];
-            BufUpWall_Odd[i]  = h_res_uw_odd[idx_htf];
-            BufUpWall_Even[i] = h_res_uw_even[idx_htf];
-            BufDnWall_Odd[i]  = h_res_dw_odd[idx_htf];
-            BufDnWall_Even[i] = h_res_dw_even[idx_htf];
-           }
-         else
-           {
-            BufVWAP_Odd[i]    = EMPTY_VALUE;
-            BufVWAP_Even[i]   = EMPTY_VALUE;
-            BufUpFlow_Odd[i]  = EMPTY_VALUE;
-            BufUpFlow_Even[i] = EMPTY_VALUE;
-            BufDnFlow_Odd[i]  = EMPTY_VALUE;
-            BufDnFlow_Even[i] = EMPTY_VALUE;
-            BufUpExtr_Odd[i]  = EMPTY_VALUE;
-            BufUpExtr_Even[i] = EMPTY_VALUE;
-            BufDnExtr_Odd[i]  = EMPTY_VALUE;
-            BufDnExtr_Even[i] = EMPTY_VALUE;
-            BufUpWall_Odd[i]  = EMPTY_VALUE;
-            BufUpWall_Even[i] = EMPTY_VALUE;
-            BufDnWall_Odd[i]  = EMPTY_VALUE;
-            BufDnWall_Even[i] = EMPTY_VALUE;
-           }
-        }
-      else
-        {
-         BufVWAP_Odd[i]    = EMPTY_VALUE;
-         BufVWAP_Even[i]   = EMPTY_VALUE;
-         BufUpFlow_Odd[i]  = EMPTY_VALUE;
-         BufUpFlow_Even[i] = EMPTY_VALUE;
-         BufDnFlow_Odd[i]  = EMPTY_VALUE;
-         BufDnFlow_Even[i] = EMPTY_VALUE;
-         BufUpExtr_Odd[i]  = EMPTY_VALUE;
-         BufUpExtr_Even[i] = EMPTY_VALUE;
-         BufDnExtr_Odd[i]  = EMPTY_VALUE;
-         BufDnExtr_Even[i] = EMPTY_VALUE;
-         BufUpWall_Odd[i]  = EMPTY_VALUE;
-         BufUpWall_Even[i] = EMPTY_VALUE;
-         BufDnWall_Odd[i]  = EMPTY_VALUE;
-         BufDnWall_Even[i] = EMPTY_VALUE;
-        }
+      BufVWAP_Odd[i]    = vwap_o;
+      BufVWAP_Even[i]   = vwap_e;
+      BufUpFlow_Odd[i]  = uf_o;
+      BufUpFlow_Even[i] = uf_e;
+      BufDnFlow_Odd[i]  = df_o;
+      BufDnFlow_Even[i] = df_e;
+      BufUpExtr_Odd[i]  = ue_o;
+      BufUpExtr_Even[i] = ue_e;
+      BufDnExtr_Odd[i]  = de_o;
+      BufDnExtr_Even[i] = de_e;
+      BufUpWall_Odd[i]  = uw_o;
+      BufUpWall_Even[i] = uw_e;
+      BufDnWall_Odd[i]  = dw_o;
+      BufDnWall_Even[i] = dw_e;
      }
 
    return rates_total;
@@ -774,8 +786,12 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   int required_bars = 10;
-   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
+   int htf_required = 100;
+   if(InpVWAPReset == PERIOD_WEEK)
+      htf_required = 1000;
+   if(InpVWAPReset == PERIOD_MONTH)
+      htf_required = 2000;
+   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, htf_required, g_data_synced);
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
