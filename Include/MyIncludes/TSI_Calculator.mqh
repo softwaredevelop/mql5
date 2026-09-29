@@ -3,8 +3,9 @@
 //|      Engine for William Blau's True Strength Index (TSI)         |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "6.10" // Full VWMA Support across Slow, Fast and Signal smoothing engines
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "6.20" // Enterprise Refactor: Bounds safety & streamlined memory pipeline
+#property description "High-performance calculation engine for True Strength Index (TSI)."
 
 #ifndef TSI_CALCULATOR_MQH
 #define TSI_CALCULATOR_MQH
@@ -121,7 +122,8 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CTSICalculator::CTSICalculator(void) : m_slow_p(25),
+CTSICalculator::CTSICalculator(void) :
+   m_slow_p(25),
    m_fast_p(13),
    m_signal_p(13),
    m_source_price(PRICE_CLOSE_STD)
@@ -190,13 +192,12 @@ bool CTSICalculator::PreparePriceSeries(const int rates_total, const int start_i
       if(ArraySize(m_ha_open) != rates_total)
         {
          ArrayResize(m_ha_open,  rates_total);
-         ArrayResize(m_ha_high,  rates_total);
-         ArrayResize(m_ha_low,   rates_total);
-         ArrayResize(m_ha_close, rates_total);
-
          ArraySetAsSeries(m_ha_open,  false);
+         ArrayResize(m_ha_high,  rates_total);
          ArraySetAsSeries(m_ha_high,  false);
+         ArrayResize(m_ha_low,   rates_total);
          ArraySetAsSeries(m_ha_low,   false);
+         ArrayResize(m_ha_close, rates_total);
          ArraySetAsSeries(m_ha_close, false);
         }
 
@@ -217,13 +218,13 @@ bool CTSICalculator::PreparePriceSeries(const int rates_total, const int start_i
                m_price[i] = m_ha_low[i];
                break;
             case PRICE_HA_MEDIAN:
-               m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+               m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                break;
             case PRICE_HA_TYPICAL:
                m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
                break;
             case PRICE_HA_WEIGHTED:
-               m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+               m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
                break;
             case PRICE_HA_CLOSE:
             default:
@@ -248,13 +249,13 @@ bool CTSICalculator::PreparePriceSeries(const int rates_total, const int start_i
                m_price[i] = low[i];
                break;
             case PRICE_MEDIAN_STD:
-               m_price[i] = (high[i] + low[i]) / 2.0;
+               m_price[i] = (high[i] + low[i]) * 0.5;
                break;
             case PRICE_TYPICAL_STD:
                m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
                break;
             case PRICE_WEIGHTED_STD:
-               m_price[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+               m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
                break;
             case PRICE_CLOSE_STD:
             default:
@@ -314,7 +315,7 @@ void CTSICalculator::Calculate(const int rates_total, const int prev_calculated,
   }
 
 //+------------------------------------------------------------------+
-//| Internal Calculation Engine (Handles Standard & VWMA Smoothing)  |
+//| Internal Calculation Engine (Zero-Lag Incremental Execution)     |
 //+------------------------------------------------------------------+
 void CTSICalculator::ExecuteCalculation(const int rates_total, const int prev_calculated,
                                         const double &open[], const double &high[],
@@ -392,7 +393,7 @@ void CTSICalculator::ExecuteCalculation(const int rates_total, const int prev_ca
       m_abs_mtm[i] = MathAbs(diff);
      }
 
-// 2. First Smoothing (Slow MA on Momentum) - Supports VWMA
+// 2. First Smoothing (Slow MA on Momentum)
    if(use_volume)
      {
       m_slow_mtm_engine.CalculateOnArray(rates_total, prev_calculated, m_mtm, m_vol_buf, m_ema1_mtm, 1);
@@ -404,7 +405,7 @@ void CTSICalculator::ExecuteCalculation(const int rates_total, const int prev_ca
       m_slow_abs_engine.CalculateOnArray(rates_total, prev_calculated, m_abs_mtm, m_ema1_abs, 1);
      }
 
-// 3. Second Smoothing (Fast MA on Smoothed Momentum) - Supports VWMA
+// 3. Second Smoothing (Fast MA on Smoothed Momentum)
    int offset2 = m_slow_p;
    if(use_volume)
      {
@@ -429,13 +430,13 @@ void CTSICalculator::ExecuteCalculation(const int rates_total, const int prev_ca
          m_tsi_internal[i] = 0.0;
      }
 
-// 5. Calculate Signal Line - Supports VWMA
+// 5. Calculate Signal Line
    if(use_volume)
       m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_tsi_internal, m_vol_buf, m_signal_internal, tsi_start);
    else
       m_signal_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_tsi_internal, m_signal_internal, tsi_start);
 
-// 6. Calculate Oscillator Difference & Output
+// 6. Calculate Oscillator Difference & Unified Output Mapping
    int osc_start = tsi_start + m_signal_p - 1;
    int loop_start_osc = MathMax(osc_start, start_index);
 
