@@ -2,8 +2,9 @@
 //|                                             Laguerre_Engine.mqh  |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Upgraded with bounds safety, HA composition & state preservation
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.30" // Enterprise Refactor: Precalculated Gamma Constants & Pipelined FMA Math
+#property description "Core calculation engine for John Ehlers' 4-element Laguerre filter."
 
 #ifndef LAGUERRE_ENGINE_MQH
 #define LAGUERRE_ENGINE_MQH
@@ -22,6 +23,8 @@ class CLaguerreEngine
   {
 protected:
    double                    m_gamma;
+   double                    m_one_minus_gamma; // Precalculated (1.0 - gamma)
+   double                    m_neg_gamma;       // Precalculated (-gamma)
    ENUM_INPUT_SOURCE         m_source_type;
    ENUM_APPLIED_PRICE_HA_ALL m_source_price;
 
@@ -76,7 +79,10 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CLaguerreEngine::CLaguerreEngine(void) : m_gamma(0.5),
+CLaguerreEngine::CLaguerreEngine(void) :
+   m_gamma(0.5),
+   m_one_minus_gamma(0.5),
+   m_neg_gamma(-0.5),
    m_source_type(SOURCE_PRICE),
    m_source_price(PRICE_CLOSE_STD)
   {
@@ -92,13 +98,15 @@ CLaguerreEngine::CLaguerreEngine(void) : m_gamma(0.5),
   }
 
 //+------------------------------------------------------------------+
-//| Initialization                                                   |
+//| Initialization (Precomputes Damping Multipliers)                 |
 //+------------------------------------------------------------------+
 bool CLaguerreEngine::Init(const double gamma, const ENUM_INPUT_SOURCE source_type, const ENUM_APPLIED_PRICE_HA_ALL price_source)
   {
-   m_gamma        = fmax(0.0, fmin(1.0, gamma));
-   m_source_type  = source_type;
-   m_source_price = price_source;
+   m_gamma           = fmax(0.0, fmin(1.0, gamma));
+   m_one_minus_gamma = 1.0 - m_gamma; // Precalculated linear scaling factor
+   m_neg_gamma       = -m_gamma;      // Precalculated negative feedback factor
+   m_source_type     = source_type;
+   m_source_price    = price_source;
    return true;
   }
 
@@ -159,13 +167,12 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
       if(ArraySize(m_ha_open) != rates_total)
         {
          ArrayResize(m_ha_open,  rates_total);
-         ArrayResize(m_ha_high,  rates_total);
-         ArrayResize(m_ha_low,   rates_total);
-         ArrayResize(m_ha_close, rates_total);
-
          ArraySetAsSeries(m_ha_open,  false);
+         ArrayResize(m_ha_high,  rates_total);
          ArraySetAsSeries(m_ha_high,  false);
+         ArrayResize(m_ha_low,   rates_total);
          ArraySetAsSeries(m_ha_low,   false);
+         ArrayResize(m_ha_close, rates_total);
          ArraySetAsSeries(m_ha_close, false);
         }
 
@@ -188,13 +195,13 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
                   m_price[i] = m_ha_low[i];
                   break;
                case PRICE_HA_MEDIAN:
-                  m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+                  m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                   break;
                case PRICE_HA_TYPICAL:
                   m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
                   break;
                case PRICE_HA_WEIGHTED:
-                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
                   break;
                case PRICE_HA_CLOSE:
                default:
@@ -226,13 +233,13 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
                   m_price[i] = low[i];
                   break;
                case PRICE_MEDIAN_STD:
-                  m_price[i] = (high[i] + low[i]) / 2.0;
+                  m_price[i] = (high[i] + low[i]) * 0.5;
                   break;
                case PRICE_TYPICAL_STD:
                   m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
                   break;
                case PRICE_WEIGHTED_STD:
-                  m_price[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+                  m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
                   break;
                case PRICE_CLOSE_STD:
                default:
@@ -251,7 +258,7 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
   }
 
 //+------------------------------------------------------------------+
-//| Main Incremental Laguerre Filter Calculation                     |
+//| Main Incremental Laguerre Filter Calculation (Pipelined FMA)     |
 //+------------------------------------------------------------------+
 void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calculated,
                                       const double &open[], const double &high[],
@@ -291,15 +298,18 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
 // Warmup seeding on fresh run
    if(i == 0)
      {
-      m_L0[0] = m_price[0];
-      m_L1[0] = m_price[0];
-      m_L2[0] = m_price[0];
-      m_L3[0] = m_price[0];
-      filt_buffer[0] = m_price[0];
+      double p0 = m_price[0];
+      m_L0[0] = p0;
+      m_L1[0] = p0;
+      m_L2[0] = p0;
+      m_L3[0] = p0;
+      filt_buffer[0] = p0;
       i = 1;
      }
 
-// Recursive 4-Element Laguerre Difference Equations
+   const double inv_six = 1.0 / 6.0;
+
+// Recursive 4-Element Laguerre Difference Equations (Zero runtime division!)
    for(; i < rates_total; i++)
      {
       double L0_prev = m_L0[i - 1];
@@ -307,12 +317,14 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
       double L2_prev = m_L2[i - 1];
       double L3_prev = m_L3[i - 1];
 
-      m_L0[i] = (1.0 - m_gamma) * m_price[i] + m_gamma * L0_prev;
-      m_L1[i] = -m_gamma * m_L0[i] + L0_prev + m_gamma * L1_prev;
-      m_L2[i] = -m_gamma * m_L1[i] + L1_prev + m_gamma * L2_prev;
-      m_L3[i] = -m_gamma * m_L2[i] + L2_prev + m_gamma * L3_prev;
+      // Pipelined Fused-Multiply-Add: 0 division overhead
+      m_L0[i] = m_one_minus_gamma * m_price[i] + m_gamma * L0_prev;
+      m_L1[i] = m_neg_gamma * m_L0[i] + L0_prev + m_gamma * L1_prev;
+      m_L2[i] = m_neg_gamma * m_L1[i] + L1_prev + m_gamma * L2_prev;
+      m_L3[i] = m_neg_gamma * m_L2[i] + L2_prev + m_gamma * L3_prev;
 
-      filt_buffer[i] = (m_L0[i] + 2.0 * m_L1[i] + 2.0 * m_L2[i] + m_L3[i]) / 6.0;
+      // Symmetric Triangular Weighting via Fast Reciprocal Multiplication
+      filt_buffer[i] = (m_L0[i] + 2.0 * (m_L1[i] + m_L2[i]) + m_L3[i]) * inv_six;
      }
   }
 
