@@ -2,8 +2,8 @@
 //|                                           Laguerre_Filter_Pro.mq5|
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Unified Native & MTF Release with Enhanced Visuals
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.10" // Enterprise Refactor: Zero-Lag MTF Fast-Path & Pipelined Math
 #property description "John Ehlers' Laguerre Filter as a low-lag moving average with Native & MTF Support."
 #property description "Includes an optional 4-point FIR filter for lag and smoothing comparison."
 
@@ -62,12 +62,12 @@ datetime  h_time[];
 //--- Global Objects & State Management
 CLaguerreFilterCalculator *g_calculator = NULL;
 
-bool            g_is_mtf_mode         = false;
+bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool            g_data_ready    = false;
+bool            g_data_synced   = false;
+int             g_htf_count     = 0;
+datetime        g_last_htf_time = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -145,8 +145,8 @@ int OnInit()
       return INIT_FAILED;
      }
 
-   string ha_tag    = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
-   string tf_str    = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string ha_tag     = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
+   string tf_str     = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
    string short_name = StringFormat("Laguerre Filter%s%s(γ=%.3f)", ha_tag, tf_str, InpGamma);
 
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
@@ -188,7 +188,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < 5 || CheckPointer(g_calculator) == POINTER_INVALID)
+   if(rates_total < 5 || !g_calculator)
       return 0;
 
 // Force chronological indexing
@@ -216,7 +216,7 @@ int OnCalculate(const int rates_total,
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free Step Synchronization)
+// MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
    int required_bars = 10;
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
@@ -230,6 +230,7 @@ int OnCalculate(const int rates_total,
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
+// A) HTF Bar Closure / Startup: Perform full history sync once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
@@ -260,85 +261,96 @@ int OnCalculate(const int rates_total,
       ArraySetAsSeries(h_res_filter, false);
       ArraySetAsSeries(h_res_fir,    false);
 
-      if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
-         CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
-         CopyHigh(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_high)  != g_htf_count ||
-         CopyLow(_Symbol,   g_calc_timeframe, 0, g_htf_count, h_low)   != g_htf_count ||
-         CopyClose(_Symbol, g_calc_timeframe, 0, g_htf_count, h_close) != g_htf_count)
+      // Atomic bulk rates copy (Single API call replaces 5 calls!)
+      MqlRates htf_bulk_rates[];
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, g_htf_count, htf_bulk_rates) != g_htf_count)
         {
          g_data_ready = false;
          return 0;
         }
 
-      // Compute HTF Laguerre & FIR Filter Values
+      for(int i = 0; i < g_htf_count; i++)
+        {
+         h_time[i]  = htf_bulk_rates[i].time;
+         h_open[i]  = htf_bulk_rates[i].open;
+         h_high[i]  = htf_bulk_rates[i].high;
+         h_low[i]   = htf_bulk_rates[i].low;
+         h_close[i] = htf_bulk_rates[i].close;
+        }
+
+      // Compute HTF Laguerre & FIR Filter Values across history
       g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_filter, h_res_fir);
       g_data_ready = true;
+
+      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      for(int i = 0; i < rates_total; i++)
+        {
+         datetime t = time[i];
+         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+         if(shift_htf >= 0)
+           {
+            int idx_htf = g_htf_count - 1 - shift_htf;
+            if(idx_htf >= 0 && idx_htf < g_htf_count)
+              {
+               BufferFilter[i] = h_res_filter[idx_htf];
+               BufferFIR[i]    = InpShowFIR ? h_res_fir[idx_htf] : EMPTY_VALUE;
+              }
+            else
+              {
+               BufferFilter[i] = EMPTY_VALUE;
+               BufferFIR[i] = EMPTY_VALUE;
+              }
+           }
+         else
+           {
+            BufferFilter[i] = EMPTY_VALUE;
+            BufferFIR[i] = EMPTY_VALUE;
+           }
+        }
+      return rates_total;
      }
 
    if(!g_data_ready)
       return 0;
 
-// 5. Stateful live-bar update for active forming HTF candle
+// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
    int live_idx = g_htf_count - 1;
    if(live_idx >= required_bars)
      {
-      double o[1], h[1], l[1], c[1];
-      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
-      if(shift >= 0 &&
-         CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
-         CopyHigh(_Symbol,  g_calc_timeframe, shift, 1, h) == 1 &&
-         CopyLow(_Symbol,   g_calc_timeframe, shift, 1, l) == 1 &&
-         CopyClose(_Symbol, g_calc_timeframe, shift, 1, c) == 1)
+      MqlRates htf_rate[1];
+      // Single atomic API call instead of 4 separate copies!
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_open[live_idx]  = o[0];
-         h_high[live_idx]  = h[0];
-         h_low[live_idx]   = l[0];
-         h_close[live_idx] = c[0];
+         h_time[live_idx]  = htf_rate[0].time;
+         h_open[live_idx]  = htf_rate[0].open;
+         h_high[live_idx]  = htf_rate[0].high;
+         h_low[live_idx]   = htf_rate[0].low;
+         h_close[live_idx] = htf_rate[0].close;
 
          // Mock update on live HTF bar
          g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_filter, h_res_fir);
         }
      }
 
-// 6. Forming LTF Block Flat-Force Anchor (The Staircase Solution)
+// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+   int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
+   if(first_bar_of_forming_htf < 0)
+      first_bar_of_forming_htf = 0;
+   if(time[first_bar_of_forming_htf] < htf_time_current && first_bar_of_forming_htf < rates_total - 1)
+      first_bar_of_forming_htf++;
+
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   int first_bar_of_forming_htf = rates_total - 1;
-   while(first_bar_of_forming_htf > 0 &&
-         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-     {
-      first_bar_of_forming_htf--;
-     }
-   first_bar_of_forming_htf++;
-
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-// 7. Chronological Mapping Loop to Chart Timeframe (2 Buffers)
+// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution across 2 buffers)
+   double filter_val = h_res_filter[live_idx];
+   double fir_val    = InpShowFIR ? h_res_fir[live_idx] : EMPTY_VALUE;
+
    for(int i = start; i < rates_total; i++)
      {
-      datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-
-      if(shift_htf >= 0)
-        {
-         int idx_htf = g_htf_count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < g_htf_count)
-           {
-            BufferFilter[i] = h_res_filter[idx_htf];
-            BufferFIR[i]    = InpShowFIR ? h_res_fir[idx_htf] : EMPTY_VALUE;
-           }
-         else
-           {
-            BufferFilter[i] = EMPTY_VALUE;
-            BufferFIR[i]    = EMPTY_VALUE;
-           }
-        }
-      else
-        {
-         BufferFilter[i] = EMPTY_VALUE;
-         BufferFIR[i]    = EMPTY_VALUE;
-        }
+      BufferFilter[i] = filter_val;
+      BufferFIR[i]    = fir_val;
      }
 
    return rates_total;
