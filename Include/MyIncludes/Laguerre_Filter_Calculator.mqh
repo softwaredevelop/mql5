@@ -2,8 +2,9 @@
 //|                                  Laguerre_Filter_Calculator.mqh  |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.20" // Memory-safe pointer lifecycle & bounds protection
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.30" // Enterprise Refactor: Optimized 4-Point FIR & Reciprocal Math
+#property description "High-performance calculation engine for Ehlers' Laguerre Filter & FIR line."
 
 #ifndef LAGUERRE_FILTER_CALCULATOR_MQH
 #define LAGUERRE_FILTER_CALCULATOR_MQH
@@ -101,7 +102,7 @@ void CLaguerreFilterCalculator::Calculate(const int rates_total, const int prev_
       const double &low[], const double &close[],
       double &filter_buffer[], double &fir_buffer[])
   {
-   if(rates_total < 2 || CheckPointer(m_engine) == POINTER_INVALID)
+   if(rates_total < 5 || CheckPointer(m_engine) == POINTER_INVALID)
       return;
 
 // Safe allocation of destination arrays
@@ -118,7 +119,7 @@ void CLaguerreFilterCalculator::Calculate(const int rates_total, const int prev_
       ArrayInitialize(fir_buffer, EMPTY_VALUE);
      }
 
-// 1. Calculate Core Laguerre Filter
+// 1. Calculate Core Laguerre Filter in O(1)
    m_engine.CalculateFilter(rates_total, prev_calculated, open, high, low, close, filter_buffer);
 
 // 2. Calculate 4-Point FIR Comparison Filter
@@ -133,12 +134,13 @@ void CLaguerreFilterCalculator::Calculate(const int rates_total, const int prev_
       fir_buffer[2] = filter_buffer[2];
      }
 
+   const double inv_six = 1.0 / 6.0;
+
    for(int i = start_index; i < rates_total; i++)
      {
       fir_buffer[i] = (m_engine.GetPrice(i) +
-                       2.0 * m_engine.GetPrice(i - 1) +
-                       2.0 * m_engine.GetPrice(i - 2) +
-                       m_engine.GetPrice(i - 3)) / 6.0;
+                       2.0 * (m_engine.GetPrice(i - 1) + m_engine.GetPrice(i - 2)) +
+                       m_engine.GetPrice(i - 3)) * inv_six;
      }
   }
 
