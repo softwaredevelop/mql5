@@ -2,10 +2,10 @@
 //|                               Laguerre_Adaptive_Stoch_Slow_Pro.mq5|
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "1.00" // Adaptive Laguerre Stochastic Slow with dual Standard/MTF support
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "1.10" // Enterprise Refactor: Zero-Lag MTF Fast-Path & Fused Memory
 #property description "Laguerre Stochastic Slow utilizing dynamic Gamma scaling."
-#property description "Supports ER, ATR, and Standard Deviation (StDev) adaptive pathways."
+#property description "Supports ER, ATR, and Standard Deviation (StDev) adaptive pathways with Native & MTF Support."
 
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -37,7 +37,7 @@
 
 //--- Included Engines & Core Tools
 #include <MyIncludes\Laguerre_Adaptive_Stoch_Slow_Calculator.mqh>
-#include <MyIncludes\DataSync_Tools.mqh> // Centralized MTF synchronization daemon
+#include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Input Parameters ---
 input group "--- Timeframe Settings ---"
@@ -61,19 +61,20 @@ double    BufferSlowK[];
 double    BufferSignalD[];
 
 //--- Internal HTF Data Caches
-double    h_open[], h_high[], h_low[], h_close[], h_volume[];
+double    h_open[], h_high[], h_low[], h_close[];
+double    h_volume[];
 double    h_res_slow_k[], h_res_signal_d[];
 datetime  h_time[];
 
-//--- Global Objects & Synchronizer State
-CLaguerreAdaptiveStochSlowCalculator *g_calculator;
+//--- Global Objects & State Management
+CLaguerreAdaptiveStochSlowCalculator *g_calculator = NULL;
 
-bool            g_is_mtf_mode         = false;
+bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
-bool            g_data_ready          = false;
-bool            g_data_synced         = false;
-int             g_htf_count           = 0;
-datetime        g_last_htf_time       = 0;
+bool            g_data_ready    = false;
+bool            g_data_synced   = false;
+int             g_htf_count     = 0;
+datetime        g_last_htf_time = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -85,7 +86,7 @@ int OnInit()
    g_htf_count     = 0;
    g_last_htf_time = 0;
 
-//--- 1. Resolve Timeframe and validate direction
+// 1. Resolve Timeframe and validate direction
    g_calc_timeframe = InpTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
       g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
@@ -98,36 +99,30 @@ int OnInit()
      }
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
-//--- 2. Bind buffers to index mapping
+// 2. Bind Buffers
    SetIndexBuffer(0, BufferSlowK,   INDICATOR_DATA);
    SetIndexBuffer(1, BufferSignalD, INDICATOR_DATA);
 
-//--- Force strict chronological alignment (false = old to new)
    ArraySetAsSeries(BufferSlowK,   false);
    ArraySetAsSeries(BufferSignalD, false);
 
    bool is_ha = (InpSourcePrice <= PRICE_HA_CLOSE);
 
-//--- 3. Initialize Physical Adaptive Stochastic Calculator
+// 3. Initialize Physical Adaptive Stochastic Calculator
    if(is_ha)
       g_calculator = new CLaguerreAdaptiveStochSlowCalculator_HA();
    else
       g_calculator = new CLaguerreAdaptiveStochSlowCalculator();
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID)
-     {
-      Print("Critical Error: Failed to allocate Adaptive Stochastic Calculator memory.");
-      return(INIT_FAILED);
-     }
-
-   if(!g_calculator.Init(InpAdaptiveMethod, InpAdaptivePeriod, InpGammaMin, InpGammaMax,
+   if(CheckPointer(g_calculator) == POINTER_INVALID ||
+      !g_calculator.Init(InpAdaptiveMethod, InpAdaptivePeriod, InpGammaMin, InpGammaMax,
                          InpSlowingPeriod, InpSlowingMethod, InpSignalPeriod, InpSignalMethod, is_ha))
      {
-      Print("Critical Error: Failed to initialize Adaptive Stochastic Calculator.");
+      Print("Critical Error: Failed to allocate or initialize Adaptive Stochastic Calculator.");
       return(INIT_FAILED);
      }
 
-//--- 4. Dynamic Setup of Indicator Shortname
+// 4. Dynamic Setup of Indicator Shortname
    string method_str = "";
    switch(InpAdaptiveMethod)
      {
@@ -142,8 +137,8 @@ int OnInit()
          break;
      }
 
-   string tf_str = g_is_mtf_mode ? (" " + EnumToString(g_calc_timeframe)) : "";
-   string short_name = StringFormat("Laguerre Adaptive Stoch%s%s(%s, %d, %d, %d)",
+   string tf_str = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string short_name = StringFormat("Laguerre Adaptive Stoch%s%s(%s,%d,%d,%d)",
                                     is_ha ? " HA" : "",
                                     tf_str,
                                     method_str,
@@ -152,16 +147,15 @@ int OnInit()
                                     InpSignalPeriod);
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
 
-//--- Drawing offset configuration
    int draw_begin = InpAdaptivePeriod * 2 + InpSlowingPeriod + InpSignalPeriod + 5;
    if(g_is_mtf_mode)
-      draw_begin = 0; // Handled dynamically in mapped buffers
+      draw_begin = 0;
 
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, 2);
 
-//--- 5. Initialize Background Synchronization Timer Daemon (Only if MTF is active)
+// 5. Initialize Background Synchronization Timer (Only for MTF mode)
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
@@ -173,9 +167,14 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   EventKillTimer();
+   if(g_is_mtf_mode)
+      EventKillTimer();
+
    if(CheckPointer(g_calculator) != POINTER_INVALID)
+     {
       delete g_calculator;
+      g_calculator = NULL;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -193,13 +192,10 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
    int required_bars = InpAdaptivePeriod * 2 + InpSlowingPeriod + InpSignalPeriod + 10;
-   if(rates_total < required_bars)
+   if(rates_total < required_bars || !g_calculator)
       return 0;
 
-   if(CheckPointer(g_calculator) == POINTER_INVALID)
-      return 0;
-
-//--- Force chronological indexing on current timeframe arrays
+// Force chronological indexing
    ArraySetAsSeries(time,  false);
    ArraySetAsSeries(open,  false);
    ArraySetAsSeries(high,  false);
@@ -211,7 +207,7 @@ int OnCalculate(const int rates_total,
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
 
 //===================================================================
-// MODE 1: Current Timeframe calculation (Standard ultra-high speed)
+// MODE 1: Direct Current Timeframe Calculation (Zero-Lag O(1))
 //===================================================================
    if(!g_is_mtf_mode)
      {
@@ -230,24 +226,24 @@ int OnCalculate(const int rates_total,
          g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, BufferSlowK, BufferSignalD);
         }
 
-      return(rates_total);
+      return rates_total;
      }
 
 //===================================================================
-// MODE 2: Multi-Timeframe Engine (Warp-free step synchronization)
+// MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
      {
       g_data_synced = false;
-      return 0; // Wait for next tick to let history synchronize
+      return 0;
      }
 
    g_data_synced = true;
 
-//--- Check if a new HTF candle has opened
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
+// A) HTF Bar Closure / Startup: Perform full history sync once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
@@ -259,7 +255,7 @@ int OnCalculate(const int rates_total,
          return 0;
         }
 
-      g_htf_count = MathMin(htf_bars, 3000); // Guard rails to prevent memory overload
+      g_htf_count = MathMin(htf_bars, 3000);
 
       // Resize all HTF caching arrays
       ArrayResize(h_time,         g_htf_count);
@@ -271,49 +267,36 @@ int OnCalculate(const int rates_total,
       ArrayResize(h_res_slow_k,   g_htf_count);
       ArrayResize(h_res_signal_d, g_htf_count);
 
-      // Force chronological structure on high-level arrays
-      ArraySetAsSeries(h_time,       false);
-      ArraySetAsSeries(h_open,       false);
-      ArraySetAsSeries(h_high,       false);
-      ArraySetAsSeries(h_low,        false);
-      ArraySetAsSeries(h_close,      false);
-      ArraySetAsSeries(h_volume,     false);
+      ArraySetAsSeries(h_time,         false);
+      ArraySetAsSeries(h_open,         false);
+      ArraySetAsSeries(h_high,         false);
+      ArraySetAsSeries(h_low,          false);
+      ArraySetAsSeries(h_close,        false);
+      ArraySetAsSeries(h_volume,       false);
       ArraySetAsSeries(h_res_slow_k,   false);
       ArraySetAsSeries(h_res_signal_d, false);
 
-      // Copy basic pricing data
-      if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
-         CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
-         CopyHigh(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_high)  != g_htf_count ||
-         CopyLow(_Symbol,   g_calc_timeframe, 0, g_htf_count, h_low)   != g_htf_count ||
-         CopyClose(_Symbol, g_calc_timeframe, 0, g_htf_count, h_close) != g_htf_count)
+      // Atomic bulk rates copy (Single API call replaces 6 calls!)
+      MqlRates htf_bulk_rates[];
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, g_htf_count, htf_bulk_rates) != g_htf_count)
         {
          g_data_ready = false;
          return 0;
         }
 
-      // Copy and extract proper volume types
       long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-      if(vol_limit > 0)
+
+      for(int i = 0; i < g_htf_count; i++)
         {
-         long temp_vol[];
-         if(CopyRealVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
-           {
-            for(int i = 0; i < g_htf_count; i++)
-               h_volume[i] = (double)temp_vol[i];
-           }
-        }
-      else
-        {
-         long temp_vol[];
-         if(CopyTickVolume(_Symbol, g_calc_timeframe, 0, g_htf_count, temp_vol) == g_htf_count)
-           {
-            for(int i = 0; i < g_htf_count; i++)
-               h_volume[i] = (double)temp_vol[i];
-           }
+         h_time[i]   = htf_bulk_rates[i].time;
+         h_open[i]   = htf_bulk_rates[i].open;
+         h_high[i]   = htf_bulk_rates[i].high;
+         h_low[i]    = htf_bulk_rates[i].low;
+         h_close[i]  = htf_bulk_rates[i].close;
+         h_volume[i] = (vol_limit > 0 && htf_bulk_rates[i].real_volume > 0) ? (double)htf_bulk_rates[i].real_volume : (double)htf_bulk_rates[i].tick_volume;
         }
 
-      //--- Calculate HTF core Adaptive Stochastic
+      // Compute HTF Adaptive Stochastic across history
       bool is_vwma = (InpSlowingMethod == VWMA || InpSignalMethod == VWMA);
       if(is_vwma)
         {
@@ -329,42 +312,56 @@ int OnCalculate(const int rates_total,
         }
 
       g_data_ready = true;
+
+      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      for(int i = 0; i < rates_total; i++)
+        {
+         datetime t = time[i];
+         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
+         if(shift_htf >= 0)
+           {
+            int idx_htf = g_htf_count - 1 - shift_htf;
+            if(idx_htf >= 0 && idx_htf < g_htf_count)
+              {
+               BufferSlowK[i]   = h_res_slow_k[idx_htf];
+               BufferSignalD[i] = h_res_signal_d[idx_htf];
+              }
+            else
+              {
+               BufferSlowK[i] = EMPTY_VALUE;
+               BufferSignalD[i] = EMPTY_VALUE;
+              }
+           }
+         else
+           {
+            BufferSlowK[i] = EMPTY_VALUE;
+            BufferSignalD[i] = EMPTY_VALUE;
+           }
+        }
+      return rates_total;
      }
 
    if(!g_data_ready)
       return 0;
 
-//--- 5. Real-Time Update for the active forming HTF candle (Index: g_htf_count - 1) on every tick
+// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
    int live_idx = g_htf_count - 1;
    if(live_idx >= required_bars)
      {
-      double o[1], h[1], l[1], c[1];
-      long v[1];
-      int shift = iBarShift(_Symbol, g_calc_timeframe, htf_time_current, false);
-      if(shift >= 0 &&
-         CopyOpen(_Symbol,  g_calc_timeframe, shift, 1, o) == 1 &&
-         CopyHigh(_Symbol,  g_calc_timeframe, shift, 1, h) == 1 &&
-         CopyLow(_Symbol,   g_calc_timeframe, shift, 1, l) == 1 &&
-         CopyClose(_Symbol, g_calc_timeframe, shift, 1, c) == 1)
+      MqlRates htf_rate[1];
+      // Single atomic API call instead of 6 separate copies!
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_open[live_idx]  = o[0];
-         h_high[live_idx]  = h[0];
-         h_low[live_idx]   = l[0];
-         h_close[live_idx] = c[0];
+         h_time[live_idx]   = htf_rate[0].time;
+         h_open[live_idx]   = htf_rate[0].open;
+         h_high[live_idx]   = htf_rate[0].high;
+         h_low[live_idx]    = htf_rate[0].low;
+         h_close[live_idx]  = htf_rate[0].close;
 
          long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-         if(vol_limit > 0)
-           {
-            if(CopyRealVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-               h_volume[live_idx] = (double)v[0];
-           }
-         else
-           {
-            if(CopyTickVolume(_Symbol, g_calc_timeframe, shift, 1, v) == 1)
-               h_volume[live_idx] = (double)v[0];
-           }
+         h_volume[live_idx] = (vol_limit > 0 && htf_rate[0].real_volume > 0) ? (double)htf_rate[0].real_volume : (double)htf_rate[0].tick_volume;
 
-         // Stateful, O(1) mock update for the live HTF bar
+         // Mock update strictly on forming candle
          bool is_vwma = (InpSlowingMethod == VWMA || InpSignalMethod == VWMA);
          if(is_vwma)
            {
@@ -381,56 +378,35 @@ int OnCalculate(const int rates_total,
         }
      }
 
-//--- 6. Warp-free step force (Staircase Solution anchor determination)
+// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+   int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
+   if(first_bar_of_forming_htf < 0)
+      first_bar_of_forming_htf = 0;
+   if(time[first_bar_of_forming_htf] < htf_time_current && first_bar_of_forming_htf < rates_total - 1)
+      first_bar_of_forming_htf++;
+
    int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
-
-   int first_bar_of_forming_htf = rates_total - 1;
-   while(first_bar_of_forming_htf > 0 &&
-         iBarShift(_Symbol, g_calc_timeframe, time[first_bar_of_forming_htf], false) == 0)
-     {
-      first_bar_of_forming_htf--;
-     }
-   first_bar_of_forming_htf++; // Anchor set to start of current HTF period block
-
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-//--- 7. Map HTF Calculated results cleanly to the lower chart timeframe (O(1) complexity)
+// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution across 2 buffers)
+   double slow_k_val  = h_res_slow_k[live_idx];
+   double signal_d_val = h_res_signal_d[live_idx];
+
    for(int i = start; i < rates_total; i++)
      {
-      datetime t = time[i];
-      int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-
-      if(shift_htf >= 0)
-        {
-         int idx_htf = g_htf_count - 1 - shift_htf;
-         if(idx_htf >= 0 && idx_htf < g_htf_count)
-           {
-            BufferSlowK[i]   = h_res_slow_k[idx_htf];
-            BufferSignalD[i] = h_res_signal_d[idx_htf];
-           }
-         else
-           {
-            BufferSlowK[i]   = EMPTY_VALUE;
-            BufferSignalD[i] = EMPTY_VALUE;
-           }
-        }
-      else
-        {
-         BufferSlowK[i]   = EMPTY_VALUE;
-         BufferSignalD[i] = EMPTY_VALUE;
-        }
+      BufferSlowK[i]   = slow_k_val;
+      BufferSignalD[i] = signal_d_val;
      }
 
-   return(rates_total);
+   return rates_total;
   }
 
 //+------------------------------------------------------------------+
-//| OnTimer Event Handler                                            |
+//| OnTimer Event Handler (Data Synchronization Daemon)              |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-//--- Delegate asynchronous history checking and forced redraws to DataSync daemon
    int required_bars = InpAdaptivePeriod * 2 + InpSlowingPeriod + InpSignalPeriod + 10;
    CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
   }
