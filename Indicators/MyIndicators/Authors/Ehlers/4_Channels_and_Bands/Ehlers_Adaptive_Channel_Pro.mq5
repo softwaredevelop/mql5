@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "1.00" // Adaptive Ehlers Smoother Channel with Native & MTF Support
+#property version     "1.10" // Enhanced with configurable baseline width & styling
 #property description "Dynamic Volatility Channel projected around John Ehlers' Adaptive Smoother baseline."
 
 #property indicator_chart_window
@@ -22,14 +22,14 @@
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrSlateGray
 #property indicator_style2  STYLE_DOT
-#property indicator_width1  1
+#property indicator_width2  1
 
 //--- Plot 3: Lower Volatility Band
 #property indicator_label3  "Lower Band"
 #property indicator_type3   DRAW_LINE
 #property indicator_color3  clrSlateGray
 #property indicator_style3  STYLE_DOT
-#property indicator_width1  1
+#property indicator_width3  1
 
 //--- Included Engines & Core Tools
 #include <MyIncludes\Ehlers_Adaptive_Channel_Calculator.mqh>
@@ -55,8 +55,12 @@ input double                    InpMultiplier     = 2.0;                     // 
 //--- Visual Settings ---
 input group "--- Visual Settings ---"
 input color                     InpColorBaseline  = clrBlueViolet;           // Baseline Color
+input ENUM_LINE_STYLE           InpStyleBaseline  = STYLE_SOLID;             // Baseline Style
+input int                       InpWidthBaseline  = 2;                       // Baseline Width
 input color                     InpColorUpper     = clrSlateGray;            // Upper Band Color
 input color                     InpColorLower     = clrSlateGray;            // Lower Band Color
+input ENUM_LINE_STYLE           InpStyleBands     = STYLE_DOT;               // Bands Style
+input int                       InpWidthBands     = 1;                       // Bands Width
 
 //--- Indicator Buffers ---
 double    BufferBaseline[];
@@ -110,19 +114,24 @@ int OnInit()
    ArraySetAsSeries(BufferUpper,    false);
    ArraySetAsSeries(BufferLower,    false);
 
-// Configure Visuals
+// 3. Configure Dynamic Visuals (User-Configurable Baseline & Bands Width)
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, InpColorBaseline);
-   PlotIndexSetInteger(0, PLOT_LINE_WIDTH, 2);
+   PlotIndexSetInteger(0, PLOT_LINE_STYLE, InpStyleBaseline);
+   PlotIndexSetInteger(0, PLOT_LINE_WIDTH, InpWidthBaseline);
+
    PlotIndexSetInteger(1, PLOT_LINE_COLOR, InpColorUpper);
-   PlotIndexSetInteger(1, PLOT_LINE_STYLE, STYLE_DOT);
+   PlotIndexSetInteger(1, PLOT_LINE_STYLE, InpStyleBands);
+   PlotIndexSetInteger(1, PLOT_LINE_WIDTH, InpWidthBands);
+
    PlotIndexSetInteger(2, PLOT_LINE_COLOR, InpColorLower);
-   PlotIndexSetInteger(2, PLOT_LINE_STYLE, STYLE_DOT);
+   PlotIndexSetInteger(2, PLOT_LINE_STYLE, InpStyleBands);
+   PlotIndexSetInteger(2, PLOT_LINE_WIDTH, InpWidthBands);
 
    PlotIndexSetDouble(0,  PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(1,  PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(2,  PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-// 3. Initialize Adaptive Ehlers Channel Calculator Engine
+// 4. Initialize Adaptive Ehlers Channel Calculator Engine
    g_calculator = new CEhlersAdaptiveChannelCalculator();
    if(CheckPointer(g_calculator) == POINTER_INVALID ||
       !g_calculator.Init(InpSmootherType, InpAdaptiveMethod, InpAdaptivePeriod, InpPeriodMin, InpPeriodMax,
@@ -153,7 +162,7 @@ int OnInit()
    PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
-// 4. Initialize Background Synchronization Timer (Only for MTF mode)
+// 5. Initialize Background Synchronization Timer (Only for MTF mode)
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
