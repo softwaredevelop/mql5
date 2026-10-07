@@ -3,8 +3,9 @@
 //|      Engine for John Ehlers' Laguerre Relative Strength Index    |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Leak-free pointer management, bounds protection & VWMA support
+#property copyright   "Copyright 2026, xxxxxxxx"
+#property version     "3.10" // Enterprise Refactor: Zero-Copy L0..L3 Pipeline & Persistent Volume Buffers
+#property description "High-performance calculation engine for Ehlers' Laguerre RSI."
 
 #ifndef LAGUERRE_RSI_CALCULATOR_MQH
 #define LAGUERRE_RSI_CALCULATOR_MQH
@@ -28,7 +29,7 @@ protected:
 
    //--- Persistent State Buffers
    double                    m_dummy_filt[];
-   double                    m_L0[], m_L1[], m_L2[], m_L3[];
+   double                    m_vol_double[];
 
    virtual void              CreateEngines(void);
 
@@ -59,8 +60,7 @@ public:
                                        double &lrsi_buffer[], double &signal_buffer[]);
 
    //--- Legacy Overload with price_type parameter (Without Volume)
-   void                      Calculate(const int rates_total, const int prev_calculated,
-                                       const ENUM_APPLIED_PRICE price_type,
+   void                      Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
                                        const double &open[], const double &high[],
                                        const double &low[], const double &close[],
                                        double &lrsi_buffer[], double &signal_buffer[])
@@ -72,8 +72,7 @@ public:
      }
 
    //--- Legacy Overload with price_type parameter (With Volume)
-   void                      Calculate(const int rates_total, const int prev_calculated,
-                                       const ENUM_APPLIED_PRICE price_type,
+   void                      Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
                                        const double &open[], const double &high[],
                                        const double &low[], const double &close[],
                                        const long &volume[],
@@ -89,7 +88,8 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CLaguerreRSICalculator::CLaguerreRSICalculator(void) : m_engine(NULL),
+CLaguerreRSICalculator::CLaguerreRSICalculator(void) :
+   m_engine(NULL),
    m_ma_calculator(NULL),
    m_gamma(0.5),
    m_signal_period(3),
@@ -97,10 +97,7 @@ CLaguerreRSICalculator::CLaguerreRSICalculator(void) : m_engine(NULL),
    m_source_price(PRICE_CLOSE_STD)
   {
    ArraySetAsSeries(m_dummy_filt, false);
-   ArraySetAsSeries(m_L0,         false);
-   ArraySetAsSeries(m_L1,         false);
-   ArraySetAsSeries(m_L2,         false);
-   ArraySetAsSeries(m_L3,         false);
+   ArraySetAsSeries(m_vol_double, false);
   }
 
 //+------------------------------------------------------------------+
@@ -162,7 +159,7 @@ bool CLaguerreRSICalculator::Init(const double gamma, const int signal_p, const 
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Standard - No Volume)                                 |
+//| Calculate (Standard - No Volume, Zero-Copy L0..L3 Access)        |
 //+------------------------------------------------------------------+
 void CLaguerreRSICalculator::Calculate(const int rates_total, const int prev_calculated,
                                        const double &open[], const double &high[],
@@ -186,13 +183,10 @@ void CLaguerreRSICalculator::Calculate(const int rates_total, const int prev_cal
       ArrayInitialize(signal_buffer, EMPTY_VALUE);
      }
 
-// 1. Calculate Laguerre Components
+// 1. Calculate Laguerre Components in O(1)
    m_engine.CalculateFilter(rates_total, prev_calculated, open, high, low, close, m_dummy_filt);
 
-// 2. Retrieve L0..L3 state buffers
-   m_engine.GetLBuffers(m_L0, m_L1, m_L2, m_L3);
-
-// 3. Calculate LRSI (Incremental Loop)
+// 2. Direct Inlined LRSI Loop (ELIMINATES 4 massive ArrayCopy calls!)
    int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
 
    if(prev_calculated == 0)
@@ -203,41 +197,49 @@ void CLaguerreRSICalculator::Calculate(const int rates_total, const int prev_cal
 
    for(int i = start_index; i < rates_total; i++)
      {
+      double l0 = m_engine.GetL0(i);
+      double l1 = m_engine.GetL1(i);
+      double l2 = m_engine.GetL2(i);
+      double l3 = m_engine.GetL3(i);
+
       double cu = 0.0, cd = 0.0;
 
-      if(m_L0[i] >= m_L1[i])
-         cu += m_L0[i] - m_L1[i];
+      if(l0 >= l1)
+         cu += l0 - l1;
       else
-         cd += m_L1[i] - m_L0[i];
-      if(m_L1[i] >= m_L2[i])
-         cu += m_L1[i] - m_L2[i];
+         cd += l1 - l0;
+      if(l1 >= l2)
+         cu += l1 - l2;
       else
-         cd += m_L2[i] - m_L1[i];
-      if(m_L2[i] >= m_L3[i])
-         cu += m_L2[i] - m_L3[i];
+         cd += l2 - l1;
+      if(l2 >= l3)
+         cu += l2 - l3;
       else
-         cd += m_L3[i] - m_L2[i];
+         cd += l3 - l2;
 
+      double sum_c = cu + cd;
       double lrsi_val = 50.0;
-      if(cu + cd > 1.0e-9)
-         lrsi_val = (cu / (cu + cd)) * 100.0;
+
+      if(sum_c > 1.0e-9)
+         lrsi_val = (cu / sum_c) * 100.0;
       else
          lrsi_val = (i > 0) ? lrsi_buffer[i - 1] : 50.0;
 
       if(lrsi_val > 100.0)
          lrsi_val = 100.0;
-      if(lrsi_val < 0.0)
-         lrsi_val = 0.0;
+      else
+         if(lrsi_val < 0.0)
+            lrsi_val = 0.0;
 
       lrsi_buffer[i] = lrsi_val;
      }
 
-// 4. Calculate Signal Line (Without Volume)
+// 3. Calculate Signal Line in O(1)
    m_ma_calculator.CalculateOnArray(rates_total, prev_calculated, lrsi_buffer, signal_buffer, 1);
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Overloaded - With Volume for VWMA)                    |
+//| Calculate (Overloaded - With Persistent Volume for VWMA)         |
 //+------------------------------------------------------------------+
 void CLaguerreRSICalculator::Calculate(const int rates_total, const int prev_calculated,
                                        const double &open[], const double &high[],
@@ -248,76 +250,22 @@ void CLaguerreRSICalculator::Calculate(const int rates_total, const int prev_cal
    if(rates_total < 2 || CheckPointer(m_engine) == POINTER_INVALID || CheckPointer(m_ma_calculator) == POINTER_INVALID)
       return;
 
-// Safe allocation of destination arrays
-   if(ArraySize(lrsi_buffer) != rates_total)
+// Safe allocation of persistent volume buffer (Zero dynamic heap reallocations!)
+   if(ArraySize(m_vol_double) != rates_total)
      {
-      ArrayResize(lrsi_buffer, rates_total);
-      ArraySetAsSeries(lrsi_buffer, false);
-      ArrayInitialize(lrsi_buffer, EMPTY_VALUE);
-     }
-   if(ArraySize(signal_buffer) != rates_total)
-     {
-      ArrayResize(signal_buffer, rates_total);
-      ArraySetAsSeries(signal_buffer, false);
-      ArrayInitialize(signal_buffer, EMPTY_VALUE);
+      ArrayResize(m_vol_double, rates_total);
+      ArraySetAsSeries(m_vol_double, false);
      }
 
-// 1. Calculate Laguerre Components
-   m_engine.CalculateFilter(rates_total, prev_calculated, open, high, low, close, m_dummy_filt);
+   int start_sync = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+   for(int j = start_sync; j < rates_total; j++)
+      m_vol_double[j] = (double)volume[j];
 
-// 2. Retrieve L0..L3 state buffers
-   m_engine.GetLBuffers(m_L0, m_L1, m_L2, m_L3);
+// 1. Calculate base LRSI (Zero-Copy!)
+   Calculate(rates_total, prev_calculated, open, high, low, close, lrsi_buffer, signal_buffer);
 
-// 3. Calculate LRSI
-   int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
-
-   if(prev_calculated == 0)
-     {
-      lrsi_buffer[0] = 50.0;
-      start_index = 1;
-     }
-
-   for(int i = start_index; i < rates_total; i++)
-     {
-      double cu = 0.0, cd = 0.0;
-
-      if(m_L0[i] >= m_L1[i])
-         cu += m_L0[i] - m_L1[i];
-      else
-         cd += m_L1[i] - m_L0[i];
-      if(m_L1[i] >= m_L2[i])
-         cu += m_L1[i] - m_L2[i];
-      else
-         cd += m_L2[i] - m_L1[i];
-      if(m_L2[i] >= m_L3[i])
-         cu += m_L2[i] - m_L3[i];
-      else
-         cd += m_L3[i] - m_L2[i];
-
-      double lrsi_val = 50.0;
-      if(cu + cd > 1.0e-9)
-         lrsi_val = (cu / (cu + cd)) * 100.0;
-      else
-         lrsi_val = (i > 0) ? lrsi_buffer[i - 1] : 50.0;
-
-      if(lrsi_val > 100.0)
-         lrsi_val = 100.0;
-      if(lrsi_val < 0.0)
-         lrsi_val = 0.0;
-
-      lrsi_buffer[i] = lrsi_val;
-     }
-
-// 4. Convert volume to double array for VWMA support
-   double vol_double[];
-   ArrayResize(vol_double, rates_total);
-   ArraySetAsSeries(vol_double, false);
-
-   for(int j = start_index; j < rates_total; j++)
-      vol_double[j] = (double)volume[j];
-
-// 5. Calculate Signal Line (With Volume)
-   m_ma_calculator.CalculateOnArray(rates_total, prev_calculated, lrsi_buffer, vol_double, signal_buffer, 1);
+// 2. Overwrite Signal Line calculation using Persistent Volume
+   m_ma_calculator.CalculateOnArray(rates_total, prev_calculated, lrsi_buffer, m_vol_double, signal_buffer, 1);
   }
 
 //+==================================================================+
