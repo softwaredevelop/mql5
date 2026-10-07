@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.30" // Enterprise Refactor: Precalculated Gamma Constants & Pipelined FMA Math
+#property version     "3.40" // Enterprise Refactor: Direct L0..L3 Inlined Accessors & Zero-Copy Architecture
 #property description "Core calculation engine for John Ehlers' 4-element Laguerre filter."
 
 #ifndef LAGUERRE_ENGINE_MQH
@@ -74,6 +74,12 @@ public:
    void                      GetPriceBuffer(double &dest_array[]);
    double                    GetPrice(const int index) const { return (index >= 0 && index < ArraySize(m_price)) ? m_price[index] : 0.0; }
    void                      GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[]);
+
+   // Fast Inlined Direct State Getters (Eliminates multi-megabyte ArrayCopy operations!)
+   double                    GetL0(const int i) const { return (i >= 0 && i < ArraySize(m_L0)) ? m_L0[i] : 0.0; }
+   double                    GetL1(const int i) const { return (i >= 0 && i < ArraySize(m_L1)) ? m_L1[i] : 0.0; }
+   double                    GetL2(const int i) const { return (i >= 0 && i < ArraySize(m_L2)) ? m_L2[i] : 0.0; }
+   double                    GetL3(const int i) const { return (i >= 0 && i < ArraySize(m_L3)) ? m_L3[i] : 0.0; }
   };
 
 //+------------------------------------------------------------------+
@@ -98,13 +104,13 @@ CLaguerreEngine::CLaguerreEngine(void) :
   }
 
 //+------------------------------------------------------------------+
-//| Initialization (Precomputes Damping Multipliers)                 |
+//| Initialization                                                   |
 //+------------------------------------------------------------------+
 bool CLaguerreEngine::Init(const double gamma, const ENUM_INPUT_SOURCE source_type, const ENUM_APPLIED_PRICE_HA_ALL price_source)
   {
    m_gamma           = fmax(0.0, fmin(1.0, gamma));
-   m_one_minus_gamma = 1.0 - m_gamma; // Precalculated linear scaling factor
-   m_neg_gamma       = -m_gamma;      // Precalculated negative feedback factor
+   m_one_minus_gamma = 1.0 - m_gamma;
+   m_neg_gamma       = -m_gamma;
    m_source_type     = source_type;
    m_source_price    = price_source;
    return true;
@@ -125,7 +131,7 @@ void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
   }
 
 //+------------------------------------------------------------------+
-//| Get L0..L3 State Buffers Helper                                  |
+//| Get L0..L3 State Buffers Helper (Maintained for Legacy Callers)  |
 //+------------------------------------------------------------------+
 void CLaguerreEngine::GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[])
   {
@@ -148,7 +154,7 @@ void CLaguerreEngine::GetLBuffers(double &l0[], double &l1[], double &l2[], doub
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price Series (Standard / Heikin Ashi / Momentum)         |
+//| Prepare Price Series                                             |
 //+------------------------------------------------------------------+
 bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_index,
       const double &open[], const double &high[],
@@ -209,7 +215,7 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
                   break;
               }
            }
-         else // SOURCE_MOMENTUM
+         else
            {
             m_price[i] = m_ha_close[i] - m_ha_open[i];
            }
@@ -247,7 +253,7 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
                   break;
               }
            }
-         else // SOURCE_MOMENTUM
+         else
            {
             m_price[i] = close[i] - open[i];
            }
@@ -281,7 +287,6 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
       ArraySetAsSeries(m_L3, false);
      }
 
-// Safe allocation of destination array
    if(ArraySize(filt_buffer) != rates_total)
      {
       ArrayResize(filt_buffer, rates_total);
@@ -295,7 +300,6 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
 
    int i = start_index;
 
-// Warmup seeding on fresh run
    if(i == 0)
      {
       double p0 = m_price[0];
@@ -309,7 +313,7 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
 
    const double inv_six = 1.0 / 6.0;
 
-// Recursive 4-Element Laguerre Difference Equations (Zero runtime division!)
+// Recursive 4-Element Difference Equations
    for(; i < rates_total; i++)
      {
       double L0_prev = m_L0[i - 1];
@@ -317,13 +321,11 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
       double L2_prev = m_L2[i - 1];
       double L3_prev = m_L3[i - 1];
 
-      // Pipelined Fused-Multiply-Add: 0 division overhead
       m_L0[i] = m_one_minus_gamma * m_price[i] + m_gamma * L0_prev;
       m_L1[i] = m_neg_gamma * m_L0[i] + L0_prev + m_gamma * L1_prev;
       m_L2[i] = m_neg_gamma * m_L1[i] + L1_prev + m_gamma * L2_prev;
       m_L3[i] = m_neg_gamma * m_L2[i] + L2_prev + m_gamma * L3_prev;
 
-      // Symmetric Triangular Weighting via Fast Reciprocal Multiplication
       filt_buffer[i] = (m_L0[i] + 2.0 * (m_L1[i] + m_L2[i]) + m_L3[i]) * inv_six;
      }
   }
