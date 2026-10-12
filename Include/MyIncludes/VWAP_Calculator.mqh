@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                               VWAP_Calculator.mqh|
-//|      VERSION 3.21: Restored Real Volume Broker Warning & O(1)     |
+//|      VERSION 3.31: Type-Safe Delegated Typical-Price Routing      |
+//|                    Zero-Warning Strict 64-bit Compilation         |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.21" // Restored real volume broker diagnostic warning
+#property version     "3.31" // Fixed: Replaced array-pointer checks with clean method delegation
+#property description "Institutional-grade stateful VWAP Calculator Engine with Synchronized TP Export."
 
 #ifndef VWAP_CALCULATOR_MQH
 #define VWAP_CALCULATOR_MQH
@@ -52,6 +54,19 @@ protected:
                                          const double &open[], const double &high[],
                                          const double &low[], const double &close[]);
 
+   //--- Internal Core Calculation Engine
+   void                CalculateCore(const int rates_total,
+                                     const int prev_calculated,
+                                     const datetime &time[],
+                                     const double &open[],
+                                     const double &high[],
+                                     const double &low[],
+                                     const double &close[],
+                                     const long &tick_volume[],
+                                     const long &volume[],
+                                     double &vwap_odd[],
+                                     double &vwap_even[]);
+
 public:
                      CVWAPCalculator(void);
    virtual            ~CVWAPCalculator(void) {};
@@ -61,6 +76,11 @@ public:
    bool                Init(ENUM_VWAP_PERIOD period, ENUM_APPLIED_VOLUME vol_type, int tz_shift_hours=0, bool enabled=true, int max_history_days=0);
    bool                Init(string start_time, string end_time, ENUM_APPLIED_VOLUME vol_type, bool enabled=true, int max_history_days=0, int tz_shift_hours=0);
 
+   //--- Public Accessors for Synchronized Typical Price Alignment
+   double              GetTypicalPrice(const int index) const;
+   int                 CopyTypicalPrice(double &dest[]) const;
+
+   //--- STRICT INTERFACE 1: Original 11-param signature (100% backward compatible)
    void                Calculate(const int rates_total,
                                  const int prev_calculated,
                                  const datetime &time[],
@@ -72,6 +92,20 @@ public:
                                  const long &volume[],
                                  double &vwap_odd[],
                                  double &vwap_even[]);
+
+   //--- STRICT INTERFACE 2: Fused 12-param signature (Exports exact TP array for Bands Engine)
+   void                Calculate(const int rates_total,
+                                 const int prev_calculated,
+                                 const datetime &time[],
+                                 const double &open[],
+                                 const double &high[],
+                                 const double &low[],
+                                 const double &close[],
+                                 const long &tick_volume[],
+                                 const long &volume[],
+                                 double &vwap_odd[],
+                                 double &vwap_even[],
+                                 double &typical_price_out[]);
   };
 
 //+------------------------------------------------------------------+
@@ -91,6 +125,32 @@ CVWAPCalculator::CVWAPCalculator(void) :
    ArraySetAsSeries(m_cache_vol,         false);
    ArraySetAsSeries(m_cache_period_idx,  false);
    ArraySetAsSeries(m_cache_in_session,  false);
+  }
+
+//+------------------------------------------------------------------+
+//| Accessor: Direct index lookup of internal typical price          |
+//+------------------------------------------------------------------+
+double CVWAPCalculator::GetTypicalPrice(const int index) const
+  {
+   if(index >= 0 && index < ArraySize(m_typical_price))
+      return m_typical_price[index];
+   return 0.0;
+  }
+
+//+------------------------------------------------------------------+
+//| Accessor: Bulk array copy of internal typical price              |
+//+------------------------------------------------------------------+
+int CVWAPCalculator::CopyTypicalPrice(double &dest[]) const
+  {
+   int sz = ArraySize(m_typical_price);
+   if(sz <= 0)
+      return 0;
+   if(ArraySize(dest) != sz)
+     {
+      ArrayResize(dest, sz);
+      ArraySetAsSeries(dest, false);
+     }
+   return ArrayCopy(dest, m_typical_price);
   }
 
 //+------------------------------------------------------------------+
@@ -175,19 +235,19 @@ bool CVWAPCalculator::IsTimeInSession(const datetime bar_time)
   }
 
 //+------------------------------------------------------------------+
-//| High-Performance Incremental O(1) Calculation Kernel             |
+//| Protected Internal Engine Core: High-Performance O(1) Loop       |
 //+------------------------------------------------------------------+
-void CVWAPCalculator::Calculate(const int rates_total,
-                                const int prev_calculated,
-                                const datetime &time[],
-                                const double &open[],
-                                const double &high[],
-                                const double &low[],
-                                const double &close[],
-                                const long &tick_volume[],
-                                const long &volume[],
-                                double &vwap_odd[],
-                                double &vwap_even[])
+void CVWAPCalculator::CalculateCore(const int rates_total,
+                                    const int prev_calculated,
+                                    const datetime &time[],
+                                    const double &open[],
+                                    const double &high[],
+                                    const double &low[],
+                                    const double &close[],
+                                    const long &tick_volume[],
+                                    const long &volume[],
+                                    double &vwap_odd[],
+                                    double &vwap_even[])
   {
    if(!m_enabled || rates_total < 1)
       return;
@@ -338,6 +398,55 @@ void CVWAPCalculator::Calculate(const int rates_total,
       m_cache_period_idx[i] = period_index;
       m_cache_in_session[i] = in_session;
      }
+  }
+
+//+------------------------------------------------------------------+
+//| Interface 1: Backward Compatible 11-Parameter Signature          |
+//+------------------------------------------------------------------+
+void CVWAPCalculator::Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const datetime &time[],
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                const long &tick_volume[],
+                                const long &volume[],
+                                double &vwap_odd[],
+                                double &vwap_even[])
+  {
+   CalculateCore(rates_total, prev_calculated, time, open, high, low, close,
+                 tick_volume, volume, vwap_odd, vwap_even);
+  }
+
+//+------------------------------------------------------------------+
+//| Interface 2: Fused 12-Parameter Signature (With Synchronized TP) |
+//+------------------------------------------------------------------+
+void CVWAPCalculator::Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const datetime &time[],
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                const long &tick_volume[],
+                                const long &volume[],
+                                double &vwap_odd[],
+                                double &vwap_even[],
+                                double &typical_price_out[])
+  {
+   CalculateCore(rates_total, prev_calculated, time, open, high, low, close,
+                 tick_volume, volume, vwap_odd, vwap_even);
+
+   if(ArraySize(typical_price_out) != rates_total)
+     {
+      ArrayResize(typical_price_out, rates_total);
+      ArraySetAsSeries(typical_price_out, false);
+     }
+
+   int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
+   for(int i = start_index; i < rates_total; i++)
+      typical_price_out[i] = m_typical_price[i];
   }
 
 //+------------------------------------------------------------------+
