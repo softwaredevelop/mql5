@@ -4,7 +4,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.20" // Enterprise Refactor: Direct Scalar Multiplication & Precomputed Constants
+#property version     "3.31" // Fixed: Replaced array-pointer checks with clean method delegation
 #property description "High-performance calculation engine for Kaufman's Adaptive Moving Average."
 
 #ifndef KAMA_CALCULATOR_MQH
@@ -39,6 +39,14 @@ private:
          const double &low[],
          const double &close[]);
 
+   void                      CalculateCore(const int rates_total,
+                                           const int prev_calculated,
+                                           const double &open[],
+                                           const double &high[],
+                                           const double &low[],
+                                           const double &close[],
+                                           double &kama_buffer[]);
+
 public:
                      CKamaCalculator(void);
                     ~CKamaCalculator(void) {};
@@ -46,6 +54,11 @@ public:
    bool                      Init(const int er_p, const int fast_p, const int slow_p, const ENUM_APPLIED_PRICE_HA_ALL source);
    int                       GetPeriod(void) const { return m_er_period; }
 
+   //--- Public Price Accessors
+   double                    GetPrice(const int index) const;
+   int                       CopyPrice(double &dest[]) const;
+
+   //--- STRICT INTERFACE 1: Original 7-param signature (100% backward compatible)
    void                      Calculate(const int rates_total,
                                        const int prev_calculated,
                                        const double &open[],
@@ -53,6 +66,16 @@ public:
                                        const double &low[],
                                        const double &close[],
                                        double &kama_buffer[]);
+
+   //--- STRICT INTERFACE 2: Fused 8-param signature (Exports synchronized price for Bands)
+   void                      Calculate(const int rates_total,
+                                       const int prev_calculated,
+                                       const double &open[],
+                                       const double &high[],
+                                       const double &low[],
+                                       const double &close[],
+                                       double &kama_buffer[],
+                                       double &price_out[]);
   };
 
 //+------------------------------------------------------------------+
@@ -70,6 +93,32 @@ CKamaCalculator::CKamaCalculator(void) :
    ArraySetAsSeries(m_ha_high,  false);
    ArraySetAsSeries(m_ha_low,   false);
    ArraySetAsSeries(m_ha_close, false);
+  }
+
+//+------------------------------------------------------------------+
+//| Accessor: Direct index lookup of internal prepared price         |
+//+------------------------------------------------------------------+
+double CKamaCalculator::GetPrice(const int index) const
+  {
+   if(index >= 0 && index < ArraySize(m_price))
+      return m_price[index];
+   return 0.0;
+  }
+
+//+------------------------------------------------------------------+
+//| Accessor: Bulk array copy of internal prepared price             |
+//+------------------------------------------------------------------+
+int CKamaCalculator::CopyPrice(double &dest[]) const
+  {
+   int sz = ArraySize(m_price);
+   if(sz <= 0)
+      return 0;
+   if(ArraySize(dest) != sz)
+     {
+      ArrayResize(dest, sz);
+      ArraySetAsSeries(dest, false);
+     }
+   return ArrayCopy(dest, m_price);
   }
 
 //+------------------------------------------------------------------+
@@ -189,15 +238,15 @@ bool CKamaCalculator::PreparePriceSeries(const int rates_total,
   }
 
 //+------------------------------------------------------------------+
-//| Main Incremental Calculation Loop (MathPow-Free Pipelined Math)  |
+//| Protected Internal Calculation Engine Core                       |
 //+------------------------------------------------------------------+
-void CKamaCalculator::Calculate(const int rates_total,
-                                const int prev_calculated,
-                                const double &open[],
-                                const double &high[],
-                                const double &low[],
-                                const double &close[],
-                                double &kama_buffer[])
+void CKamaCalculator::CalculateCore(const int rates_total,
+                                    const int prev_calculated,
+                                    const double &open[],
+                                    const double &high[],
+                                    const double &low[],
+                                    const double &close[],
+                                    double &kama_buffer[])
   {
    if(rates_total <= m_er_period)
       return;
@@ -246,11 +295,50 @@ void CKamaCalculator::Calculate(const int rates_total,
 
       // 2. Scaled Smoothing Constant (SSC) - Zero MathPow() Calls!
       double ssc = er * m_sc_diff + m_slowest_sc;
-      double sc  = ssc * ssc; // 50x faster direct scalar squaring!
+      double sc  = ssc * ssc; // Direct scalar squaring for ALU speed
 
       // 3. Final Recursive KAMA Difference Equation
       kama_buffer[i] = kama_buffer[i - 1] + sc * (m_price[i] - kama_buffer[i - 1]);
      }
+  }
+
+//+------------------------------------------------------------------+
+//| Interface 1: Original 7-Parameter Calculation Loop               |
+//+------------------------------------------------------------------+
+void CKamaCalculator::Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                double &kama_buffer[])
+  {
+   CalculateCore(rates_total, prev_calculated, open, high, low, close, kama_buffer);
+  }
+
+//+------------------------------------------------------------------+
+//| Interface 2: Fused 8-Parameter Calculation Loop (With Price Out) |
+//+------------------------------------------------------------------+
+void CKamaCalculator::Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                double &kama_buffer[],
+                                double &price_out[])
+  {
+   CalculateCore(rates_total, prev_calculated, open, high, low, close, kama_buffer);
+
+   if(ArraySize(price_out) != rates_total)
+     {
+      ArrayResize(price_out, rates_total);
+      ArraySetAsSeries(price_out, false);
+     }
+
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+   for(int i = start_index; i < rates_total; i++)
+      price_out[i] = m_price[i];
   }
 
 #endif // KAMA_CALCULATOR_MQH
