@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.20" // Ultra-Low Latency & Zero-GUI-Redundancy Enterprise Edition
+#property version     "2.30" // Fixed: Eliminated MTF Array Out of Range in RVOL Single calculation
 #property description "Institutional Multi-Timeframe Absorption Detector."
-#property description "Engineered for extreme multi-chart concurrency with dirty-flag GUI caching and O(1) live-tick lifecycle."
+#property description "Detects Volume Spread Analysis (VSA) absorption anomalies with exact zone termination upon breach."
 
 #property indicator_chart_window
 #property indicator_buffers 5
@@ -307,7 +307,6 @@ void MaintainActiveZones(const datetime live_time, const double current_close, c
          if(is_new_bar)
            {
             // DIRTY-FLAG CACHING: Update boundary ONLY once when a new bar actually opens!
-            // Prevents tens of thousands of redundant GUI property mutations per bar!
             ObjectSetInteger(0, g_active_zones[z].name, OBJPROP_TIME, 1, projection_time);
            }
      }
@@ -493,7 +492,7 @@ int OnCalculate(const int rates_total,
 
       g_htf_count = MathMin(htf_bars, 3000);
 
-      // Reallocate persistent caches only if capacity expanded
+      // Reallocate persistent cache registers ONLY when capacity changes
       if(ArraySize(h_time) != g_htf_count)
         {
          ArrayResize(h_time,       g_htf_count);
@@ -642,39 +641,31 @@ int OnCalculate(const int rates_total,
 
       g_data_ready = true;
 
-      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      // Full Historical Projection to Chart Buffers (Two-Pointer Style)
+      int htf_ptr = 0;
+      datetime oldest_htf = h_time[0];
+
       for(int i = 0; i < rates_total; i++)
         {
          datetime t = time[i];
-         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-         if(shift_htf >= 0)
-           {
-            int idx_htf = g_htf_count - 1 - shift_htf;
-            if(idx_htf >= 0 && idx_htf < g_htf_count)
-              {
-               BufATR[i]   = h_res_atr[idx_htf];
-               BufRVOL[i]  = h_res_rvol[idx_htf];
-               BufState[i] = h_res_state[idx_htf];
-               BufBull[i]  = h_res_bull[idx_htf];
-               BufBear[i]  = h_res_bear[idx_htf];
-              }
-            else
-              {
-               BufATR[i]   = EMPTY_VALUE;
-               BufRVOL[i]  = EMPTY_VALUE;
-               BufState[i] = 0.0;
-               BufBull[i]  = EMPTY_VALUE;
-               BufBear[i]  = EMPTY_VALUE;
-              }
-           }
-         else
+         if(t < oldest_htf)
            {
             BufATR[i]   = EMPTY_VALUE;
             BufRVOL[i]  = EMPTY_VALUE;
             BufState[i] = 0.0;
             BufBull[i]  = EMPTY_VALUE;
             BufBear[i]  = EMPTY_VALUE;
+            continue;
            }
+
+         while(htf_ptr + 1 < g_htf_count && h_time[htf_ptr + 1] <= t)
+            htf_ptr++;
+
+         BufATR[i]   = h_res_atr[htf_ptr];
+         BufRVOL[i]  = h_res_rvol[htf_ptr];
+         BufState[i] = h_res_state[htf_ptr];
+         BufBull[i]  = h_res_bull[htf_ptr];
+         BufBear[i]  = h_res_bear[htf_ptr];
         }
       return rates_total;
      }
@@ -689,21 +680,69 @@ int OnCalculate(const int rates_total,
       MqlRates htf_rate[1];
       if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_time[live_idx]   = htf_rate[0].time;
-         h_open[live_idx]   = htf_rate[0].open;
-         h_high[live_idx]   = htf_rate[0].high;
-         h_low[live_idx]    = htf_rate[0].low;
-         h_close[live_idx]  = htf_rate[0].close;
+         h_time[live_idx]  = htf_rate[0].time;
+         h_open[live_idx]  = htf_rate[0].open;
+         h_high[live_idx]  = htf_rate[0].high;
+         h_low[live_idx]   = htf_rate[0].low;
+         h_close[live_idx] = htf_rate[0].close;
 
          long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
-         h_volume[live_idx] = (vol_limit > 0 && htf_rate[0].real_volume > 0) ? (double)htf_rate[0].real_volume : (double)htf_rate[0].tick_volume;
+         h_volume[live_idx]   = (vol_limit > 0 && htf_rate[0].real_volume > 0) ? (double)htf_rate[0].real_volume : (double)htf_rate[0].tick_volume;
+         h_vol_long[live_idx] = (long)h_volume[live_idx]; // Update forming volume in persistent cache!
 
          // Mock incremental calculation on forming bar
          g_atr.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_atr);
 
-         long h_single_vol[1];
-         h_single_vol[0] = (long)h_volume[live_idx];
-         h_res_rvol[live_idx] = g_rvol.CalculateSingle(g_htf_count, h_single_vol, live_idx);
+         // SAFE CALL: Passes full h_vol_long array of size g_htf_count! Zero out-of-range!
+         h_res_rvol[live_idx] = g_rvol.CalculateSingle(g_htf_count, h_vol_long, live_idx);
+
+         // Real-time VSA evaluation on forming HTF bar
+         double body_live  = MathAbs(h_close[live_idx] - h_open[live_idx]);
+         double range_live = h_high[live_idx] - h_low[live_idx];
+         double atr_live   = h_res_atr[live_idx];
+         double rvol_live  = h_res_rvol[live_idx];
+
+         h_res_state[live_idx] = 0.0;
+         h_res_bull[live_idx]  = EMPTY_VALUE;
+         h_res_bear[live_idx]  = EMPTY_VALUE;
+
+         if(atr_live > 0.0)
+           {
+            bool is_b = false, is_s = false, is_c = false;
+            if(rvol_live > 2.0 && body_live < (0.35 * atr_live))
+              {
+               double c_pos = (range_live > 1.0e-9) ? ((h_close[live_idx] - h_low[live_idx]) / range_live) : 0.5;
+               if(c_pos > 0.66)
+                 {
+                  h_res_state[live_idx] = 1.0;
+                  is_b = true;
+                 }
+               else
+                  if(c_pos < 0.33)
+                    {
+                     h_res_state[live_idx] = -1.0;
+                     is_s = true;
+                    }
+                  else
+                    {
+                     h_res_state[live_idx] = 0.5;
+                    }
+              }
+            else
+               if(rvol_live > 3.5 && body_live < (0.6 * atr_live))
+                 {
+                  h_res_state[live_idx] = 2.0;
+                  is_c = true;
+                 }
+
+            if(InpShowArrows)
+              {
+               if(is_b)
+                  h_res_bull[live_idx] = h_low[live_idx] - atr_live * 0.3;
+               if(is_s)
+                  h_res_bear[live_idx] = h_high[live_idx] + atr_live * 0.3;
+              }
+           }
 
          if(InpShowObjects && g_active_count > 0)
             MaintainActiveZones(h_time[live_idx], h_close[live_idx], is_new_candle);
