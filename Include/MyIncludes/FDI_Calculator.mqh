@@ -5,136 +5,129 @@
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
+#property version   "2.10" // Enterprise: Added Pure Brownian-Scaled Normalization for Finite Windows
+#property description "High-performance calculation engine for Fractal Dimension Index (FDI)."
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+#ifndef FDI_CALCULATOR_MQH
+#define FDI_CALCULATOR_MQH
+
+#include <MyIncludes\HeikinAshi_Tools.mqh>
+
+//--- Calculation Method Selector
+#ifndef ENUM_FDI_METHOD_DEFINED
+#define ENUM_FDI_METHOD_DEFINED
+enum ENUM_FDI_METHOD
+  {
+   FDI_NORMALIZED_BROWNIAN, // Pure Brownian Scale (D = 1.50 at Random Walk for ANY N - Recommended)
+   FDI_CANONICAL_SEVCIK,    // Unbiased Sevcik 1998 (D ~ 1.25-1.28 for N=30)
+   FDI_RETAIL_CLASSIC       // Legacy Retail Approximation (with +ln(2) numerator shift)
+  };
+#endif
+
+//+==================================================================+
+//|             CLASS: CFDICalculator                                |
+//+==================================================================+
 class CFDICalculator
   {
 protected:
    int               m_period;
-   double            m_price[]; // Buffer for source prices
+   ENUM_FDI_METHOD   m_method;
+   double            m_price[];          // Persistent source price buffer
 
-   // Pre-calculated constant for the formula denominator
-   double            m_log_denominator;
+   // Precalculated invariant constants for ALU pipelining
+   double            m_diff_x;           // 1.0 / (N - 1)
+   double            m_diff_x_sq;        // (1.0 / (N - 1))^2
+   double            m_log_denominator;  // ln(N - 1) or ln(2 * (N - 1))
+   double            m_inv_log_denom;    // Reciprocal of denominator
 
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[]);
+   virtual bool      PreparePriceSeries(const int rates_total, const int start_index,
+                                        const ENUM_APPLIED_PRICE price_type,
+                                        const double &open[], const double &high[],
+                                        const double &low[], const double &close[]);
 
 public:
-                     CFDICalculator(void) {};
+                     CFDICalculator(void);
    virtual          ~CFDICalculator(void) {};
 
-   bool              Init(int period);
+   bool              Init(const int period, const ENUM_FDI_METHOD method = FDI_NORMALIZED_BROWNIAN);
+   int               GetPeriod(void) const { return m_period; }
+   double            GetTheoreticalRandomWalkD(void) const;
 
-   void              Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &out_fdi[]);
+   void              Calculate(const int rates_total, const int prev_calculated,
+                               const ENUM_APPLIED_PRICE price_type,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               double &out_fdi[], const int history_limit = 0);
   };
 
 //+------------------------------------------------------------------+
-//| Init                                                             |
+//| Constructor                                                      |
 //+------------------------------------------------------------------+
-bool CFDICalculator::Init(int period)
+CFDICalculator::CFDICalculator(void) :
+   m_period(30),
+   m_method(FDI_NORMALIZED_BROWNIAN),
+   m_diff_x(0.0),
+   m_diff_x_sq(0.0),
+   m_log_denominator(1.0),
+   m_inv_log_denom(1.0)
+  {
+   ArraySetAsSeries(m_price, false);
+  }
+
+//+------------------------------------------------------------------+
+//| Initialization                                                   |
+//+------------------------------------------------------------------+
+bool CFDICalculator::Init(const int period, const ENUM_FDI_METHOD method)
   {
    m_period = (period < 10) ? 10 : period;
+   m_method = method;
 
-// Formula Denominator: Log( 2 * (N-1) )
-// Note: Sevcik formula uses Natural Log (ln) or Log10? Standard implementation uses Log.
-// As long as numerator uses same base, it matches. MQL MathLog is Natural Log (ln).
-   m_log_denominator = MathLog(2.0 * (m_period - 1));
+   m_diff_x    = 1.0 / (double)(m_period - 1);
+   m_diff_x_sq = m_diff_x * m_diff_x;
+
+   if(m_method == FDI_NORMALIZED_BROWNIAN)
+      m_log_denominator = MathLog((double)(m_period - 1));
+   else
+      m_log_denominator = MathLog(2.0 * (double)(m_period - 1));
+
+   m_inv_log_denom = (m_log_denominator > 1.0e-9) ? (1.0 / m_log_denominator) : 1.0;
 
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Sevcik Method)                                 |
+//| Theoretical Random Walk Dimension for Current Configuration      |
 //+------------------------------------------------------------------+
-void CFDICalculator::Calculate(int rates_total, int prev_calculated, ENUM_APPLIED_PRICE price_type,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &out_fdi[])
+double CFDICalculator::GetTheoreticalRandomWalkD(void) const
   {
-   if(rates_total < m_period)
-      return;
+   if(m_method == FDI_NORMALIZED_BROWNIAN)
+      return 1.50; // Strictly normalized by design
 
-   int start_index = (prev_calculated > m_period) ? prev_calculated - 1 : m_period;
+   if(m_method == FDI_CANONICAL_SEVCIK)
+      return 1.0 + (0.5 * MathLog((double)(m_period - 1)) / m_log_denominator);
 
-   if(ArraySize(m_price) != rates_total)
-      ArrayResize(m_price, rates_total);
-   if(!PreparePriceSeries(rates_total, (prev_calculated>0?prev_calculated-1:0), price_type, open, high, low, close))
-      return;
-
-// Main Loop
-   for(int i = start_index; i < rates_total; i++)
-     {
-      // 1. Find Highest and Lowest in the window [i - Period + 1 ... i]
-      double highest = -DBL_MAX;
-      double lowest  = DBL_MAX;
-
-      // Optimization: We could use ArrayMaximum if we managed a specific array subset,
-      // but loop is fast enough for typical periods (30-100).
-      for(int k=0; k<m_period; k++)
-        {
-         double p = m_price[i-k];
-         if(p > highest)
-            highest = p;
-         if(p < lowest)
-            lowest  = p;
-        }
-
-      double price_range = highest - lowest;
-
-      // 2. Calculate Path Length (L)
-      // L = Sum of Sqrt( dx^2 + dy^2 )
-      // dx = 1 / (N-1)  (Normalized Time step)
-      // dy = (Price[k] - Price[k-1]) / Range  (Normalized Price diff)
-
-      double path_length = 0;
-      double diff_x = 1.0 / (double)(m_period - 1); // Constant time step
-      double diff_x_sq = diff_x * diff_x;
-
-      if(price_range > 1.0e-9)
-        {
-         for(int k=1; k<m_period; k++) // Loop through N points implies N-1 segments
-           {
-            double diff_price = m_price[i - m_period + 1 + k] - m_price[i - m_period + 1 + k - 1]; // Forward diff in window
-            double diff_y = diff_price / price_range;
-
-            // Pythagorean theorem
-            path_length += MathSqrt(diff_x_sq + (diff_y * diff_y));
-           }
-        }
-      else
-        {
-         // Flat line = straight line
-         path_length = 1.0;
-        }
-
-      // 3. Compute FDI
-      // FDI = 1 + [ Log(L) + Log(2) ] / Log( 2*(N-1) )
-      if(path_length > 0)
-        {
-         double fdi = 1.0 + (MathLog(path_length) + MathLog(2.0)) / m_log_denominator;
-         out_fdi[i] = fdi;
-        }
-      else
-        {
-         out_fdi[i] = 1.0;
-        }
-     }
+// Legacy Retail
+   return 1.0 + ((0.5 * MathLog((double)(m_period - 1)) + MathLog(2.0)) / m_log_denominator);
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price                                                    |
+//| Prepare Price Series                                             |
 //+------------------------------------------------------------------+
-bool CFDICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_APPLIED_PRICE price_type, const double &open[], const double &high[], const double &low[], const double &close[])
+bool CFDICalculator::PreparePriceSeries(const int rates_total, const int start_index,
+                                        const ENUM_APPLIED_PRICE price_type,
+                                        const double &open[], const double &high[],
+                                        const double &low[], const double &close[])
   {
+   if(ArraySize(m_price) != rates_total)
+     {
+      ArrayResize(m_price, rates_total);
+      ArraySetAsSeries(m_price, false);
+     }
+
    for(int i = start_index; i < rates_total; i++)
      {
       switch(price_type)
         {
-         case PRICE_CLOSE:
-            m_price[i] = close[i];
-            break;
          case PRICE_OPEN:
             m_price[i] = open[i];
             break;
@@ -145,14 +138,15 @@ bool CFDICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_A
             m_price[i] = low[i];
             break;
          case PRICE_MEDIAN:
-            m_price[i] = (high[i]+low[i])/2.0;
+            m_price[i] = (high[i] + low[i]) * 0.5;
             break;
          case PRICE_TYPICAL:
-            m_price[i] = (high[i]+low[i]+close[i])/3.0;
+            m_price[i] = (high[i] + low[i] + close[i]) * 0.333333333333;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i]+low[i]+2*close[i])/4.0;
+            m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
             break;
+         case PRICE_CLOSE:
          default:
             m_price[i] = close[i];
             break;
@@ -160,4 +154,108 @@ bool CFDICalculator::PreparePriceSeries(int rates_total, int start_index, ENUM_A
      }
    return true;
   }
+
+//+------------------------------------------------------------------+
+//| Main Calculation                                                 |
+//+------------------------------------------------------------------+
+void CFDICalculator::Calculate(const int rates_total, const int prev_calculated,
+                               const ENUM_APPLIED_PRICE price_type,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               double &out_fdi[], const int history_limit)
+  {
+   if(rates_total < m_period)
+      return;
+
+   if(ArraySize(out_fdi) != rates_total)
+     {
+      ArrayResize(out_fdi, rates_total);
+      ArraySetAsSeries(out_fdi, false);
+     }
+
+   int start_prep = (prev_calculated > 0) ? (prev_calculated - 1) : 0;
+   if(!PreparePriceSeries(rates_total, start_prep, price_type, open, high, low, close))
+      return;
+
+   int start_index = (prev_calculated > m_period) ? (prev_calculated - 1) : m_period;
+   if(history_limit > 0 && prev_calculated == 0)
+     {
+      int limit_start = rates_total - history_limit;
+      if(limit_start > start_index)
+         start_index = limit_start;
+     }
+
+   if(prev_calculated == 0)
+     {
+      for(int i = 0; i < start_index; i++)
+         out_fdi[i] = EMPTY_VALUE;
+     }
+
+   double ln_2 = MathLog(2.0);
+
+   for(int i = start_index; i < rates_total; i++)
+     {
+      // 1. Extreme Price Range in window
+      double highest = -DBL_MAX;
+      double lowest  =  DBL_MAX;
+      int win_start  = i - m_period + 1;
+
+      for(int k = 0; k < m_period; k++)
+        {
+         double p = m_price[win_start + k];
+         if(p > highest)
+            highest = p;
+         if(p < lowest)
+            lowest  = p;
+        }
+
+      double price_range = highest - lowest;
+
+      // 2. Waveform Path Length (L) in Unit Square
+      double path_length = 0.0;
+
+      if(price_range > 1.0e-9)
+        {
+         double inv_range = 1.0 / price_range;
+
+         for(int k = 1; k < m_period; k++)
+           {
+            double diff_price = m_price[win_start + k] - m_price[win_start + k - 1];
+            double diff_y     = diff_price * inv_range;
+            path_length += MathSqrt(m_diff_x_sq + (diff_y * diff_y));
+           }
+        }
+      else
+        {
+         path_length = 1.0;
+        }
+
+      // 3. Normalized Fractal Dimension Calculation
+      if(path_length > 1.0e-9)
+        {
+         double ln_L = MathLog(path_length);
+
+         if(m_method == FDI_NORMALIZED_BROWNIAN)
+           {
+            // Anchored: Flat Line = 1.0, Brownian Random Walk = 1.50
+            out_fdi[i] = 1.0 + (ln_L * m_inv_log_denom);
+           }
+         else
+            if(m_method == FDI_CANONICAL_SEVCIK)
+              {
+               out_fdi[i] = 1.0 + (ln_L * m_inv_log_denom);
+              }
+            else
+              {
+               out_fdi[i] = 1.0 + ((ln_L + ln_2) * m_inv_log_denom);
+              }
+        }
+      else
+        {
+         out_fdi[i] = 1.0;
+        }
+     }
+  }
+
+#endif // FDI_CALCULATOR_MQH
 //+------------------------------------------------------------------+
