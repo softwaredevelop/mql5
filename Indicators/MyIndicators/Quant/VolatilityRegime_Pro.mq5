@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.00" // Enterprise Edition: Two-Pointer MTF Fast-Path, 4-Zone Regimes & Zero-Heap Execution
+#property version     "2.40" // Enterprise Edition: Robust CalculateOnArray Offset Alignment & Zero MTF Crashes
 #property description "Institutional Volatility Regime (Expansion vs Contraction Ratio)."
-#property description "Normalized Fast ATR / Slow ATR ratio with MTF support and multi-regime classification."
+#property description "Driven by unified CMovingAverageCalculator and CATRCalculator with full MTF Fast-Path."
 
 #property indicator_separate_window
 #property indicator_buffers 3
@@ -20,19 +20,20 @@
 
 // Plot 1: Volatility Ratio Plot (Pre-allocated 4 color slots)
 #property indicator_label1  "Vola Ratio"
-#property indicator_type1   DRAW_COLOR_LINE
+#property indicator_type1   DRAW_COLOR_HISTOGRAM
 #property indicator_color1  clrDodgerBlue, clrGray, clrLime, clrDarkOrange
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
-// Plot 2: Volatility Signal EMA
-#property indicator_label2  "Signal EMA"
+// Plot 2: Volatility Signal Line
+#property indicator_label2  "Signal Line"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrMagenta
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  2
 
 #include <MyIncludes\ATR_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Visual Style Selector
@@ -58,7 +59,7 @@ input double                    InpLevelExpansion = 1.00;                   // E
 input double                    InpLevelClimax    = 1.50;                   // Climax Threshold (Above = Volatility Blowout)
 
 input group "--- Visual Appearance ---"
-input ENUM_VOLA_VISUAL          InpVisualType     = VISUAL_VOLA_LINE;       // Display Mode (Line vs Histogram)
+input ENUM_VOLA_VISUAL          InpVisualType     = VISUAL_VOLA_HISTOGRAM;  // Display Mode (Line vs Histogram)
 input color                     InpColorSqueeze   = clrDodgerBlue;          // Squeeze Color (< 0.75)
 input color                     InpColorQuiet     = clrGray;                // Quiet / Contraction Color (0.75 - 1.00)
 input color                     InpColorExpand    = clrLime;                // Expansion Color (1.00 - 1.50)
@@ -67,8 +68,9 @@ input int                       InpWidthPlot      = 2;                      // M
 
 input group "--- Signal Line Settings ---"
 input bool                      InpShowSignal     = true;                   // Display Signal Line
-input int                       InpSignalPeriod   = 9;                      // Signal Smoothing EMA Period
-input color                     InpColorSignal    = clrMagenta;             // Signal Line Color (High-Contrast Universal)
+input int                       InpSignalPeriod   = 9;                      // Signal Smoothing Period
+input ENUM_MA_TYPE              InpSignalType     = EMA;                    // Signal Line MA Type (SMA, EMA, SMMA, LWMA, DEMA, TEMA, VWMA)
+input color                     InpColorSignal    = clrMagenta;             // Signal Line Color (Universal Contrast)
 input ENUM_LINE_STYLE           InpStyleSignal    = STYLE_SOLID;            // Signal Line Style
 input int                       InpWidthSignal    = 2;                      // Signal Line Width
 
@@ -77,20 +79,27 @@ double BufRatio[];
 double BufColors[];
 double BufSignal[];
 
+//--- Volume Cache (For Engine Calculation)
+double g_double_volume[];
+
 //--- Persistent Native Calculation Registers (Zero Heap Thrashing!)
 double m_atr_fast[];
 double m_atr_slow[];
 
 //--- Internal HTF Data Caches (Chronological Arrays)
 double   h_open[], h_high[], h_low[], h_close[];
+long     h_tick_vol[], h_vol[];
+double   h_double_vol[];
 double   h_atr_fast[];
 double   h_atr_slow[];
 double   h_res_ratio[];
+double   h_res_sig[];
 datetime h_time[];
 
 //--- Global Engine Pointers & State Management
-CATRCalculator *g_atr_fast = NULL;
-CATRCalculator *g_atr_slow = NULL;
+CATRCalculator           *g_atr_fast          = NULL;
+CATRCalculator           *g_atr_slow          = NULL;
+CMovingAverageCalculator *g_signal_calculator = NULL;
 
 bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
@@ -143,7 +152,7 @@ int OnInit()
    if(InpVisualType == VISUAL_VOLA_HISTOGRAM)
      {
       PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_COLOR_HISTOGRAM);
-      IndicatorSetDouble(INDICATOR_MINIMUM, 0.0);
+      IndicatorSetDouble(INDICATOR_MINIMUM, 0.0); // Baseline anchored at 0.0
      }
    else
      {
@@ -177,7 +186,7 @@ int OnInit()
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelExpansion);
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, InpLevelClimax);
 
-// 4. Initialize Core Calculation Engines (Standard or Heikin Ashi)
+// 4. Initialize Core ATR Engines (Standard or Heikin Ashi)
    if(InpCandleSource == CANDLE_HEIKIN_ASHI)
      {
       g_atr_fast = new CATRCalculator_HA();
@@ -201,12 +210,24 @@ int OnInit()
       return INIT_FAILED;
      }
 
-   string ha_tag = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
-   string tf_str = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
-   string name   = StringFormat("VolaRegime%s%s(%d/%d)", ha_tag, tf_str, InpPeriodFast, InpPeriodSlow);
+// 5. Initialize Unified Moving Average Engine for Signal Line
+   if(InpShowSignal)
+     {
+      g_signal_calculator = new CMovingAverageCalculator();
+      if(CheckPointer(g_signal_calculator) == POINTER_INVALID || !g_signal_calculator.Init(InpSignalPeriod, InpSignalType))
+        {
+         Print("Critical Error: Failed to initialize CMovingAverageCalculator for Signal Line.");
+         return INIT_FAILED;
+        }
+     }
+
+   string ha_tag   = (InpCandleSource == CANDLE_HEIKIN_ASHI) ? " HA" : "";
+   string tf_str   = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
+   string ma_str   = EnumToString(InpSignalType);
+   string name     = StringFormat("VolaRegime%s%s(%d/%d|%s %d)", ha_tag, tf_str, InpPeriodFast, InpPeriodSlow, ma_str, InpSignalPeriod);
    IndicatorSetString(INDICATOR_SHORTNAME, name);
 
-// 5. Background Timer for MTF synchronization
+// 6. Background Timer for MTF synchronization
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
@@ -231,6 +252,11 @@ void OnDeinit(const int reason)
       delete g_atr_slow;
       g_atr_slow = NULL;
      }
+   if(CheckPointer(g_signal_calculator) != POINTER_INVALID)
+     {
+      delete g_signal_calculator;
+      g_signal_calculator = NULL;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -248,24 +274,24 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
   {
    int warmup = MathMax(InpPeriodFast, InpPeriodSlow) + 2;
-   if(rates_total < warmup || !g_atr_fast || !g_atr_slow)
+   int required_bars = warmup + InpSignalPeriod + 10;
+   if(rates_total < required_bars || !g_atr_fast || !g_atr_slow)
       return 0;
 
 // Force chronological indexing
-   ArraySetAsSeries(time,  false);
-   ArraySetAsSeries(open,  false);
-   ArraySetAsSeries(high,  false);
-   ArraySetAsSeries(low,   false);
-   ArraySetAsSeries(close, false);
-
-   double alpha = 2.0 / (double)(InpSignalPeriod + 1);
+   ArraySetAsSeries(time,        false);
+   ArraySetAsSeries(open,        false);
+   ArraySetAsSeries(high,        false);
+   ArraySetAsSeries(low,         false);
+   ArraySetAsSeries(close,       false);
+   ArraySetAsSeries(tick_volume, false);
+   ArraySetAsSeries(volume,      false);
 
 //===================================================================
 // MODE 1: Direct Current Timeframe Calculation (Zero-Lag O(1))
 //===================================================================
    if(!g_is_mtf_mode)
      {
-      // Safe allocation of persistent buffers
       if(ArraySize(m_atr_fast) != rates_total)
         {
          ArrayResize(m_atr_fast, rates_total);
@@ -274,16 +300,40 @@ int OnCalculate(const int rates_total,
          ArraySetAsSeries(m_atr_slow, false);
         }
 
-      // 1. Calculate Pipelined Fast and Slow ATR in O(1)
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(ArraySize(g_double_volume) != rates_total)
+        {
+         ArrayResize(g_double_volume, rates_total);
+         ArraySetAsSeries(g_double_volume, false);
+        }
+
+      int start_sync = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      if(volume_limit > 0)
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)volume[i];
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)tick_volume[i];
+        }
+
+      // 1. Calculate Fast and Slow ATR in O(1)
       g_atr_fast.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_fast);
       g_atr_slow.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_slow);
 
       int start = (prev_calculated > 0) ? (prev_calculated - 1) : warmup;
+      int actual_start = warmup;
+
       if(InpHistoryBars > 0 && prev_calculated == 0)
         {
          int limit_start = rates_total - InpHistoryBars;
          if(limit_start > start)
+           {
             start = limit_start;
+            actual_start = limit_start;
+           }
         }
 
       if(prev_calculated == 0)
@@ -296,7 +346,7 @@ int OnCalculate(const int rates_total,
            }
         }
 
-      // 2. Compute Unitless Volatility Ratio & 4-Zone Color Mapping
+      // 2. Compute Unitless Volatility Ratio & Color Mapping
       for(int i = start; i < rates_total; i++)
         {
          double slow = m_atr_slow[i];
@@ -307,7 +357,6 @@ int OnCalculate(const int rates_total,
             double ratio = fast / slow;
             BufRatio[i]  = ratio;
 
-            // Map Institutional Volatility Regimes
             if(ratio < InpLevelSqueeze)
                BufColors[i] = 0.0; // Slot 0: Deep Squeeze (Blue)
             else
@@ -318,19 +367,23 @@ int OnCalculate(const int rates_total,
                      BufColors[i] = 2.0; // Slot 2: Active Expansion (Lime)
                   else
                      BufColors[i] = 3.0; // Slot 3: Volatility Climax (Dark Orange)
-
-            // Signal EMA Smoothing
-            if(i == start || BufSignal[i - 1] == EMPTY_VALUE)
-               BufSignal[i] = ratio;
-            else
-               BufSignal[i] = BufSignal[i - 1] + alpha * (ratio - BufSignal[i - 1]);
            }
          else
            {
             BufRatio[i]  = 1.0;
             BufColors[i] = 1.0;
-            BufSignal[i] = 1.0;
            }
+        }
+
+      // 3. Compute Signal Line via Unified CalculateOnArray Engine with exact actual_start offset
+      if(InpShowSignal && g_signal_calculator != NULL)
+        {
+         g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufRatio, g_double_volume, BufSignal, actual_start);
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            BufSignal[i] = EMPTY_VALUE;
         }
 
       return rates_total;
@@ -339,8 +392,8 @@ int OnCalculate(const int rates_total,
 //===================================================================
 // MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
-   int required_bars = warmup + 10;
-   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+   int required_bars_mtf = warmup + 10;
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars_mtf))
      {
       g_data_synced = false;
       return 0;
@@ -357,7 +410,7 @@ int OnCalculate(const int rates_total,
       g_last_htf_time = htf_time_current;
 
       int htf_bars = iBars(_Symbol, g_calc_timeframe);
-      if(htf_bars < required_bars)
+      if(htf_bars < required_bars_mtf)
         {
          g_data_ready = false;
          return 0;
@@ -365,29 +418,35 @@ int OnCalculate(const int rates_total,
 
       g_htf_count = MathMin(htf_bars, 2000);
 
-      // Reallocate persistent cache registers ONLY when capacity changes
       if(ArraySize(h_time) != g_htf_count)
         {
-         ArrayResize(h_time,      g_htf_count);
-         ArrayResize(h_open,      g_htf_count);
-         ArrayResize(h_high,      g_htf_count);
-         ArrayResize(h_low,       g_htf_count);
-         ArrayResize(h_close,     g_htf_count);
-         ArrayResize(h_atr_fast,  g_htf_count);
-         ArrayResize(h_atr_slow,  g_htf_count);
-         ArrayResize(h_res_ratio, g_htf_count);
+         ArrayResize(h_time,       g_htf_count);
+         ArrayResize(h_open,       g_htf_count);
+         ArrayResize(h_high,       g_htf_count);
+         ArrayResize(h_low,        g_htf_count);
+         ArrayResize(h_close,      g_htf_count);
+         ArrayResize(h_tick_vol,   g_htf_count);
+         ArrayResize(h_vol,        g_htf_count);
+         ArrayResize(h_double_vol, g_htf_count);
+         ArrayResize(h_atr_fast,   g_htf_count);
+         ArrayResize(h_atr_slow,   g_htf_count);
+         ArrayResize(h_res_ratio,  g_htf_count);
+         ArrayResize(h_res_sig,    g_htf_count);
 
-         ArraySetAsSeries(h_time,      false);
-         ArraySetAsSeries(h_open,      false);
-         ArraySetAsSeries(h_high,      false);
-         ArraySetAsSeries(h_low,       false);
-         ArraySetAsSeries(h_close,     false);
-         ArraySetAsSeries(h_atr_fast,  false);
-         ArraySetAsSeries(h_atr_slow,  false);
-         ArraySetAsSeries(h_res_ratio, false);
+         ArraySetAsSeries(h_time,       false);
+         ArraySetAsSeries(h_open,       false);
+         ArraySetAsSeries(h_high,       false);
+         ArraySetAsSeries(h_low,        false);
+         ArraySetAsSeries(h_close,      false);
+         ArraySetAsSeries(h_tick_vol,   false);
+         ArraySetAsSeries(h_vol,        false);
+         ArraySetAsSeries(h_double_vol, false);
+         ArraySetAsSeries(h_atr_fast,   false);
+         ArraySetAsSeries(h_atr_slow,   false);
+         ArraySetAsSeries(h_res_ratio,  false);
+         ArraySetAsSeries(h_res_sig,    false);
         }
 
-      // Atomic bulk rates copy
       MqlRates htf_bulk_rates[];
       if(CopyRates(_Symbol, g_calc_timeframe, 0, g_htf_count, htf_bulk_rates) != g_htf_count)
         {
@@ -397,14 +456,16 @@ int OnCalculate(const int rates_total,
 
       for(int i = 0; i < g_htf_count; i++)
         {
-         h_time[i]  = htf_bulk_rates[i].time;
-         h_open[i]  = htf_bulk_rates[i].open;
-         h_high[i]  = htf_bulk_rates[i].high;
-         h_low[i]   = htf_bulk_rates[i].low;
-         h_close[i] = htf_bulk_rates[i].close;
+         h_time[i]       = htf_bulk_rates[i].time;
+         h_open[i]       = htf_bulk_rates[i].open;
+         h_high[i]       = htf_bulk_rates[i].high;
+         h_low[i]        = htf_bulk_rates[i].low;
+         h_close[i]      = htf_bulk_rates[i].close;
+         h_tick_vol[i]   = htf_bulk_rates[i].tick_volume;
+         h_vol[i]        = (long)htf_bulk_rates[i].real_volume;
+         h_double_vol[i] = (h_vol[i] > 0) ? (double)h_vol[i] : (double)h_tick_vol[i];
         }
 
-      // Compute HTF Baseline ATRs
       g_atr_fast.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_atr_fast);
       g_atr_slow.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_atr_slow);
 
@@ -414,6 +475,13 @@ int OnCalculate(const int rates_total,
             h_res_ratio[i] = h_atr_fast[i] / h_atr_slow[i];
          else
             h_res_ratio[i] = 1.0;
+        }
+
+      // Compute HTF Signal Line via Unified Engine with exact persistent volume buffer
+      if(InpShowSignal && g_signal_calculator != NULL)
+        {
+         int htf_actual_start = (InpHistoryBars > 0) ? MathMax(warmup, g_htf_count - InpHistoryBars) : warmup;
+         g_signal_calculator.CalculateOnArray(g_htf_count, 0, h_res_ratio, h_double_vol, h_res_sig, htf_actual_start);
         }
 
       g_data_ready = true;
@@ -457,10 +525,7 @@ int OnCalculate(const int rates_total,
                   else
                      BufColors[i] = 3.0;
 
-            if(i == 0 || BufSignal[i - 1] == EMPTY_VALUE)
-               BufSignal[i] = ratio;
-            else
-               BufSignal[i] = BufSignal[i - 1] + alpha * (ratio - BufSignal[i - 1]);
+            BufSignal[i] = (InpShowSignal && h_res_sig[htf_ptr] != EMPTY_VALUE) ? h_res_sig[htf_ptr] : EMPTY_VALUE;
            }
         }
 
@@ -472,18 +537,20 @@ int OnCalculate(const int rates_total,
 
 // B) LIVE TICK FAST-PATH: HTF bar did not close. Update forming candle in RAM!
    int live_idx = g_htf_count - 1;
-   if(live_idx >= required_bars)
+   if(live_idx >= required_bars_mtf)
      {
       MqlRates htf_rate[1];
       if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_time[live_idx]  = htf_rate[0].time;
-         h_open[live_idx]  = htf_rate[0].open;
-         h_high[live_idx]  = htf_rate[0].high;
-         h_low[live_idx]   = htf_rate[0].low;
-         h_close[live_idx] = htf_rate[0].close;
+         h_time[live_idx]       = htf_rate[0].time;
+         h_open[live_idx]       = htf_rate[0].open;
+         h_high[live_idx]       = htf_rate[0].high;
+         h_low[live_idx]        = htf_rate[0].low;
+         h_close[live_idx]      = htf_rate[0].close;
+         h_tick_vol[live_idx]   = htf_rate[0].tick_volume;
+         h_vol[live_idx]        = (long)htf_rate[0].real_volume;
+         h_double_vol[live_idx] = (h_vol[live_idx] > 0) ? (double)h_vol[live_idx] : (double)h_tick_vol[live_idx];
 
-         // Mock incremental calculation strictly on forming HTF bar
          g_atr_fast.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_atr_fast);
          g_atr_slow.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_atr_slow);
 
@@ -491,6 +558,13 @@ int OnCalculate(const int rates_total,
             h_res_ratio[live_idx] = h_atr_fast[live_idx] / h_atr_slow[live_idx];
          else
             h_res_ratio[live_idx] = 1.0;
+
+         // SAFE INCREMENTAL UPDATE: Passes full-size h_double_vol array! Zero out-of-bounds!
+         if(InpShowSignal && g_signal_calculator != NULL)
+           {
+            int htf_actual_start = (InpHistoryBars > 0) ? MathMax(warmup, g_htf_count - InpHistoryBars) : warmup;
+            g_signal_calculator.CalculateOnArray(g_htf_count, g_htf_count, h_res_ratio, h_double_vol, h_res_sig, htf_actual_start);
+           }
         }
      }
 
@@ -508,6 +582,7 @@ int OnCalculate(const int rates_total,
 // Vectorized Assignment across forming block
    double ratio_val = h_res_ratio[live_idx];
    double col_val   = 1.0;
+   double sig_val   = InpShowSignal ? h_res_sig[live_idx] : EMPTY_VALUE;
 
    if(ratio_val != EMPTY_VALUE)
      {
@@ -527,11 +602,7 @@ int OnCalculate(const int rates_total,
      {
       BufRatio[i]  = ratio_val;
       BufColors[i] = col_val;
-
-      if(i > 0 && BufSignal[i - 1] != EMPTY_VALUE && ratio_val != EMPTY_VALUE)
-         BufSignal[i] = BufSignal[i - 1] + alpha * (ratio_val - BufSignal[i - 1]);
-      else
-         BufSignal[i] = ratio_val;
+      BufSignal[i] = sig_val;
      }
 
    return rates_total;
@@ -542,8 +613,9 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   int required_bars = MathMax(InpPeriodFast, InpPeriodSlow) + 12;
-   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
+   int warmup = MathMax(InpPeriodFast, InpPeriodSlow) + 2;
+   int required_bars_mtf = warmup + InpSignalPeriod + 10;
+   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars_mtf, g_data_synced);
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
