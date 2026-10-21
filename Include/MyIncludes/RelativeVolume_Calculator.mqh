@@ -4,7 +4,7 @@
 //|                                        Copyright 2026, xxxxxxxx  |
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "1.20" // Enterprise Refactor: Pipelined Multipliers & Chronological Safety
+#property version     "1.30" // Enterprise Refactor: Pipelined Multipliers & 100% Backward Compatibility
 #property description "High-performance calculation engine for Relative Volume (RVOL)."
 
 #ifndef RELATIVE_VOLUME_CALCULATOR_MQH
@@ -26,10 +26,13 @@ public:
    bool              Init(const int period);
    int               GetPeriod(void) const { return m_period; }
 
-   // Calculates RVOL for the series in O(1)
+   //--- STRICT INTERFACE 1: Original 4-param signature (100% backward compatible)
    void              Calculate(const int rates_total, const int prev_calculated, const long &volume[], double &rvol_buffer[]);
 
-   // Calculates single value (Helper for Scripts)
+   //--- EXTENDED INTERFACE 2: With history limit support for massive workspaces
+   void              Calculate(const int rates_total, const int prev_calculated, const long &volume[], double &rvol_buffer[], const int history_limit);
+
+   //--- Calculates single value (Helper for Scripts and Real-time MTF Candle Mocking)
    double            CalculateSingle(const int total, const long &volume[], const int index);
   };
 
@@ -44,9 +47,17 @@ bool CRelativeVolumeCalculator::Init(const int period)
   }
 
 //+------------------------------------------------------------------+
-//| Main Incremental Calculation (O(1) on live ticks)                |
+//| Legacy Signature: 4-Parameters (100% Backward Compatible)        |
 //+------------------------------------------------------------------+
 void CRelativeVolumeCalculator::Calculate(const int rates_total, const int prev_calculated, const long &volume[], double &rvol_buffer[])
+  {
+   Calculate(rates_total, prev_calculated, volume, rvol_buffer, 0);
+  }
+
+//+------------------------------------------------------------------+
+//| Extended Signature: With History Limit & Pipelined Execution     |
+//+------------------------------------------------------------------+
+void CRelativeVolumeCalculator::Calculate(const int rates_total, const int prev_calculated, const long &volume[], double &rvol_buffer[], const int history_limit)
   {
    if(rates_total <= m_period)
       return;
@@ -59,10 +70,16 @@ void CRelativeVolumeCalculator::Calculate(const int rates_total, const int prev_
      }
 
    int start_index = (prev_calculated > m_period) ? (prev_calculated - 1) : m_period;
+   if(history_limit > 0 && prev_calculated == 0)
+     {
+      int limit_start = rates_total - history_limit;
+      if(limit_start > start_index)
+         start_index = limit_start;
+     }
 
    if(prev_calculated == 0)
      {
-      for(int i = 0; i < m_period; i++)
+      for(int i = 0; i < start_index; i++)
          rvol_buffer[i] = 0.0;
      }
 
@@ -82,11 +99,11 @@ void CRelativeVolumeCalculator::Calculate(const int rates_total, const int prev_
   }
 
 //+------------------------------------------------------------------+
-//| Single Bar Calculator Helper                                     |
+//| Single Bar Calculator Helper (Protected Memory Bounds)           |
 //+------------------------------------------------------------------+
 double CRelativeVolumeCalculator::CalculateSingle(const int total, const long &volume[], const int index)
   {
-   if(index < m_period || index >= total)
+   if(index < m_period || index >= total || ArraySize(volume) < total)
       return 0.0;
 
    double sum = 0.0;
