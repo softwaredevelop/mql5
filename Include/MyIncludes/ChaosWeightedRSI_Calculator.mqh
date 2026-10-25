@@ -4,13 +4,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.20" // Enterprise: Strict Recursive State Preservation (Fixes Live Bar Flip-Flop)
-#property description "Mathematical engine for Chaos-Weighted RSI with Sevcik Fractal Dimension modulation."
+#property version     "2.30" // Enterprise: Integrated Central CFractalEngine Architecture
+#property description "Mathematical engine for Chaos-Weighted RSI utilizing unified CFractalEngine."
 
 #ifndef CHAOS_WEIGHTED_RSI_CALCULATOR_MQH
 #define CHAOS_WEIGHTED_RSI_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\Fractal_Engine.mqh>
 
 //+==================================================================+
 //|             CLASS: CChaosWeightedRSI_Calculator                  |
@@ -22,12 +23,11 @@ private:
    int                       m_fdi_period;
    double                    m_sensitivity;
    ENUM_APPLIED_PRICE_HA_ALL m_source_type;
-
-   // Precalculated Invariants
    double                    m_base_alpha;
-   double                    m_delta_x_sq;
-   double                    m_log_fdi_denom;
-   double                    m_inv_fdi_denom;
+
+   // Embedded Central DSP Engines
+   CFractalEngine            m_fractal_engine;
+   CHeikinAshi_Calculator    m_ha_engine;
 
    // Persistent Buffers
    double                    m_price[];
@@ -37,12 +37,10 @@ private:
 
    // Heikin Ashi Buffers
    double                    m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-   CHeikinAshi_Calculator    m_ha_engine;
 
    bool                      PreparePriceSeries(const int rates_total, const int start_index,
          const double &open[], const double &high[],
          const double &low[], const double &close[]);
-   double                    CalculateChaosPoint(const int idx, const int length);
 
 public:
                      CChaosWeightedRSI_Calculator(void);
@@ -68,10 +66,7 @@ CChaosWeightedRSI_Calculator::CChaosWeightedRSI_Calculator(void) :
    m_fdi_period(20),
    m_sensitivity(1.0),
    m_source_type(PRICE_CLOSE_STD),
-   m_base_alpha(0.07142857),
-   m_delta_x_sq(0.0),
-   m_log_fdi_denom(1.0),
-   m_inv_fdi_denom(1.0)
+   m_base_alpha(0.07142857)
   {
    ArraySetAsSeries(m_price,     false);
    ArraySetAsSeries(m_avg_gain,  false);
@@ -108,19 +103,17 @@ bool CChaosWeightedRSI_Calculator::Init(const int rsi_period, const int fdi_peri
    m_fdi_period    = (fdi_period < 5) ? 5 : fdi_period;
    m_sensitivity   = (sensitivity <= 0.0) ? 1.0 : sensitivity;
    m_source_type   = source;
-
    m_base_alpha    = 1.0 / (double)m_rsi_period;
 
-   double delta_x  = 1.0 / (double)(m_fdi_period - 1);
-   m_delta_x_sq    = delta_x * delta_x;
-   m_log_fdi_denom = MathLog(2.0 * (double)(m_fdi_period - 1));
-   m_inv_fdi_denom = (m_log_fdi_denom > 1.0e-9) ? (1.0 / m_log_fdi_denom) : 1.0;
+// Initialize Embedded Central Fractal Engine
+   if(!m_fractal_engine.Init(m_fdi_period, FDI_CANONICAL_SEVCIK))
+      return false;
 
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price Series (Unified Standard / Heikin Ashi)            |
+//| Prepare Price Series                                             |
 //+------------------------------------------------------------------+
 bool CChaosWeightedRSI_Calculator::PreparePriceSeries(const int rates_total, const int start_index,
       const double &open[], const double &high[],
@@ -216,54 +209,7 @@ bool CChaosWeightedRSI_Calculator::PreparePriceSeries(const int rates_total, con
   }
 
 //+------------------------------------------------------------------+
-//| Calculate Local Fractal Chaos Ratio [0.0, 1.0]                   |
-//+------------------------------------------------------------------+
-double CChaosWeightedRSI_Calculator::CalculateChaosPoint(const int idx, const int length)
-  {
-   if(idx < length - 1)
-      return 0.5;
-
-   int win_start = idx - length + 1;
-   double max_val = m_price[win_start];
-   double min_val = m_price[win_start];
-
-   for(int k = 1; k < length; k++)
-     {
-      double p = m_price[win_start + k];
-      if(p > max_val)
-         max_val = p;
-      if(p < min_val)
-         min_val = p;
-     }
-
-   double price_range = max_val - min_val;
-   double path_length = 0.0;
-
-   if(price_range > 1.0e-9)
-     {
-      double inv_range = 1.0 / price_range;
-      for(int k = 1; k < length; k++)
-        {
-         double diff_y = (m_price[win_start + k] - m_price[win_start + k - 1]) * inv_range;
-         path_length += MathSqrt(m_delta_x_sq + (diff_y * diff_y));
-        }
-     }
-   else
-     {
-      path_length = 1.0;
-     }
-
-   if(path_length <= 1.0e-9)
-      path_length = 1.0e-9;
-
-   double fdi = 1.0 + (MathLog(path_length) * m_inv_fdi_denom);
-   double chaos = (fdi - 1.0) / 0.5;
-
-   return MathMax(0.0, MathMin(1.0, chaos));
-  }
-
-//+------------------------------------------------------------------+
-//| Main Incremental Calculation Engine (O(1) on live ticks)         |
+//| Main Incremental Calculation Engine                              |
 //+------------------------------------------------------------------+
 void CChaosWeightedRSI_Calculator::Calculate(const int rates_total, const int prev_calculated,
       const double &open[], const double &high[],
@@ -280,7 +226,7 @@ void CChaosWeightedRSI_Calculator::Calculate(const int rates_total, const int pr
       ArraySetAsSeries(out_wrsi, false);
      }
 
-// STATE PRESERVATION: Allocate arrays without wiping historical recursive registers!
+// Safe state allocation preserving recursive memory
    if(ArraySize(m_avg_gain) != rates_total)
      {
       int old_sz = ArraySize(m_avg_gain);
@@ -293,14 +239,12 @@ void CChaosWeightedRSI_Calculator::Calculate(const int rates_total, const int pr
 
       if(old_sz == 0 || prev_calculated == 0)
         {
-         // Cold startup clean initialization
          ArrayInitialize(m_avg_gain, EMPTY_VALUE);
          ArrayInitialize(m_avg_loss, EMPTY_VALUE);
          ArrayInitialize(m_wrsi,     50.0);
         }
       else
         {
-         // Append only: initialize newly added elements, NEVER wipe historical memory!
          for(int k = old_sz; k < rates_total; k++)
            {
             m_avg_gain[k] = EMPTY_VALUE;
@@ -340,9 +284,10 @@ void CChaosWeightedRSI_Calculator::Calculate(const int rates_total, const int pr
 
    for(int i = start; i < rates_total; i++)
      {
-      double chaos = CalculateChaosPoint(i, m_fdi_period);
+      // Calculate Chaos directly via Central Fractal Engine
+      double chaos = m_fractal_engine.CalculateChaosPoint(i, m_fdi_period, m_price);
 
-      // Dynamically modulated smoothing factor
+      // Adaptive smoothing modulation
       double adjusted_alpha = m_base_alpha * MathPow(1.0 - chaos, m_sensitivity);
       adjusted_alpha = MathMax(0.001, MathMin(1.0, adjusted_alpha));
 
@@ -350,7 +295,6 @@ void CChaosWeightedRSI_Calculator::Calculate(const int rates_total, const int pr
       double gain   = MathMax(change, 0.0);
       double loss   = MathMax(-change, 0.0);
 
-      // Safe seeding that does not rely on deleted memory
       if(i == actual_start || m_avg_gain[i - 1] == EMPTY_VALUE || m_avg_loss[i - 1] == EMPTY_VALUE)
         {
          m_avg_gain[i] = gain;
@@ -377,7 +321,7 @@ void CChaosWeightedRSI_Calculator::Calculate(const int rates_total, const int pr
   }
 
 //+------------------------------------------------------------------+
-//| Accessor: Direct WRSI element query                              |
+//| Accessor                                                         |
 //+------------------------------------------------------------------+
 double CChaosWeightedRSI_Calculator::GetWRSI(const int index) const
   {
