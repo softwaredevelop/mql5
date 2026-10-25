@@ -3,9 +3,9 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.20" // Enterprise Edition: High-Contrast Magenta Signal, Pure Brownian Normalization & O(1) ALU
+#property version     "2.40" // Enterprise Edition: MovingAverage_Engine Integration & Heikin Ashi Pipeline
 #property description "Fractal Dimension Index (FDI) with High-Performance Multi-Timeframe Engine."
-#property description "Measures curve complexity. Low = Persistent Trend, 1.50 = Random Walk, High = Anti-persistent Chop."
+#property description "Features unified MovingAverage_Engine Signal Line and full Heikin Ashi price routing."
 
 #property indicator_separate_window
 #property indicator_buffers 3
@@ -25,14 +25,15 @@
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
-// Plot 2: FDI Signal Line (High-contrast Magenta for dark & light templates)
-#property indicator_label2  "Signal EMA"
+// Plot 2: FDI Signal Line (High-contrast Magenta overlay)
+#property indicator_label2  "Signal Line"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrMagenta
 #property indicator_style2  STYLE_SOLID
 #property indicator_width2  2
 
 #include <MyIncludes\FDI_Calculator.mqh>
+#include <MyIncludes\MovingAverage_Engine.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Visual Style Selector
@@ -44,45 +45,57 @@ enum ENUM_FDI_VISUAL
 
 //--- Input Parameters
 input group "--- Timeframe Settings ---"
-input ENUM_TIMEFRAMES           InpTimeframe      = PERIOD_CURRENT;         // Calculation Timeframe (Current or HTF)
+input ENUM_TIMEFRAMES           InpTimeframe         = PERIOD_CURRENT;         // Calculation Timeframe (Current or HTF)
 
 input group "--- FDI Settings ---"
-input int                       InpPeriod         = 30;                     // Analysis Window (N, recommended 20-50)
-input ENUM_FDI_METHOD           InpMethod         = FDI_NORMALIZED_BROWNIAN;// Calculation Method (Brownian = True 1.50 baseline)
-input ENUM_APPLIED_PRICE        InpPrice          = PRICE_CLOSE;            // Price Source
-input int                       InpHistoryBars    = 1000;                   // History Bars Limit (0 = Full Chart)
+input int                       InpPeriod            = 30;                     // Analysis Window (N, recommended 20-50)
+input ENUM_FDI_METHOD           InpMethod            = FDI_NORMALIZED_BROWNIAN;// Calculation Method (Brownian = True 1.50 baseline)
+input ENUM_APPLIED_PRICE_HA_ALL InpPriceSource       = PRICE_CLOSE_STD;        // Price Source (Standard / Heikin Ashi)
+input int                       InpHistoryBars       = 1000;                   // History Bars Limit (0 = Full Chart)
 
 input group "--- Regime Thresholds ---"
-input bool                      InpAutoThresholds = true;                   // Auto-Adapt Thresholds to chosen Period & Method
-input double                    InpLevelTrend     = 1.45;                   // Manual Trend Threshold (if Auto is false)
-input double                    InpLevelChop      = 1.55;                   // Manual Chop Threshold (if Auto is false)
+input bool                      InpAutoThresholds    = true;                   // Auto-Adapt Thresholds to chosen Period & Method
+input double                    InpLevelTrend        = 1.45;                   // Manual Trend Threshold (if Auto is false)
+input double                    InpLevelChop         = 1.55;                   // Manual Chop Threshold (if Auto is false)
 
 input group "--- Visual Appearance ---"
-input ENUM_FDI_VISUAL           InpVisualType     = VISUAL_FDI_LINE;        // Display Mode (Line vs Histogram)
-input color                     InpColorTrend     = clrDeepSkyBlue;         // Persistent Trend (Order)
-input color                     InpColorRandom    = clrGold;                // Random Walk Equilibrium
-input color                     InpColorChop      = clrCrimson;             // Anti-persistent Chop (Chaos)
-input int                       InpWidthPlot      = 2;                      // Main Plot Width
+input ENUM_FDI_VISUAL           InpVisualType        = VISUAL_FDI_LINE;        // Display Mode (Line vs Histogram)
+input color                     InpColorTrend        = clrDeepSkyBlue;         // Persistent Trend (Order)
+input color                     InpColorRandom       = clrGold;                // Random Walk Equilibrium
+input color                     InpColorChop         = clrCrimson;             // Anti-persistent Chop (Chaos)
+input int                       InpWidthPlot         = 2;                      // Main Plot Width
 
 input group "--- Signal Line Settings ---"
-input bool                      InpShowSignal     = true;                   // Display Signal Line
-input int                       InpSignalPeriod   = 9;                      // Signal Smoothing EMA Period
-input color                     InpColorSignal    = clrMagenta;             // Signal Line Color (High-Contrast Universal)
-input ENUM_LINE_STYLE           InpStyleSignal    = STYLE_SOLID;            // Signal Line Style
-input int                       InpWidthSignal    = 2;                      // Signal Line Width
+input bool                      InpShowSignal        = true;                   // Display Signal Line
+input int                       InpSignalPeriod      = 9;                      // Signal Smoothing Period
+input ENUM_MA_TYPE              InpSignalType        = EMA;                    // Signal Line MA Type (Engine Standard)
+input color                     InpColorSignal       = clrMagenta;             // Signal Line Color (Universal Contrast)
+input ENUM_LINE_STYLE           InpStyleSignal       = STYLE_SOLID;            // Signal Line Style
+input int                       InpWidthSignal       = 2;                      // Signal Line Width
+
+input group "--- Multi-Instance Settings ---"
+input int                       InpInstanceID        = 1;                      // Unique Instance ID (for multiple indicators on 1 chart)
 
 //--- Visual Indicator Buffers
 double BufFDI[];
 double BufColor[];
 double BufSignal[];
 
+//--- Volume Cache (For Engine Calculation)
+double g_double_volume[];
+
 //--- Internal HTF Data Caches (Chronological Arrays)
 double   h_open[], h_high[], h_low[], h_close[];
+long     h_tick_vol[], h_vol[];
+double   h_double_vol[];
 double   h_res_fdi[];
+double   h_res_sig[];
 datetime h_time[];
 
-//--- Global Objects & State Management
-CFDICalculator *g_calc = NULL;
+//--- Global Engine Pointers & State Management
+CFDICalculator           *g_calc              = NULL;
+CMovingAverageCalculator *g_signal_calculator = NULL;
+string                    g_prefix            = "";
 
 bool            g_is_mtf_mode   = false;
 ENUM_TIMEFRAMES g_calc_timeframe;
@@ -100,11 +113,6 @@ double          g_level_chop    = 1.55;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   g_data_ready    = false;
-   g_data_synced   = false;
-   g_htf_count     = 0;
-   g_last_htf_time = 0;
-
 // 1. Resolve Timeframe and validate direction
    g_calc_timeframe = InpTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
@@ -118,7 +126,20 @@ int OnInit()
      }
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
-// 2. Setup Buffers & Chronological Indexing
+// 2. Build Fully Isolated Deterministic Instance Namespace
+   g_prefix = StringFormat("FDI_%I64d_%s_%d_%d_",
+                           ChartID(),
+                           EnumToString(g_calc_timeframe),
+                           InpPeriod,
+                           InpInstanceID);
+   ObjectsDeleteAll(0, g_prefix);
+
+   g_data_ready    = false;
+   g_data_synced   = false;
+   g_htf_count     = 0;
+   g_last_htf_time = 0;
+
+// 3. Setup Buffers & Chronological Indexing
    SetIndexBuffer(0, BufFDI,    INDICATOR_DATA);
    SetIndexBuffer(1, BufColor,  INDICATOR_COLOR_INDEX);
    SetIndexBuffer(2, BufSignal, INDICATOR_DATA);
@@ -135,15 +156,26 @@ int OnInit()
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    IndicatorSetInteger(INDICATOR_DIGITS, 3);
 
-// 3. Initialize Calculation Engine
+// 4. Initialize Core Calculation Engine
    g_calc = new CFDICalculator();
-   if(CheckPointer(g_calc) == POINTER_INVALID || !g_calc.Init(InpPeriod, InpMethod))
+   if(CheckPointer(g_calc) == POINTER_INVALID || !g_calc.Init(InpPeriod, InpMethod, InpPriceSource))
      {
       Print("Critical Error: Failed to initialize CFDICalculator.");
       return INIT_FAILED;
      }
 
-// 4. Auto-Calibrate Thresholds to the Exact Theoretical Distribution
+// 5. Initialize Unified Moving Average Engine for Signal Line
+   if(InpShowSignal)
+     {
+      g_signal_calculator = new CMovingAverageCalculator();
+      if(CheckPointer(g_signal_calculator) == POINTER_INVALID || !g_signal_calculator.Init(InpSignalPeriod, InpSignalType))
+        {
+         Print("Critical Error: Failed to initialize CMovingAverageCalculator for Signal Line.");
+         return INIT_FAILED;
+        }
+     }
+
+// 6. Auto-Calibrate Thresholds to the Exact Theoretical Distribution
    if(InpAutoThresholds)
      {
       g_level_random = g_calc.GetTheoreticalRandomWalkD();
@@ -189,12 +221,15 @@ int OnInit()
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, g_level_random);
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, g_level_chop);
 
+   string ha_tag   = (InpPriceSource <= PRICE_HA_CLOSE) ? " HA" : "";
    string tf_str   = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
    string meth_str = (InpMethod == FDI_NORMALIZED_BROWNIAN) ? "Brownian" : ((InpMethod == FDI_CANONICAL_SEVCIK) ? "Sevcik" : "Classic");
-   string name     = StringFormat("FDI%s(%d|%s)", tf_str, InpPeriod, meth_str);
+   string ma_str   = EnumToString(InpSignalType);
+   string inst_str = (InpInstanceID > 1) ? StringFormat(" #%d", InpInstanceID) : "";
+   string name     = StringFormat("FDI%s%s(%d|%s|%s %d)%s", ha_tag, tf_str, InpPeriod, meth_str, ma_str, InpSignalPeriod, inst_str);
    IndicatorSetString(INDICATOR_SHORTNAME, name);
 
-// 5. Background Timer for MTF synchronization
+// 7. Background Timer for MTF synchronization
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
@@ -209,11 +244,20 @@ void OnDeinit(const int reason)
    if(g_is_mtf_mode)
       EventKillTimer();
 
+   ObjectsDeleteAll(0, g_prefix);
+
    if(CheckPointer(g_calc) != POINTER_INVALID)
      {
       delete g_calc;
       g_calc = NULL;
      }
+   if(CheckPointer(g_signal_calculator) != POINTER_INVALID)
+     {
+      delete g_signal_calculator;
+      g_signal_calculator = NULL;
+     }
+
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
@@ -230,58 +274,99 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total < InpPeriod || !g_calc)
+   int warmup = InpPeriod + 2;
+   int required_bars = warmup + InpSignalPeriod + 10;
+   if(rates_total < required_bars || !g_calc)
       return 0;
 
 // Force chronological indexing
-   ArraySetAsSeries(time,  false);
-   ArraySetAsSeries(open,  false);
-   ArraySetAsSeries(high,  false);
-   ArraySetAsSeries(low,   false);
-   ArraySetAsSeries(close, false);
-
-   double alpha = 2.0 / (double)(InpSignalPeriod + 1);
+   ArraySetAsSeries(time,        false);
+   ArraySetAsSeries(open,        false);
+   ArraySetAsSeries(high,        false);
+   ArraySetAsSeries(low,         false);
+   ArraySetAsSeries(close,       false);
+   ArraySetAsSeries(tick_volume, false);
+   ArraySetAsSeries(volume,      false);
 
 //===================================================================
 // MODE 1: Direct Current Timeframe Calculation (Zero-Lag O(1))
 //===================================================================
    if(!g_is_mtf_mode)
      {
-      g_calc.Calculate(rates_total, prev_calculated, InpPrice, open, high, low, close, BufFDI, InpHistoryBars);
+      // Prepare volume cache for Signal MA engine
+      long volume_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
+      if(ArraySize(g_double_volume) != rates_total)
+        {
+         ArrayResize(g_double_volume, rates_total);
+         ArraySetAsSeries(g_double_volume, false);
+        }
 
-      int start = (prev_calculated > 0) ? (prev_calculated - 1) : InpPeriod;
+      int start_sync = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+      if(volume_limit > 0)
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)volume[i];
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            g_double_volume[i] = (double)tick_volume[i];
+        }
+
+      // 1. Calculate FDI via Engine
+      g_calc.Calculate(rates_total, prev_calculated, open, high, low, close, BufFDI, InpHistoryBars);
+
+      int start = (prev_calculated > 0) ? (prev_calculated - 1) : warmup;
+      int actual_start = warmup;
+
       if(InpHistoryBars > 0 && prev_calculated == 0)
         {
          int limit_start = rates_total - InpHistoryBars;
          if(limit_start > start)
+           {
             start = limit_start;
+            actual_start = limit_start;
+           }
         }
 
-      // Dynamic Color Indexing & Signal Smoothing
+      if(prev_calculated == 0)
+        {
+         for(int i = 0; i < start; i++)
+           {
+            BufFDI[i]    = EMPTY_VALUE;
+            BufColor[i]  = 1.0;
+            BufSignal[i] = EMPTY_VALUE;
+           }
+        }
+
+      // 2. Color Mapping
       for(int i = start; i < rates_total; i++)
         {
          double fdi = BufFDI[i];
          if(fdi == EMPTY_VALUE)
            {
-            BufColor[i]  = 1.0;
-            BufSignal[i] = EMPTY_VALUE;
+            BufColor[i] = 1.0;
             continue;
            }
 
-         // Map Regimes using Auto-Calibrated Thresholds
          if(fdi < g_level_trend)
-            BufColor[i] = 0.0; // Index 0: Persistent Trend (DeepSkyBlue)
+            BufColor[i] = 0.0; // Persistent Trend (DeepSkyBlue)
          else
             if(fdi <= g_level_chop)
-               BufColor[i] = 1.0; // Index 1: Random Walk Equilibrium (Gold)
+               BufColor[i] = 1.0; // Random Walk Equilibrium (Gold)
             else
-               BufColor[i] = 2.0; // Index 2: Anti-persistent Chop (Crimson Red)
+               BufColor[i] = 2.0; // Anti-persistent Chop (Crimson Red)
+        }
 
-         // Signal EMA Calculation
-         if(i == start || BufSignal[i - 1] == EMPTY_VALUE)
-            BufSignal[i] = fdi;
-         else
-            BufSignal[i] = BufSignal[i - 1] + alpha * (fdi - BufSignal[i - 1]);
+      // 3. Compute Signal Line via Unified CalculateOnArray Engine with exact actual_start offset
+      if(InpShowSignal && g_signal_calculator != NULL)
+        {
+         g_signal_calculator.CalculateOnArray(rates_total, prev_calculated, BufFDI, g_double_volume, BufSignal, actual_start);
+        }
+      else
+        {
+         for(int i = start_sync; i < rates_total; i++)
+            BufSignal[i] = EMPTY_VALUE;
         }
 
       return rates_total;
@@ -290,8 +375,8 @@ int OnCalculate(const int rates_total,
 //===================================================================
 // MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
-   int required_bars = InpPeriod + 10;
-   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+   int required_bars_mtf = warmup + 10;
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars_mtf))
      {
       g_data_synced = false;
       return 0;
@@ -308,7 +393,7 @@ int OnCalculate(const int rates_total,
       g_last_htf_time = htf_time_current;
 
       int htf_bars = iBars(_Symbol, g_calc_timeframe);
-      if(htf_bars < required_bars)
+      if(htf_bars < required_bars_mtf)
         {
          g_data_ready = false;
          return 0;
@@ -316,25 +401,31 @@ int OnCalculate(const int rates_total,
 
       g_htf_count = MathMin(htf_bars, 2000);
 
-      // Reallocate persistent cache registers ONLY when capacity changes
       if(ArraySize(h_time) != g_htf_count)
         {
-         ArrayResize(h_time,    g_htf_count);
-         ArrayResize(h_open,    g_htf_count);
-         ArrayResize(h_high,    g_htf_count);
-         ArrayResize(h_low,     g_htf_count);
-         ArrayResize(h_close,   g_htf_count);
-         ArrayResize(h_res_fdi, g_htf_count);
+         ArrayResize(h_time,       g_htf_count);
+         ArrayResize(h_open,       g_htf_count);
+         ArrayResize(h_high,       g_htf_count);
+         ArrayResize(h_low,        g_htf_count);
+         ArrayResize(h_close,      g_htf_count);
+         ArrayResize(h_tick_vol,   g_htf_count);
+         ArrayResize(h_vol,        g_htf_count);
+         ArrayResize(h_double_vol, g_htf_count);
+         ArrayResize(h_res_fdi,    g_htf_count);
+         ArrayResize(h_res_sig,    g_htf_count);
 
-         ArraySetAsSeries(h_time,    false);
-         ArraySetAsSeries(h_open,    false);
-         ArraySetAsSeries(h_high,    false);
-         ArraySetAsSeries(h_low,     false);
-         ArraySetAsSeries(h_close,   false);
-         ArraySetAsSeries(h_res_fdi, false);
+         ArraySetAsSeries(h_time,       false);
+         ArraySetAsSeries(h_open,       false);
+         ArraySetAsSeries(h_high,       false);
+         ArraySetAsSeries(h_low,        false);
+         ArraySetAsSeries(h_close,      false);
+         ArraySetAsSeries(h_tick_vol,   false);
+         ArraySetAsSeries(h_vol,        false);
+         ArraySetAsSeries(h_double_vol, false);
+         ArraySetAsSeries(h_res_fdi,    false);
+         ArraySetAsSeries(h_res_sig,    false);
         }
 
-      // Atomic bulk rates copy
       MqlRates htf_bulk_rates[];
       if(CopyRates(_Symbol, g_calc_timeframe, 0, g_htf_count, htf_bulk_rates) != g_htf_count)
         {
@@ -344,15 +435,26 @@ int OnCalculate(const int rates_total,
 
       for(int i = 0; i < g_htf_count; i++)
         {
-         h_time[i]  = htf_bulk_rates[i].time;
-         h_open[i]  = htf_bulk_rates[i].open;
-         h_high[i]  = htf_bulk_rates[i].high;
-         h_low[i]   = htf_bulk_rates[i].low;
-         h_close[i] = htf_bulk_rates[i].close;
+         h_time[i]       = htf_bulk_rates[i].time;
+         h_open[i]       = htf_bulk_rates[i].open;
+         h_high[i]       = htf_bulk_rates[i].high;
+         h_low[i]        = htf_bulk_rates[i].low;
+         h_close[i]      = htf_bulk_rates[i].close;
+         h_tick_vol[i]   = htf_bulk_rates[i].tick_volume;
+         h_vol[i]        = (long)htf_bulk_rates[i].real_volume;
+         h_double_vol[i] = (h_vol[i] > 0) ? (double)h_vol[i] : (double)h_tick_vol[i];
         }
 
       // Compute HTF FDI Values
-      g_calc.Calculate(g_htf_count, 0, InpPrice, h_open, h_high, h_low, h_close, h_res_fdi, InpHistoryBars);
+      g_calc.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_fdi, InpHistoryBars);
+
+      // Compute HTF Signal Line via Unified Engine
+      if(InpShowSignal && g_signal_calculator != NULL)
+        {
+         int htf_actual_start = (InpHistoryBars > 0) ? MathMax(warmup, g_htf_count - InpHistoryBars) : warmup;
+         g_signal_calculator.CalculateOnArray(g_htf_count, 0, h_res_fdi, h_double_vol, h_res_sig, htf_actual_start);
+        }
+
       g_data_ready = true;
 
       // TWO-POINTER CHRONOLOGICAL SWEEP (Zero API calls, Nanosecond Execution!)
@@ -378,8 +480,7 @@ int OnCalculate(const int rates_total,
 
          if(fdi == EMPTY_VALUE)
            {
-            BufColor[i]  = 1.0;
-            BufSignal[i] = EMPTY_VALUE;
+            BufColor[i] = 1.0;
            }
          else
            {
@@ -390,12 +491,9 @@ int OnCalculate(const int rates_total,
                   BufColor[i] = 1.0;
                else
                   BufColor[i] = 2.0;
-
-            if(i == 0 || BufSignal[i - 1] == EMPTY_VALUE)
-               BufSignal[i] = fdi;
-            else
-               BufSignal[i] = BufSignal[i - 1] + alpha * (fdi - BufSignal[i - 1]);
            }
+
+         BufSignal[i] = (InpShowSignal && h_res_sig[htf_ptr] != EMPTY_VALUE) ? h_res_sig[htf_ptr] : EMPTY_VALUE;
         }
 
       return rates_total;
@@ -406,19 +504,27 @@ int OnCalculate(const int rates_total,
 
 // B) LIVE TICK FAST-PATH: HTF bar did not close. Update forming candle in RAM!
    int live_idx = g_htf_count - 1;
-   if(live_idx >= required_bars)
+   if(live_idx >= required_bars_mtf)
      {
       MqlRates htf_rate[1];
       if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
-         h_time[live_idx]  = htf_rate[0].time;
-         h_open[live_idx]  = htf_rate[0].open;
-         h_high[live_idx]  = htf_rate[0].high;
-         h_low[live_idx]   = htf_rate[0].low;
-         h_close[live_idx] = htf_rate[0].close;
+         h_time[live_idx]       = htf_rate[0].time;
+         h_open[live_idx]       = htf_rate[0].open;
+         h_high[live_idx]       = htf_rate[0].high;
+         h_low[live_idx]        = htf_rate[0].low;
+         h_close[live_idx]      = htf_rate[0].close;
+         h_tick_vol[live_idx]   = htf_rate[0].tick_volume;
+         h_vol[live_idx]        = (long)htf_rate[0].real_volume;
+         h_double_vol[live_idx] = (h_vol[live_idx] > 0) ? (double)h_vol[live_idx] : (double)h_tick_vol[live_idx];
 
-         // Mock incremental calculation strictly on forming HTF bar
-         g_calc.Calculate(g_htf_count, g_htf_count, InpPrice, h_open, h_high, h_low, h_close, h_res_fdi, InpHistoryBars);
+         g_calc.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_fdi, InpHistoryBars);
+
+         if(InpShowSignal && g_signal_calculator != NULL)
+           {
+            int htf_actual_start = (InpHistoryBars > 0) ? MathMax(warmup, g_htf_count - InpHistoryBars) : warmup;
+            g_signal_calculator.CalculateOnArray(g_htf_count, g_htf_count, h_res_fdi, h_double_vol, h_res_sig, htf_actual_start);
+           }
         }
      }
 
@@ -436,6 +542,8 @@ int OnCalculate(const int rates_total,
 // Vectorized Assignment across forming block
    double fdi_val = h_res_fdi[live_idx];
    double col_val = 1.0;
+   double sig_val = InpShowSignal ? h_res_sig[live_idx] : EMPTY_VALUE;
+
    if(fdi_val != EMPTY_VALUE)
      {
       if(fdi_val < g_level_trend)
@@ -451,11 +559,7 @@ int OnCalculate(const int rates_total,
      {
       BufFDI[i]   = fdi_val;
       BufColor[i] = col_val;
-
-      if(i > 0 && BufSignal[i - 1] != EMPTY_VALUE && fdi_val != EMPTY_VALUE)
-         BufSignal[i] = BufSignal[i - 1] + alpha * (fdi_val - BufSignal[i - 1]);
-      else
-         BufSignal[i] = fdi_val;
+      BufSignal[i] = sig_val;
      }
 
    return rates_total;
@@ -466,8 +570,9 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   int required_bars = InpPeriod + 10;
-   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
+   int warmup = InpPeriod + 2;
+   int required_bars_mtf = warmup + InpSignalPeriod + 10;
+   CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars_mtf, g_data_synced);
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
