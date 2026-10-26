@@ -1,8 +1,7 @@
-InpMarketName=NYSE-short
+InpMarketName=NYSE-s
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
-InpCandleSource=0
 InpSourcePrice=1
 InpPre_Enable=false
 InpPre_Start=00:00
