@@ -1,4 +1,4 @@
-InpMarketName=XETRA-short
+InpMarketName=XETRA-s
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
@@ -10,7 +10,7 @@ InpPre_Color=5737262
 InpPre_ShowVWAP=true
 InpPre_ShowMean=true
 InpPre_ShowLinReg=true
-InpCore_Enable=false
+InpCore_Enable=true
 InpCore_Start=10:00
 InpCore_End=18:30
 InpCore_Color=5737262
