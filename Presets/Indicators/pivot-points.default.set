@@ -1,0 +1,26 @@
+; Timeframe Settings
+InpTimeframe=16408
+; Calculation Settings
+InpPivotType=0
+InpSourceType=0
+; Visual Settings - Pivot Point
+InpColorPP=8421504
+InpStylePP=0
+InpWidthPP=2
+; Visual Settings - Resistance
+InpColorRes=8421504
+InpStyleRes=0
+InpWidthRes=1
+; Visual Settings - Support
+InpColorSup=8421504
+InpStyleSup=0
+InpWidthSup=1
+; Visual Settings - Medians
+InpShowMedians=true
+InpColorMed=8421504
+InpStyleMed=2
+InpWidthMed=1
+; Labels
+InpShowLabels=false
+InpLabelShift=10
+InpFontSize=8
