@@ -1,4 +1,4 @@
-InpMarketName=LSE-short
+InpMarketName=LSE-s
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
