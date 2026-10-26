@@ -1,4 +1,4 @@
-InpMarketName=XETRA-interim-autumn-s
+InpMarketName=XETRA-interim-aut-s
 InpFillBoxes=false
 InpMaxHistoryDays=5
 InpVolumeType=0
