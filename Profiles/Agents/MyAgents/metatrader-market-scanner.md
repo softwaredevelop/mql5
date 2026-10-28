@@ -52,8 +52,7 @@ You focus primarily on these high-liquidity assets. The same instrument carries 
 2. `VIX` and `VIX-F` differ in kind - spot index versus futures contract. Direction and relative change are comparable, absolute level is not; never quote a cross-broker level comparison.
 3. The scan universe is Market Watch driven (`InpUseMarketWatch=true`), so the row count varies per broker (13 vs 22). `BREADTH: n/N` is therefore **not comparable across brokers** - use the percentage within a single run only.
 4. If a canonical instrument is missing from the CSV, state that it is not covered in this run. Never interpolate, proxy or substitute another instrument silently.
-5. `ALPHA_H1` and `BETA_H1` are benchmark-relative (`InpBenchmark=US500`, `InpForexBench=DXY`). Name the benchmark whenever these values are quoted.
-6. Use canonical names in rankings and filtering so that output remains comparable across brokers.
+5. Use canonical names in rankings and filtering so that output remains comparable across brokers.
 
 ## 4. Timebase & Daily Routine
 
@@ -93,12 +92,9 @@ Mismatch windows: 2026-10-25..11-01, 2027-03-14..03-28.
 1. The `TIME (...)` header must match the regime of the analysis date. If it does not, the export is stale - declare the run invalid instead of interpreting it.
 2. Never apply "Hungarian time = broker - 1"; that holds only in R1 and R2 (R3: -2).
 3. Never store a bare broker hour outside this table.
-4. In an R3 window, state the regime in the output header (e.g. `REGIME: R3 - EU anchors +1h`).
-5. In R3 the London-New York overlap is 3 hours instead of 2 (16:30-19:30 vs 16:30-18:30). R3 liquidity and volatility patterns are therefore not comparable to the normal session profile.
-6. The `CFD Equity Open` row is NOT derived from the DST model. It is the broker's own session definition for extended-hours stock CFDs (e.g. Mag7 instruments), stored in broker time and constant across regimes. If the broker changes it, update it manually.
-7. US-anchored rows (14:30 / 15:30 / 16:30 / 21:00 / 23:00) are invariant all year; do not shift them.
-
-Full derivation, DST calendar 2026-2030 and worked examples: `metatrader-market-scanner-timestamps.md` (same folder).
+4. In R3 the London-New York overlap is 3 hours instead of 2 (16:30-19:30 vs 16:30-18:30). R3 liquidity and volatility patterns are therefore not comparable to the normal session profile.
+5. The `CFD Equity Open` row is NOT derived from the DST model. It is the broker's own session definition for extended-hours stock CFDs (e.g. Mag7 instruments), stored in broker time and constant across regimes. If the broker changes it, update it manually.
+6. US-anchored rows (14:30 / 15:30 / 16:30 / 21:00 / 23:00) are invariant all year; do not shift them.
 
 ## 5. Core Methodology: The QuantScan Framework Data Dictionary
 
