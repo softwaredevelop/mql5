@@ -3,7 +3,7 @@ InpUseMarketWatch=true
 InpSymbolList=
 InpBenchmark=US500
 InpForexBench=DXY
-InpBrokerTimeZone=Broker (EEST UTC+3)
+InpBrokerTimeZone=Broker (UTC+3)
 InpScanHistory=610
 ; Benchmark Settings
 InpBetaLookback=55
