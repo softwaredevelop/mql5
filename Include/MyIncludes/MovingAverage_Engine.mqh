@@ -1,17 +1,18 @@
 //+------------------------------------------------------------------+
 //|                                         MovingAverage_Engine.mqh |
-//|      VERSION 2.70: Fixed Recursive State Loss (TMA, DEMA, TEMA)  |
+//|                 Universal Modular Facade & Memory Router         |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "2.70" // Fixed: Preserved Cascaded State Registers & Window Lookback for TMA/DEMA/TEMA
+#property version   "3.00" // Enterprise Modular Facade with Polymorphic Algorithm Strategy
 
 #ifndef MOVING_AVERAGE_ENGINE_MQH
 #define MOVING_AVERAGE_ENGINE_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
+#include <MyIncludes\MA_CoreCalculators.mqh>
 
-//--- Enum to select the MA type for calculation
+//--- MA Algorithm Selector
 #ifndef ENUM_MA_TYPE_DEFINED
 #define ENUM_MA_TYPE_DEFINED
 enum ENUM_MA_TYPE
@@ -28,72 +29,154 @@ enum ENUM_MA_TYPE
 #endif
 
 //+==================================================================+
-//|             CLASS: CMovingAverageCalculator                      |
+//| CLASS: CMovingAverageCalculator (Unified Facade)                 |
 //+==================================================================+
 class CMovingAverageCalculator
   {
 protected:
-   int               m_period;
-   ENUM_MA_TYPE      m_ma_type;
+   int                m_period;
+   ENUM_MA_TYPE       m_ma_type;
+   CBaseMACalculator *m_algo;
 
-   //--- Persistent State Buffers
-   double            m_price[];
-   double            m_volume[];
-   double            m_temp_buffer1[];
-   double            m_temp_buffer2[];
-   double            m_temp_buffer3[];
+   //--- Persistent Calculation Scratchpads
+   double             m_price[];
+   double             m_volume[];
 
-   virtual bool      PreparePriceSeries(const int rates_total, const int start_index, const ENUM_APPLIED_PRICE price_type,
-                                        const double &open[], const double &high[], const double &low[], const double &close[]);
-   void              CalculateEMA(const int rates_total, const int start_index, const int period,
-                                  const double &source[], double &dest[], const int data_offset = 0);
-   void              RunCalculation(const int rates_total, const int start_index, double &output_buffer[], const int data_offset = 0);
+   virtual bool       PreparePriceSeries(const int rates_total,
+                                         const int start_index,
+                                         const ENUM_APPLIED_PRICE price_type,
+                                         const double &open[],
+                                         const double &high[],
+                                         const double &low[],
+                                         const double &close[]);
+
+   bool               CreateAlgorithm(const ENUM_MA_TYPE ma_type);
 
 public:
                      CMovingAverageCalculator(void);
-   virtual          ~CMovingAverageCalculator(void) {};
+   virtual           ~CMovingAverageCalculator(void);
 
-   bool              Init(const int period, const ENUM_MA_TYPE ma_type);
+   bool               Init(const int period, const ENUM_MA_TYPE ma_type);
 
    //--- Standard Calculation (OHLC input - No Volume, legacy compatible)
-   void              Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               double &ma_buffer[]);
+   void               Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const ENUM_APPLIED_PRICE price_type,
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                double &ma_buffer[]);
 
-   //--- Overloaded Calculation with Volume (Specifically for VWMA support)
-   void              Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               const long &volume[],
-                               double &ma_buffer[]);
+   //--- Overloaded Calculation with Volume (Specifically for VWMA support, long[] Volume)
+   void               Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const ENUM_APPLIED_PRICE price_type,
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                const long &volume[],
+                                double &ma_buffer[]);
 
-   //--- Overloaded Calculation with Double Volume Array (For MTF VWMA)
-   void              Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
-                               const double &open[], const double &high[], const double &low[], const double &close[],
-                               const double &volume[],
-                               double &ma_buffer[]);
+   //--- Overloaded Calculation with Double Volume (MTF VWMA)
+   void               Calculate(const int rates_total,
+                                const int prev_calculated,
+                                const ENUM_APPLIED_PRICE price_type,
+                                const double &open[],
+                                const double &high[],
+                                const double &low[],
+                                const double &close[],
+                                const double &volume[],
+                                double &ma_buffer[]);
 
    //--- Calculation on Custom Array (No Volume)
-   void              CalculateOnArray(const int rates_total, const int prev_calculated, const double &src_buffer[],
-                                      double &output_buffer[], const int src_start_index = 0);
+   void               CalculateOnArray(const int rates_total,
+                                       const int prev_calculated,
+                                       const double &src_buffer[],
+                                       double &output_buffer[],
+                                       const int src_start_index = 0);
 
-   //--- Overloaded Calculation on Custom Array with Volume (For VWMA Signals)
-   void              CalculateOnArray(const int rates_total, const int prev_calculated, const double &src_buffer[],
-                                      const double &volume_buffer[], double &output_buffer[], const int src_start_index = 0);
+   //--- Overloaded Calculation on Custom Array with Volume (VWMA Signals)
+   void               CalculateOnArray(const int rates_total,
+                                       const int prev_calculated,
+                                       const double &src_buffer[],
+                                       const double &volume_buffer[],
+                                       double &output_buffer[],
+                                       const int src_start_index = 0);
 
-   int               GetPeriod(void) const { return m_period; }
-   ENUM_MA_TYPE      GetMAType(void) const { return m_ma_type; }
+   int                GetPeriod(void)     const { return m_period; }
+   ENUM_MA_TYPE       GetMAType(void)     const { return m_ma_type; }
+   int                GetDrawBegin(void)  const { return (m_algo != NULL) ? m_algo.GetWarmupBars() : (m_period - 1); }
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CMovingAverageCalculator::CMovingAverageCalculator(void) : m_period(20), m_ma_type(SMA)
+CMovingAverageCalculator::CMovingAverageCalculator(void) : m_period(20),
+   m_ma_type(SMA),
+   m_algo(NULL)
   {
-   ArraySetAsSeries(m_price,        false);
-   ArraySetAsSeries(m_volume,       false);
-   ArraySetAsSeries(m_temp_buffer1, false);
-   ArraySetAsSeries(m_temp_buffer2, false);
-   ArraySetAsSeries(m_temp_buffer3, false);
+   ArraySetAsSeries(m_price,  false);
+   ArraySetAsSeries(m_volume, false);
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CMovingAverageCalculator::~CMovingAverageCalculator(void)
+  {
+   if(CheckPointer(m_algo) != POINTER_INVALID && m_algo != NULL)
+     {
+      delete m_algo;
+      m_algo = NULL;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Algorithm Factory: Pluggable Extensibility Point                 |
+//+------------------------------------------------------------------+
+bool CMovingAverageCalculator::CreateAlgorithm(const ENUM_MA_TYPE ma_type)
+  {
+   if(CheckPointer(m_algo) != POINTER_INVALID && m_algo != NULL)
+     {
+      delete m_algo;
+      m_algo = NULL;
+     }
+
+   switch(ma_type)
+     {
+      case EMA:
+         m_algo = new CEMACalculator();
+         break;
+      case SMMA:
+         m_algo = new CSMMACalculator();
+         break;
+      case LWMA:
+         m_algo = new CLWMACalculator();
+         break;
+      case TMA:
+         m_algo = new CTMACalculator();
+         break;
+      case DEMA:
+         m_algo = new CDEMACalculator();
+         break;
+      case TEMA:
+         m_algo = new CTEMACalculator();
+         break;
+      case VWMA:
+         m_algo = new CVWMACalculator();
+         break;
+      case SMA:
+      default:
+         m_algo = new CSMACalculator();
+         break;
+     }
+
+   if(CheckPointer(m_algo) == POINTER_INVALID || m_algo == NULL)
+      return false;
+
+   return m_algo.Init(m_period);
   }
 
 //+------------------------------------------------------------------+
@@ -103,114 +186,72 @@ bool CMovingAverageCalculator::Init(const int period, const ENUM_MA_TYPE ma_type
   {
    m_period  = (period < 1) ? 1 : period;
    m_ma_type = ma_type;
-   return true;
+   return CreateAlgorithm(m_ma_type);
   }
 
 //+------------------------------------------------------------------+
 //| Calculate (Standard OHLC - No Volume)                            |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
-      const double &open[], const double &high[], const double &low[], const double &close[],
+void CMovingAverageCalculator::Calculate(const int rates_total,
+      const int prev_calculated,
+      const ENUM_APPLIED_PRICE price_type,
+      const double &open[],
+      const double &high[],
+      const double &low[],
+      const double &close[],
       double &ma_buffer[])
   {
-   if(rates_total < m_period)
+   if(rates_total < m_period || m_algo == NULL)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
    if(ArraySize(m_price) != rates_total)
      {
-      int old_sz = ArraySize(m_price);
       ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
-
-      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer1, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer1, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer1, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer1[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer2, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer2, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer2, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer2[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer3, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer3, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer3, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer3[k] = EMPTY_VALUE;
-        }
      }
 
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-   RunCalculation(rates_total, start_index, ma_buffer, 0);
+// VWMA requires volume array initialization
+   if(m_ma_type == VWMA)
+     {
+      if(ArraySize(m_volume) != rates_total)
+        {
+         ArrayResize(m_volume, rates_total, 2048);
+         ArraySetAsSeries(m_volume, false);
+        }
+      for(int i = start_index; i < rates_total; i++)
+         m_volume[i] = 1.0;
+     }
+
+   m_algo.Calculate(rates_total, start_index, m_price, m_volume, ma_buffer, 0);
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Overloaded OHLC - With Long Volume)                   |
+//| Calculate (With Long Volume)                                     |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
-      const double &open[], const double &high[], const double &low[], const double &close[],
+void CMovingAverageCalculator::Calculate(const int rates_total,
+      const int prev_calculated,
+      const ENUM_APPLIED_PRICE price_type,
+      const double &open[],
+      const double &high[],
+      const double &low[],
+      const double &close[],
       const long &volume[],
       double &ma_buffer[])
   {
-   if(rates_total < m_period)
+   if(rates_total < m_period || m_algo == NULL)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
    if(ArraySize(m_price) != rates_total)
      {
-      int old_sz = ArraySize(m_price);
       ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
-
-      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer1, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer1, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer1, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer1[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer2, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer2, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer2, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer2[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer3, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer3, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer3, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer3[k] = EMPTY_VALUE;
-        }
      }
 
    if(ArraySize(m_volume) != rates_total)
@@ -225,58 +266,31 @@ void CMovingAverageCalculator::Calculate(const int rates_total, const int prev_c
    for(int i = start_index; i < rates_total; i++)
       m_volume[i] = (volume[i] < 1) ? 1.0 : (double)volume[i];
 
-   RunCalculation(rates_total, start_index, ma_buffer, 0);
+   m_algo.Calculate(rates_total, start_index, m_price, m_volume, ma_buffer, 0);
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Overloaded OHLC - With Double Volume)                 |
+//| Calculate (With Double Volume)                                   |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::Calculate(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
-      const double &open[], const double &high[], const double &low[], const double &close[],
+void CMovingAverageCalculator::Calculate(const int rates_total,
+      const int prev_calculated,
+      const ENUM_APPLIED_PRICE price_type,
+      const double &open[],
+      const double &high[],
+      const double &low[],
+      const double &close[],
       const double &volume[],
       double &ma_buffer[])
   {
-   if(rates_total < m_period)
+   if(rates_total < m_period || m_algo == NULL)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
    if(ArraySize(m_price) != rates_total)
      {
-      int old_sz = ArraySize(m_price);
       ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
-
-      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer1, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer1, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer1, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer1[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer2, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer2, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer2, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer2[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer3, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer3, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer3, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer3[k] = EMPTY_VALUE;
-        }
      }
 
    if(ArraySize(m_volume) != rates_total)
@@ -291,113 +305,66 @@ void CMovingAverageCalculator::Calculate(const int rates_total, const int prev_c
    for(int i = start_index; i < rates_total; i++)
       m_volume[i] = (volume[i] < 1.0) ? 1.0 : volume[i];
 
-   RunCalculation(rates_total, start_index, ma_buffer, 0);
+   m_algo.Calculate(rates_total, start_index, m_price, m_volume, ma_buffer, 0);
   }
 
 //+------------------------------------------------------------------+
-//| CalculateOnArray (Custom Input - No Volume)                      |
+//| CalculateOnArray (Custom Array - No Volume)                      |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::CalculateOnArray(const int rates_total, const int prev_calculated, const double &src_buffer[],
-      double &output_buffer[], const int src_start_index)
+void CMovingAverageCalculator::CalculateOnArray(const int rates_total,
+      const int prev_calculated,
+      const double &src_buffer[],
+      double &output_buffer[],
+      const int src_start_index)
   {
-   if(rates_total < src_start_index + m_period)
+   if(rates_total < src_start_index + m_period || m_algo == NULL)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
    if(ArraySize(m_price) != rates_total)
      {
-      int old_sz = ArraySize(m_price);
       ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
+     }
 
-      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
+   if(m_ma_type == VWMA)
+     {
+      if(ArraySize(m_volume) != rates_total)
         {
-         ArrayResize(m_temp_buffer1, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer1, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer1, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer1[k] = EMPTY_VALUE;
+         ArrayResize(m_volume, rates_total, 2048);
+         ArraySetAsSeries(m_volume, false);
         }
-      if(m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer2, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer2, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer2, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer2[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer3, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer3, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer3, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer3[k] = EMPTY_VALUE;
-        }
+      for(int i = start_index; i < rates_total; i++)
+         m_volume[i] = 1.0;
      }
 
    int copy_start = MathMax(start_index, src_start_index);
-
    for(int i = copy_start; i < rates_total; i++)
       m_price[i] = src_buffer[i];
 
-   RunCalculation(rates_total, start_index, output_buffer, src_start_index);
+   m_algo.Calculate(rates_total, start_index, m_price, m_volume, output_buffer, src_start_index);
   }
 
 //+------------------------------------------------------------------+
-//| CalculateOnArray (Overloaded Custom Input - With Volume Safe)    |
+//| CalculateOnArray (Custom Array With Volume)                      |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::CalculateOnArray(const int rates_total, const int prev_calculated, const double &src_buffer[],
-      const double &volume_buffer[], double &output_buffer[], const int src_start_index)
+void CMovingAverageCalculator::CalculateOnArray(const int rates_total,
+      const int prev_calculated,
+      const double &src_buffer[],
+      const double &volume_buffer[],
+      double &output_buffer[],
+      const int src_start_index)
   {
-   if(rates_total < src_start_index + m_period)
+   if(rates_total < src_start_index + m_period || m_algo == NULL)
       return;
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
    if(ArraySize(m_price) != rates_total)
      {
-      int old_sz = ArraySize(m_price);
       ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
-
-      if(m_ma_type == TMA || m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer1, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer1, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer1, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer1[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == DEMA || m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer2, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer2, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer2, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer2[k] = EMPTY_VALUE;
-        }
-      if(m_ma_type == TEMA)
-        {
-         ArrayResize(m_temp_buffer3, rates_total, 2048);
-         ArraySetAsSeries(m_temp_buffer3, false);
-         if(old_sz == 0 || prev_calculated == 0)
-            ArrayInitialize(m_temp_buffer3, EMPTY_VALUE);
-         else
-            for(int k = old_sz; k < rates_total; k++)
-               m_temp_buffer3[k] = EMPTY_VALUE;
-        }
      }
 
    if(ArraySize(m_volume) != rates_total)
@@ -418,215 +385,19 @@ void CMovingAverageCalculator::CalculateOnArray(const int rates_total, const int
          m_volume[i] = 1.0;
      }
 
-   RunCalculation(rates_total, start_index, output_buffer, src_start_index);
+   m_algo.Calculate(rates_total, start_index, m_price, m_volume, output_buffer, src_start_index);
   }
 
 //+------------------------------------------------------------------+
-//| RunCalculation (Core Mathematical Execution Engine)              |
+//| PreparePriceSeries (Standard Market Data)                        |
 //+------------------------------------------------------------------+
-void CMovingAverageCalculator::RunCalculation(const int rates_total, const int start_index, double &output_buffer[], const int data_offset)
-  {
-   int start_pos  = data_offset + m_period - 1;
-   int loop_start = MathMax(start_pos, start_index);
-
-   switch(m_ma_type)
-     {
-      case EMA:
-         CalculateEMA(rates_total, loop_start, m_period, m_price, output_buffer, data_offset);
-         break;
-
-      case SMMA:
-         for(int i = loop_start; i < rates_total; i++)
-           {
-            bool has_valid_prev = (i > start_pos && output_buffer[i - 1] != EMPTY_VALUE && output_buffer[i - 1] != 0.0);
-
-            if(!has_valid_prev)
-              {
-               if(i < start_pos)
-                 {
-                  output_buffer[i] = EMPTY_VALUE;
-                  continue;
-                 }
-               double sum = 0.0;
-               for(int j = 0; j < m_period; j++)
-                  sum += m_price[i - j];
-               output_buffer[i] = sum / (double)m_period;
-              }
-            else
-              {
-               output_buffer[i] = (output_buffer[i - 1] * (double)(m_period - 1) + m_price[i]) / (double)m_period;
-              }
-           }
-         break;
-
-      case LWMA:
-         for(int i = loop_start; i < rates_total; i++)
-           {
-            double sum = 0.0, w_sum = 0.0;
-            for(int j = 0; j < m_period; j++)
-              {
-               double w = (double)(m_period - j);
-               sum += m_price[i - j] * w;
-               w_sum += w;
-              }
-            output_buffer[i] = (w_sum > 0.0) ? (sum / w_sum) : m_price[i];
-           }
-         break;
-
-      case TMA:
-        {
-         // Triangular MA = SMA(SMA(Price, period1), period2)
-         int period1 = (int)ceil((m_period + 1.0) / 2.0);
-         int period2 = m_period - period1 + 1;
-         int start_pos1 = data_offset + period1 - 1;
-         int start_pos2 = start_pos1 + period2 - 1;
-
-         // Pipelined Lookback Window: Stage 1 must cover all required lookback bars for Stage 2!
-         int loop_start_tma = MathMax(start_pos1, start_index - period2 - 1);
-
-         for(int i = loop_start_tma; i < rates_total; i++)
-           {
-            double sum = 0.0;
-            for(int j = 0; j < period1; j++)
-               sum += m_price[i - j];
-            m_temp_buffer1[i] = sum / (double)period1;
-           }
-
-         int loop_start_final = MathMax(start_pos2, start_index);
-
-         for(int i = loop_start_final; i < rates_total; i++)
-           {
-            double sum = 0.0;
-            for(int j = 0; j < period2; j++)
-               sum += m_temp_buffer1[i - j];
-            output_buffer[i] = sum / (double)period2;
-           }
-         break;
-        }
-
-      case DEMA:
-        {
-         // DEMA = 2 * EMA1 - EMA2
-         CalculateEMA(rates_total, loop_start, m_period, m_price, m_temp_buffer1, data_offset);
-
-         int offset2 = data_offset + m_period - 1;
-         int loop2   = MathMax(offset2 + m_period - 1, start_index);
-         CalculateEMA(rates_total, loop2, m_period, m_temp_buffer1, m_temp_buffer2, offset2);
-
-         for(int i = loop2; i < rates_total; i++)
-           {
-            if(m_temp_buffer1[i] != EMPTY_VALUE && m_temp_buffer2[i] != EMPTY_VALUE)
-               output_buffer[i] = 2.0 * m_temp_buffer1[i] - m_temp_buffer2[i];
-            else
-               output_buffer[i] = EMPTY_VALUE;
-           }
-         break;
-        }
-
-      case TEMA:
-        {
-         // TEMA = 3 * EMA1 - 3 * EMA2 + EMA3
-         CalculateEMA(rates_total, loop_start, m_period, m_price, m_temp_buffer1, data_offset);
-
-         int offset2 = data_offset + m_period - 1;
-         int loop2   = MathMax(offset2 + m_period - 1, start_index);
-         CalculateEMA(rates_total, loop2, m_period, m_temp_buffer1, m_temp_buffer2, offset2);
-
-         int offset3 = offset2 + m_period - 1;
-         int loop3   = MathMax(offset3 + m_period - 1, start_index);
-         CalculateEMA(rates_total, loop3, m_period, m_temp_buffer2, m_temp_buffer3, offset3);
-
-         for(int i = loop3; i < rates_total; i++)
-           {
-            if(m_temp_buffer1[i] != EMPTY_VALUE && m_temp_buffer2[i] != EMPTY_VALUE && m_temp_buffer3[i] != EMPTY_VALUE)
-               output_buffer[i] = 3.0 * m_temp_buffer1[i] - 3.0 * m_temp_buffer2[i] + m_temp_buffer3[i];
-            else
-               output_buffer[i] = EMPTY_VALUE;
-           }
-         break;
-        }
-
-      case VWMA:
-        {
-         for(int i = loop_start; i < rates_total; i++)
-           {
-            double sum_pv = 0.0;
-            double sum_v  = 0.0;
-            for(int j = 0; j < m_period; j++)
-              {
-               double v = m_volume[i - j];
-               sum_pv += m_price[i - j] * v;
-               sum_v  += v;
-              }
-            output_buffer[i] = (sum_v > 0.0) ? (sum_pv / sum_v) : m_price[i];
-           }
-         break;
-        }
-
-      default: // SMA
-         for(int i = loop_start; i < rates_total; i++)
-           {
-            double sum = 0.0;
-            for(int j = 0; j < m_period; j++)
-               sum += m_price[i - j];
-            output_buffer[i] = sum / (double)m_period;
-           }
-         break;
-     }
-  }
-
-//+------------------------------------------------------------------+
-//| Calculate EMA (Offset-Aware & Safe for Preprocessed Buffers)     |
-//+------------------------------------------------------------------+
-void CMovingAverageCalculator::CalculateEMA(const int rates_total, const int start_index, const int period,
-      const double &source[], double &dest[], const int data_offset)
-  {
-   int base_start = data_offset + period - 1;
-   if(rates_total <= base_start)
-      return;
-
-   double pr = 2.0 / (double)(period + 1.0);
-   int loop_begin = MathMax(base_start, start_index);
-
-   for(int i = loop_begin; i < rates_total; i++)
-     {
-      bool has_prev = (i > base_start && dest[i - 1] != EMPTY_VALUE && dest[i - 1] != 0.0);
-
-      if(has_prev)
-        {
-         if(source[i] != EMPTY_VALUE)
-            dest[i] = source[i] * pr + dest[i - 1] * (1.0 - pr);
-         else
-            dest[i] = dest[i - 1];
-        }
-      else
-        {
-         if(i < base_start)
-           {
-            dest[i] = EMPTY_VALUE;
-            continue;
-           }
-
-         double sum = 0.0;
-         int count = 0;
-         for(int j = 0; j < period; j++)
-           {
-            if(source[i - j] != EMPTY_VALUE)
-              {
-               sum += source[i - j];
-               count++;
-              }
-           }
-         dest[i] = (count > 0) ? (sum / (double)count) : source[i];
-        }
-     }
-  }
-
-//+------------------------------------------------------------------+
-//| Prepare Price (Standard - Optimized)                             |
-//+------------------------------------------------------------------+
-bool CMovingAverageCalculator::PreparePriceSeries(const int rates_total, const int start_index, const ENUM_APPLIED_PRICE price_type,
-      const double &open[], const double &high[], const double &low[], const double &close[])
+bool CMovingAverageCalculator::PreparePriceSeries(const int rates_total,
+      const int start_index,
+      const ENUM_APPLIED_PRICE price_type,
+      const double &open[],
+      const double &high[],
+      const double &low[],
+      const double &close[])
   {
    for(int i = start_index; i < rates_total; i++)
      {
@@ -662,24 +433,46 @@ bool CMovingAverageCalculator::PreparePriceSeries(const int rates_total, const i
   }
 
 //+==================================================================+
-//|             CLASS 2: CMovingAverageCalculator_HA                 |
+//| CLASS: CMovingAverageCalculator_HA (Heikin Ashi Specialization)  |
 //+==================================================================+
 class CMovingAverageCalculator_HA : public CMovingAverageCalculator
   {
 private:
    CHeikinAshi_Calculator m_ha_calculator;
-   double                 m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
+   double                 m_ha_open[];
+   double                 m_ha_high[];
+   double                 m_ha_low[];
+   double                 m_ha_close[];
 
 protected:
-   virtual bool           PreparePriceSeries(const int rates_total, const int start_index, const ENUM_APPLIED_PRICE price_type,
-         const double &open[], const double &high[], const double &low[], const double &close[]) override;
+   virtual bool           PreparePriceSeries(const int rates_total,
+         const int start_index,
+         const ENUM_APPLIED_PRICE price_type,
+         const double &open[],
+         const double &high[],
+         const double &low[],
+         const double &close[]) override;
+
+public:
+                     CMovingAverageCalculator_HA(void)
+     {
+      ArraySetAsSeries(m_ha_open,  false);
+      ArraySetAsSeries(m_ha_high,  false);
+      ArraySetAsSeries(m_ha_low,   false);
+      ArraySetAsSeries(m_ha_close, false);
+     }
   };
 
 //+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
+//| PreparePriceSeries for Heikin Ashi                               |
 //+------------------------------------------------------------------+
-bool CMovingAverageCalculator_HA::PreparePriceSeries(const int rates_total, const int start_index, const ENUM_APPLIED_PRICE price_type,
-      const double &open[], const double &high[], const double &low[], const double &close[])
+bool CMovingAverageCalculator_HA::PreparePriceSeries(const int rates_total,
+      const int start_index,
+      const ENUM_APPLIED_PRICE price_type,
+      const double &open[],
+      const double &high[],
+      const double &low[],
+      const double &close[])
   {
    if(ArraySize(m_ha_open) != rates_total)
      {
