@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.10" // Enterprise Edition: Two-Pointer MTF Fast-Path, Fixed HA Price Offsets & Atomic CopyRates
+#property version     "3.20" // Modular Strategy Engine Edition
 #property description "Universal Moving Average (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, VWMA)."
 #property description "Features unified Native & MTF pipelines, Heikin Ashi pricing, and zero-API live tick rendering."
 
@@ -89,24 +89,7 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_LINE_WIDTH, InpWidthMA);
    PlotIndexSetDouble(0,  PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-// Type-Accurate Draw Begin Setting
-   int draw_begin = InpPeriod - 1;
-   if(InpMAType == DEMA)
-      draw_begin = 2 * InpPeriod - 2;
-   else
-      if(InpMAType == TEMA)
-         draw_begin = 3 * InpPeriod - 3;
-      else
-         if(InpMAType == TMA)
-            draw_begin = InpPeriod - 1;
-
-   if(g_is_mtf_mode)
-      draw_begin = 0;
-
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
-   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
-
-// 3. Initialize Calculator Engine
+// 3. Initialize Modular Calculator Engine
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       g_calculator = new CMovingAverageCalculator_HA();
    else
@@ -117,6 +100,13 @@ int OnInit()
       Print("Critical Error: Failed to initialize Moving Average Calculator.");
       return INIT_FAILED;
      }
+
+   int draw_begin = g_calculator.GetDrawBegin();
+   if(g_is_mtf_mode)
+      draw_begin = 0;
+
+   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, draw_begin);
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    string ma_name = EnumToString(InpMAType);
    StringToUpper(ma_name);
@@ -142,7 +132,7 @@ void OnDeinit(const int reason)
    if(g_is_mtf_mode)
       EventKillTimer();
 
-   if(CheckPointer(g_calculator) != POINTER_INVALID)
+   if(CheckPointer(g_calculator) != POINTER_INVALID && g_calculator != NULL)
      {
       delete g_calculator;
       g_calculator = NULL;
@@ -176,7 +166,7 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(tick_volume, false);
    ArraySetAsSeries(volume,      false);
 
-// EXACT MATHEMATICAL APPLIED PRICE MAPPING (Eliminates Off-by-One Mismatch!)
+// EXACT MATHEMATICAL APPLIED PRICE MAPPING
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-((int)InpSourcePrice) - 1) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
@@ -224,7 +214,6 @@ int OnCalculate(const int rates_total,
 
       g_htf_count = MathMin(htf_bars, 3000);
 
-      // Resize all HTF caching arrays
       if(ArraySize(h_time) != g_htf_count)
         {
          ArrayResize(h_time,   g_htf_count);
@@ -268,7 +257,7 @@ int OnCalculate(const int rates_total,
       g_calculator.Calculate(g_htf_count, 0, price_type, h_open, h_high, h_low, h_close, h_vol, h_res_ma);
       g_data_ready = true;
 
-      // TWO-POINTER CHRONOLOGICAL SWEEP (Zero API calls, Nanosecond Execution!)
+      // TWO-POINTER CHRONOLOGICAL SWEEP
       int htf_ptr = 0;
       datetime oldest_htf = h_time[0];
 
@@ -293,7 +282,7 @@ int OnCalculate(const int rates_total,
    if(!g_data_ready)
       return 0;
 
-// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming candle in RAM!
+// B) LIVE TICK FAST-PATH: Update forming candle in RAM
    int live_idx = g_htf_count - 1;
    if(live_idx >= required_bars_mtf)
      {
@@ -309,12 +298,11 @@ int OnCalculate(const int rates_total,
          long vol_limit = (long)SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_LIMIT);
          h_vol[live_idx] = (vol_limit > 0 && htf_rate[0].real_volume > 0) ? (double)htf_rate[0].real_volume : (double)htf_rate[0].tick_volume;
 
-         // Mock incremental update on forming HTF bar
          g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close, h_vol, h_res_ma);
         }
      }
 
-// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+// Binary Search for forming bar block
    int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
    if(first_bar_of_forming_htf < 0)
       first_bar_of_forming_htf = 0;
@@ -325,9 +313,7 @@ int OnCalculate(const int rates_total,
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-// Direct Vectorized Assignment (Nanosecond execution across forming chart block)
    double ma_val = h_res_ma[live_idx];
-
    for(int i = start; i < rates_total; i++)
      {
       BufferMA[i] = ma_val;
