@@ -3,8 +3,8 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.20" // Modular Strategy Engine Edition
-#property description "Universal Moving Average (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, VWMA)."
+#property version     "3.50" // Enterprise Modular Suite: 14 Quantitative Smoothing Engines
+#property description "Universal Moving Average Suite (14 Classical, Zero-Lag, Outlier-Proof & Adaptive Models)."
 #property description "Features unified Native & MTF pipelines, Heikin Ashi pricing, and zero-API live tick rendering."
 
 #property indicator_chart_window
@@ -28,7 +28,7 @@ input ENUM_TIMEFRAMES           InpTimeframe    = PERIOD_CURRENT;    // Calculat
 
 input group "--- Moving Average Core Settings ---"
 input int                       InpPeriod       = 20;                // Moving Average Period
-input ENUM_MA_TYPE              InpMAType       = SMA;               // MA Algorithm (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, VWMA)
+input ENUM_MA_TYPE              InpMAType       = SMA;               // MA Algorithm (14 Pluggable Models)
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;   // Price Source (Standard / HA)
 
 input group "--- Visual Settings ---"
@@ -101,6 +101,7 @@ int OnInit()
       return INIT_FAILED;
      }
 
+// Dynamic Warmup Retrieval directly from the active strategy
    int draw_begin = g_calculator.GetDrawBegin();
    if(g_is_mtf_mode)
       draw_begin = 0;
@@ -188,7 +189,7 @@ int OnCalculate(const int rates_total,
 //===================================================================
 // MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
-   int required_bars_mtf = InpPeriod + 10;
+   int required_bars_mtf = InpPeriod + 15;
    if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars_mtf))
      {
       g_data_synced = false;
