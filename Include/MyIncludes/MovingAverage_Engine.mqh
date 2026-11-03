@@ -4,15 +4,26 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.00" // Enterprise Modular Facade with Polymorphic Algorithm Strategy
+#property version   "3.60" // Fully Modularized Component-Based Architecture
 
 #ifndef MOVING_AVERAGE_ENGINE_MQH
 #define MOVING_AVERAGE_ENGINE_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
-#include <MyIncludes\MA_CoreCalculators.mqh>
 
-//--- MA Algorithm Selector
+//--- Include Validated Core Algorithms from Dedicated Component Files
+#include <MyIncludes\MACalculators\Base_Calculator.mqh>
+#include <MyIncludes\MACalculators\SMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\EMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\SMMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\LWMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\TMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\DEMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\TEMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\VWMA_Calculator.mqh>
+#include <MyIncludes\MACalculators\HMA_Calculator.mqh>
+
+//--- Validated Algorithm Enums
 #ifndef ENUM_MA_TYPE_DEFINED
 #define ENUM_MA_TYPE_DEFINED
 enum ENUM_MA_TYPE
@@ -24,7 +35,8 @@ enum ENUM_MA_TYPE
    TMA,
    DEMA,
    TEMA,
-   VWMA
+   VWMA,
+   HMA
   };
 #endif
 
@@ -134,7 +146,7 @@ CMovingAverageCalculator::~CMovingAverageCalculator(void)
   }
 
 //+------------------------------------------------------------------+
-//| Algorithm Factory: Pluggable Extensibility Point                 |
+//| Algorithm Factory: Pluggable Component Instantiation             |
 //+------------------------------------------------------------------+
 bool CMovingAverageCalculator::CreateAlgorithm(const ENUM_MA_TYPE ma_type)
   {
@@ -166,6 +178,9 @@ bool CMovingAverageCalculator::CreateAlgorithm(const ENUM_MA_TYPE ma_type)
          break;
       case VWMA:
          m_algo = new CVWMACalculator();
+         break;
+      case HMA:
+         m_algo = new CHMACalculator();
          break;
       case SMA:
       default:
@@ -215,7 +230,6 @@ void CMovingAverageCalculator::Calculate(const int rates_total,
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-// VWMA requires volume array initialization
    if(m_ma_type == VWMA)
      {
       if(ArraySize(m_volume) != rates_total)
