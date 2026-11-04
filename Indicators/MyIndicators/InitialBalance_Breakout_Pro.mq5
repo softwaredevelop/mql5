@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.20" // Multi-Session Isolation & Unified Group Styling
+#property version     "2.40" // Consolidated Unified Extension Architecture
 #property description "Institutional Initial Balance (IB) Breakout & Statistical Open Forecast Suite."
 
 #property indicator_chart_window
@@ -41,16 +41,20 @@ input color               InpIBColorTop        = clrForestGreen;     // IB High 
 input color               InpIBColorBottom     = clrCrimson;         // IB Low Line Color
 input bool                InpShowIBBox         = true;               // Display IB Formation Box
 input color               InpIBBoxColor        = clrLightSlateGray;  // IB Range Box Color
+input bool                InpShowIBMidline     = true;               // Display IB Midline (50% Equilibrium)
+input int                 InpIBMidWidth        = 1;                  // Midline Width
+input ENUM_LINE_STYLE     InpIBMidStyle        = STYLE_DASH;         // Midline Style
+input color               InpIBMidColor        = clrGold;            // Midline Color
 
 input group "=== Range Extensions Styling ==="
-input bool                InpShowTopExt        = true;               // Display Top Extension
-input double              InpTopExtPercent     = 50.0;               // Top Extension % (e.g. 50 = +0.5x IB)
-input bool                InpShowBottomExt     = true;               // Display Bottom Extension
-input double              InpBottomExtPercent  = 50.0;               // Bottom Extension % (e.g. 50 = -0.5x IB)
+input bool                InpShowTopExt        = true;               // Display Top Extensions
+input bool                InpShowBottomExt     = true;               // Display Bottom Extensions
+input int                 InpExtCount          = 1;                  // Number of Extension Levels (Count, 1 = Single)
+input double              InpExtPercent        = 50.0;               // Step Percentage (% of IB Range per Level)
 input int                 InpExtWidth          = 1;                  // Extension Lines Width
 input ENUM_LINE_STYLE     InpExtStyle          = STYLE_DASH;         // Extension Lines Style
-input color               InpExtColorTop       = clrForestGreen;     // Top Extension Color
-input color               InpExtColorBottom    = clrCrimson;         // Bottom Extension Color
+input color               InpExtColorTop       = clrForestGreen;     // Top Extensions Color
+input color               InpExtColorBottom    = clrCrimson;         // Bottom Extensions Color
 
 input group "=== Fibonacci Equilibrium Levels Styling ==="
 input bool                InpShowFibos         = true;               // Display Fibonacci Levels
@@ -124,7 +128,6 @@ int OnInit()
      }
 
 // 4. Deterministic Multi-Instance Chart Object Namespace
-// Combines ChartID and the Session Name to prevent collisions when running multiple sessions!
    g_prefix = StringFormat("IB_%I64d_%s_", ChartID(), InpSessionName);
 
    string short_name = StringFormat("IB_Pro(%s_%dmin)", InpSessionName, InpIBDurationMinutes);
@@ -224,32 +227,47 @@ void RenderVisuals(void)
       DrawLevel(tag + "Top", t_start, t_end, sess.top, InpIBColorTop, InpIBStyle, InpIBWidth);
       DrawLevel(tag + "Bot", t_start, t_end, sess.bottom, InpIBColorBottom, InpIBStyle, InpIBWidth);
 
-      // 3. Range Extensions
-      if(InpShowTopExt && range > 0.0)
+      // 3. Initial Balance Midline (50% Equilibrium)
+      if(InpShowIBMidline && range > 0.0)
         {
-         double top_ext = sess.top + (InpTopExtPercent * 0.01) * range;
-         DrawLevel(tag + "ExtTop", t_start, t_end, top_ext, InpExtColorTop, InpExtStyle, InpExtWidth);
+         double mid_price = (sess.top + sess.bottom) * 0.5;
+         DrawLevel(tag + "Mid", t_start, t_end, mid_price, InpIBMidColor, InpIBMidStyle, InpIBMidWidth);
         }
 
-      if(InpShowBottomExt && range > 0.0)
+      // 4. Consolidated Range Extensions Grid (Single & Multi-Tier)
+      if(range > 0.0 && InpExtCount > 0 && (InpShowTopExt || InpShowBottomExt))
         {
-         double bot_ext = sess.bottom - (InpBottomExtPercent * 0.01) * range;
-         DrawLevel(tag + "ExtBot", t_start, t_end, bot_ext, InpExtColorBottom, InpExtStyle, InpExtWidth);
+         double step = (InpExtPercent * 0.01) * range;
+         int max_levels = MathMin(MathMax(1, InpExtCount), 15); // Safety clamp: 1 to 15 levels
+
+         for(int k = 1; k <= max_levels; k++)
+           {
+            if(InpShowTopExt)
+              {
+               double top_ext = sess.top + (k * step);
+               DrawLevel(tag + StringFormat("Ext_Top_%d", k), t_start, t_end, top_ext, InpExtColorTop, InpExtStyle, InpExtWidth);
+              }
+
+            if(InpShowBottomExt)
+              {
+               double bot_ext = sess.bottom - (k * step);
+               DrawLevel(tag + StringFormat("Ext_Bot_%d", k), t_start, t_end, bot_ext, InpExtColorBottom, InpExtStyle, InpExtWidth);
+              }
+           }
         }
 
-      // 4. Fibonacci Equilibrium Lines (Extended to session end!)
+      // 5. Fibonacci Equilibrium Lines (Extended across the breakout window)
       if(InpShowFibos && range > 0.0)
         {
          double fibs[] = {0.236, 0.382, 0.500, 0.618, 0.786};
          for(int f = 0; f < 5; f++)
            {
             double f_lvl = InpFiboReverse ? (sess.bottom + fibs[f] * range) : (sess.top - fibs[f] * range);
-            // Drawn from t_start to t_end across the entire breakout window
             DrawLevel(tag + StringFormat("Fib_%d", f), t_start, t_end, f_lvl, InpFiboColor, InpFiboStyle, InpFiboWidth);
            }
         }
 
-      // 5. Statistical Forecast Lines
+      // 6. Statistical Forecast Lines
       if(InpShowForecast && sess.forecastTop > 0.0 && sess.forecastBottom > 0.0)
         {
          DrawLevel(tag + "FcastTop", t_start, t_end, sess.forecastTop, InpForecastTopColor, InpForecastStyle, InpForecastWidth);
