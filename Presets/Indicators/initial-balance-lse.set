@@ -1,0 +1,45 @@
+; === Session & Multi-Instance Identity ===
+InpSessionName=LSE
+InpAutoSession=false
+InpIBDurationMinutes=60
+InpManualIBStart=10:00
+InpManualIBEnd=10:55
+InpManualSessionEnd=18:25
+; === Initial Balance Base Styling ===
+InpIBWidth=1
+InpIBStyle=0
+InpIBColorTop=2263842
+InpIBColorBottom=3937500
+InpShowIBBox=true
+InpIBBoxColor=14804223
+InpShowIBMidline=true
+InpIBMidWidth=1
+InpIBMidStyle=2
+InpIBMidColor=8421504
+; === Range Extensions Styling ===
+InpShowTopExt=true
+InpShowBottomExt=true
+InpExtCount=1
+InpExtPercent=50.0
+InpExtWidth=1
+InpExtStyle=2
+InpExtColorTop=2263842
+InpExtColorBottom=3937500
+; === Fibonacci Equilibrium Levels Styling ===
+InpShowFibos=false
+InpFiboReverse=false
+InpFiboWidth=1
+InpFiboStyle=2
+InpFiboColor=8421504
+; === Statistical Forecast Styling ===
+InpShowForecast=true
+InpForecastMode=0
+InpForecastMemory=13
+InpForecastMult=1.0
+InpForecastWidth=1
+InpForecastStyle=3
+InpForecastTopColor=7451452
+InpForecastBotColor=6053069
+; === Signals & Chart Hygiene ===
+InpShowBreakoutArrows=false
+InpDisplaySessions=1

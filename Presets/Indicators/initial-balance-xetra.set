@@ -1,0 +1,45 @@
+; === Session & Multi-Instance Identity ===
+InpSessionName=XETRA
+InpAutoSession=false
+InpIBDurationMinutes=60
+InpManualIBStart=09:00
+InpManualIBEnd=10:00
+InpManualSessionEnd=09:55
+; === Initial Balance Base Styling ===
+InpIBWidth=1
+InpIBStyle=0
+InpIBColorTop=5737262
+InpIBColorBottom=5737262
+InpShowIBBox=false
+InpIBBoxColor=14804223
+InpShowIBMidline=true
+InpIBMidWidth=1
+InpIBMidStyle=2
+InpIBMidColor=8421504
+; === Range Extensions Styling ===
+InpShowTopExt=true
+InpShowBottomExt=true
+InpExtCount=1
+InpExtPercent=50.0
+InpExtWidth=1
+InpExtStyle=2
+InpExtColorTop=2263842
+InpExtColorBottom=3937500
+; === Fibonacci Equilibrium Levels Styling ===
+InpShowFibos=false
+InpFiboReverse=false
+InpFiboWidth=1
+InpFiboStyle=2
+InpFiboColor=8421504
+; === Statistical Forecast Styling ===
+InpShowForecast=true
+InpForecastMode=0
+InpForecastMemory=13
+InpForecastMult=1.0
+InpForecastWidth=1
+InpForecastStyle=3
+InpForecastTopColor=7451452
+InpForecastBotColor=6053069
+; === Signals & Chart Hygiene ===
+InpShowBreakoutArrows=false
+InpDisplaySessions=1
