@@ -97,7 +97,7 @@ expertmode=4
 fixed_height=-1
 
 <graph>
-name=IB_Pro(London_60min) Bull
+name=IB_Pro(LSE_60min) Bull
 draw=3
 style=0
 width=2
@@ -106,7 +106,7 @@ color=2263842
 </graph>
 
 <graph>
-name=IB_Pro(London_60min) Bear
+name=IB_Pro(LSE_60min) Bear
 draw=3
 style=0
 width=2
@@ -115,7 +115,7 @@ color=3937500
 </graph>
 <inputs>
 === Session & Multi-Instance Identity ====
-InpSessionName=London
+InpSessionName=LSE
 InpAutoSession=false
 InpIBDurationMinutes=60
 InpManualIBStart=10:00
@@ -179,7 +179,7 @@ expertmode=4
 fixed_height=-1
 
 <graph>
-name=IB_Pro(NewYork_60min) Bull
+name=IB_Pro(NYSE_60min) Bull
 draw=3
 style=0
 width=2
@@ -188,7 +188,7 @@ color=2263842
 </graph>
 
 <graph>
-name=IB_Pro(NewYork_60min) Bear
+name=IB_Pro(NYSE_60min) Bear
 draw=3
 style=0
 width=2
@@ -197,7 +197,7 @@ color=3937500
 </graph>
 <inputs>
 === Session & Multi-Instance Identity ====
-InpSessionName=NewYork
+InpSessionName=NYSE
 InpAutoSession=false
 InpIBDurationMinutes=60
 InpManualIBStart=16:30
