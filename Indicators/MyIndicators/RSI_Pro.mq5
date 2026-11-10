@@ -3,13 +3,14 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "5.10" // Enterprise Edition: Fully Configurable Visual Styling Panel
-#property description "Professional RSI Suite with 14 MA Types, Bollinger Bands, Heikin Ashi, and Native MTF."
+#property version     "6.10" // Enterprise Edition: Pure Geometric Divergence Engine (Arrow-Free)
+#property description "Professional RSI Suite with 14 MA Types, Bollinger Bands, Heikin Ashi, MTF, and Dual-Chart Divergences."
 
 //--- Indicator Window and Plot Properties ---
 #property indicator_separate_window
 #property indicator_buffers 4
 #property indicator_plots   4
+
 #property indicator_minimum 0.0
 #property indicator_maximum 100.0
 #property indicator_level1  30.0
@@ -20,6 +21,7 @@
 
 //--- Included Engines & Core Tools ---
 #include <MyIncludes\RSI_Pro_Calculator.mqh>
+#include <MyIncludes\Divergence_Engine.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Plot Declarations ---
@@ -57,21 +59,38 @@ input int                       InpPeriodMA     = 20;                // Signal M
 input ENUM_MA_TYPE              InpMethodMA     = SMA;               // Signal MA Algorithm (14 Pluggable Models)
 input double                    InpBandsDev     = 2.0;               // Bollinger Dispersion Multiplier
 
-input group "=== RSI Visual Settings ==="
-input color                     InpColorRSI     = clrDodgerBlue;     // RSI Line Color
-input ENUM_LINE_STYLE           InpStyleRSI     = STYLE_SOLID;       // RSI Line Style
-input int                       InpWidthRSI     = 1;                 // RSI Line Width
+input group "=== Divergence Engine Settings ==="
+input bool                      InpEnableDivergence = true;          // Enable Divergence Scanner
+input ENUM_DIV_FILTER_MODE      InpDivMode          = DIV_FILTER_BOTH;// Divergence Mode (Regular, Hidden, Both)
+input int                       InpPivotLeftBars    = 3;             // Pivot Left Confirmation Bars
+input int                       InpPivotRightBars   = 2;             // Pivot Right Confirmation Bars
+input int                       InpMinDistance      = 5;             // Min Pivot Distance (Bars)
+input int                       InpMaxDistance      = 60;            // Max Pivot Distance (Bars)
+input bool                      InpDrawSubwindowLines= true;         // Draw Divergence Lines on RSI Subwindow
+input bool                      InpDrawMainChartLines= true;         // Draw Divergence Lines on Main Price Chart
 
-input group "=== Signal MA Visual Settings ==="
-input color                     InpColorMA      = clrOrangeRed;      // Signal MA Color
-input ENUM_LINE_STYLE           InpStyleMA      = STYLE_DOT;         // Signal MA Style
-input int                       InpWidthMA      = 1;                 // Signal MA Width
+input group "=== Divergence Visual Settings ==="
+input color                     InpColorRegBull     = clrDeepSkyBlue;// Regular Bullish Divergence Color
+input color                     InpColorRegBear     = clrCrimson;    // Regular Bearish Divergence Color
+input color                     InpColorHidBull     = clrDodgerBlue; // Hidden Bullish Divergence Color
+input color                     InpColorHidBear     = clrOrangeRed;  // Hidden Bearish Divergence Color
+input int                       InpDivLineWidth     = 1;             // Divergence Line Width
+input ENUM_LINE_STYLE           InpDivLineStyle     = STYLE_SOLID;   // Divergence Line Style
 
-input group "=== Bollinger Bands Visual Settings ==="
-input color                     InpColorBandsUpper = clrGray;        // Upper Band Color
-input color                     InpColorBandsLower = clrGray;        // Lower Band Color
-input ENUM_LINE_STYLE           InpStyleBands   = STYLE_DOT;         // Bands Line Style
-input int                       InpWidthBands   = 1;                 // Bands Line Width
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+input group "=== Visual Settings (Core Lines) ==="
+input color                     InpColorRSI         = clrDodgerBlue; // RSI Line Color
+input ENUM_LINE_STYLE           InpStyleRSI         = STYLE_SOLID;   // RSI Line Style
+input int                       InpWidthRSI         = 1;             // RSI Line Width
+input color                     InpColorMA          = clrOrangeRed;  // Signal MA Color
+input ENUM_LINE_STYLE           InpStyleMA          = STYLE_DOT;     // Signal MA Style
+input int                       InpWidthMA          = 1;             // Signal MA Width
+input color                     InpColorBandsUpper  = clrGray;        // Upper Band Color
+input color                     InpColorBandsLower  = clrGray;        // Lower Band Color
+input ENUM_LINE_STYLE           InpStyleBands       = STYLE_DOT;     // Bands Line Style
+input int                       InpWidthBands       = 1;             // Bands Line Width
 
 //--- Indicator Output Buffers ---
 double BufferRSI[];
@@ -86,12 +105,15 @@ datetime h_time[];
 
 //--- Global Objects & State Management ---
 CRSIProCalculator *g_calculator     = NULL;
-bool               g_is_mtf_mode    = false;
+CDivergenceEngine  g_divergence_engine;
+string             g_indicator_shortname = "";
+string             g_prefix          = "";
+bool               g_is_mtf_mode     = false;
 ENUM_TIMEFRAMES    g_calc_timeframe;
-bool               g_data_ready     = false;
-bool               g_data_synced    = false;
-int                g_htf_count      = 0;
-datetime           g_last_htf_time  = 0;
+bool               g_data_ready      = false;
+bool               g_data_synced     = false;
+int                g_htf_count       = 0;
+datetime           g_last_htf_time   = 0;
 
 //+------------------------------------------------------------------+
 //| Custom Indicator Initialization                                  |
@@ -132,23 +154,19 @@ int OnInit()
    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-// 3. Configure Visual Properties Dynamically from Inputs
-// Plot 0: RSI Line
+// 3. Configure Plot Visual Attributes
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, InpColorRSI);
    PlotIndexSetInteger(0, PLOT_LINE_STYLE, InpStyleRSI);
    PlotIndexSetInteger(0, PLOT_LINE_WIDTH, InpWidthRSI);
 
-// Plot 1: Signal MA
    PlotIndexSetInteger(1, PLOT_LINE_COLOR, InpColorMA);
    PlotIndexSetInteger(1, PLOT_LINE_STYLE, InpStyleMA);
    PlotIndexSetInteger(1, PLOT_LINE_WIDTH, InpWidthMA);
 
-// Plot 2: Upper Band
    PlotIndexSetInteger(2, PLOT_LINE_COLOR, InpColorBandsUpper);
    PlotIndexSetInteger(2, PLOT_LINE_STYLE, InpStyleBands);
    PlotIndexSetInteger(2, PLOT_LINE_WIDTH, InpWidthBands);
 
-// Plot 3: Lower Band
    PlotIndexSetInteger(3, PLOT_LINE_COLOR, InpColorBandsLower);
    PlotIndexSetInteger(3, PLOT_LINE_STYLE, InpStyleBands);
    PlotIndexSetInteger(3, PLOT_LINE_WIDTH, InpWidthBands);
@@ -167,24 +185,14 @@ int OnInit()
          PlotIndexSetInteger(2, PLOT_DRAW_TYPE, DRAW_NONE);
          PlotIndexSetInteger(3, PLOT_DRAW_TYPE, DRAW_NONE);
         }
-      else // DISPLAY_RSI_AND_BANDS
+      else
         {
          PlotIndexSetInteger(1, PLOT_DRAW_TYPE, DRAW_LINE);
          PlotIndexSetInteger(2, PLOT_DRAW_TYPE, DRAW_LINE);
          PlotIndexSetInteger(3, PLOT_DRAW_TYPE, DRAW_LINE);
         }
 
-// 5. Draw Begin Alignment
-   int draw_begin = InpPeriodRSI + InpPeriodMA - 1;
-   if(g_is_mtf_mode)
-      draw_begin = 0;
-
-   PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_is_mtf_mode ? 0 : InpPeriodRSI);
-   PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, draw_begin);
-   PlotIndexSetInteger(2, PLOT_DRAW_BEGIN, draw_begin);
-   PlotIndexSetInteger(3, PLOT_DRAW_BEGIN, draw_begin);
-
-// 6. Initialize Calculator Engine
+// 5. Initialize Calculators & Divergence Engine
    if(InpSourcePrice <= PRICE_HA_CLOSE)
       g_calculator = new CRSIProCalculator_HA();
    else
@@ -197,15 +205,23 @@ int OnInit()
       return INIT_FAILED;
      }
 
+   if(InpEnableDivergence)
+     {
+      g_divergence_engine.Init(InpPivotLeftBars, InpPivotRightBars, InpMinDistance, InpMaxDistance, InpDivMode);
+     }
+
+// 6. Formatting Names and Namespaces
    string ha_tag  = (InpSourcePrice <= PRICE_HA_CLOSE) ? " HA" : "";
    string tf_str  = g_is_mtf_mode ? (" [" + EnumToString(g_calc_timeframe) + "]") : "";
-   string short_name = StringFormat("RSI Pro%s%s(%d, %s %d)", ha_tag, tf_str, InpPeriodRSI, EnumToString(InpMethodMA), InpPeriodMA);
+   g_indicator_shortname = StringFormat("RSI Pro%s%s(%d)", ha_tag, tf_str, InpPeriodRSI);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, short_name);
+   IndicatorSetString(INDICATOR_SHORTNAME, g_indicator_shortname);
    PlotIndexSetString(0, PLOT_LABEL, StringFormat("RSI(%d)", InpPeriodRSI));
    PlotIndexSetString(1, PLOT_LABEL, StringFormat("Signal MA(%d)", InpPeriodMA));
    PlotIndexSetString(2, PLOT_LABEL, "Upper Band");
    PlotIndexSetString(3, PLOT_LABEL, "Lower Band");
+
+   g_prefix = StringFormat("RSI_Div_%I64d_", ChartID());
 
 // 7. Background MTF Sync Daemon
    if(g_is_mtf_mode)
@@ -222,11 +238,53 @@ void OnDeinit(const int reason)
    if(g_is_mtf_mode)
       EventKillTimer();
 
+// Clean up all program-owned divergence graphical objects
+   ObjectsDeleteAll(0, g_prefix);
+   ChartRedraw(0);
+
    if(CheckPointer(g_calculator) != POINTER_INVALID && g_calculator != NULL)
      {
       delete g_calculator;
       g_calculator = NULL;
      }
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Draw Divergence Trendline on Subwindow or Main Chart     |
+//+------------------------------------------------------------------+
+void DrawDivergenceLine(const string name, const int window,
+                        const datetime t1, const double val1,
+                        const datetime t2, const double val2,
+                        const color c, const ENUM_LINE_STYLE style, const int width)
+  {
+   string obj_name = g_prefix + name;
+   if(ObjectFind(0, obj_name) < 0)
+     {
+      ObjectCreate(0, obj_name, OBJ_TREND, window, t1, val1, t2, val2);
+      ObjectSetInteger(0, obj_name, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, obj_name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, obj_name, OBJPROP_BACK, true);
+     }
+   else
+     {
+      ObjectMove(0, obj_name, 0, t1, val1);
+      ObjectMove(0, obj_name, 1, t2, val2);
+     }
+
+   ObjectSetInteger(0, obj_name, OBJPROP_COLOR, c);
+   ObjectSetInteger(0, obj_name, OBJPROP_STYLE, style);
+   ObjectSetInteger(0, obj_name, OBJPROP_WIDTH, width);
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Locate Indicator Subwindow Resiliently                   |
+//+------------------------------------------------------------------+
+int GetSubwindow(void)
+  {
+   int subwin = ChartWindowFind(0, g_indicator_shortname);
+   if(subwin < 0)
+      subwin = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL) > 1 ? 1 : 0;
+   return subwin;
   }
 
 //+------------------------------------------------------------------+
@@ -243,7 +301,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   int required_bars = InpPeriodRSI + InpPeriodMA + 5;
+   int required_bars = InpPeriodRSI + InpPeriodMA + InpMaxDistance + 10;
    if(rates_total < required_bars || CheckPointer(g_calculator) == POINTER_INVALID)
       return 0;
 
@@ -254,7 +312,7 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(low,   false);
    ArraySetAsSeries(close, false);
 
-// EXACT MATHEMATICAL APPLIED PRICE MAPPING (Eliminates Off-by-One Mismatch)
+// EXACT MATHEMATICAL APPLIED PRICE MAPPING
    ENUM_APPLIED_PRICE price_type = (InpSourcePrice <= PRICE_HA_CLOSE) ?
                                    (ENUM_APPLIED_PRICE)(-((int)InpSourcePrice) - 1) :
                                    (ENUM_APPLIED_PRICE)InpSourcePrice;
@@ -266,6 +324,78 @@ int OnCalculate(const int rates_total,
      {
       g_calculator.Calculate(rates_total, prev_calculated, price_type, open, high, low, close,
                              BufferRSI, BufferSignalMA, BufferUpperBand, BufferLowerBand);
+
+      // Divergence Scanning and Pure Geometric Projection
+      if(InpEnableDivergence)
+        {
+         int start = (prev_calculated > 0) ? prev_calculated - 1 : 0;
+         if(prev_calculated == 0)
+           {
+            g_divergence_engine.Reset();
+            ObjectsDeleteAll(0, g_prefix);
+            start = 0;
+           }
+
+         int subwin = -1;
+         if(InpDrawSubwindowLines)
+            subwin = GetSubwindow();
+
+         for(int i = start; i < rates_total; i++)
+           {
+            SDivergenceEvent div_event;
+            if(g_divergence_engine.ProcessBar(i, rates_total, time, high, low, BufferRSI, div_event))
+              {
+               color line_color = clrGray;
+               string type_str  = "";
+
+               switch(div_event.type)
+                 {
+                  case DIV_REGULAR_BULLISH:
+                     line_color = InpColorRegBull;
+                     type_str   = "RegBull";
+                     break;
+
+                  case DIV_REGULAR_BEARISH:
+                     line_color = InpColorRegBear;
+                     type_str   = "RegBear";
+                     break;
+
+                  case DIV_HIDDEN_BULLISH:
+                     line_color = InpColorHidBull;
+                     type_str   = "HidBull";
+                     break;
+
+                  case DIV_HIDDEN_BEARISH:
+                     line_color = InpColorHidBear;
+                     type_str   = "HidBear";
+                     break;
+
+                  default:
+                     break;
+                 }
+
+               string tag = StringFormat("%s_%I64d", type_str, (long)div_event.curr_pivot.time);
+
+               // 1. Draw line on RSI Subwindow
+               if(InpDrawSubwindowLines && subwin >= 0)
+                 {
+                  DrawDivergenceLine("Osc_" + tag, subwin,
+                                     div_event.prev_pivot.time, div_event.prev_pivot.osc_value,
+                                     div_event.curr_pivot.time, div_event.curr_pivot.osc_value,
+                                     line_color, InpDivLineStyle, InpDivLineWidth);
+                 }
+
+               // 2. Draw line on Price Main Chart
+               if(InpDrawMainChartLines)
+                 {
+                  DrawDivergenceLine("Price_" + tag, 0,
+                                     div_event.prev_pivot.time, div_event.prev_pivot.price,
+                                     div_event.curr_pivot.time, div_event.curr_pivot.price,
+                                     line_color, InpDivLineStyle, InpDivLineWidth);
+                 }
+              }
+           }
+        }
 
       return rates_total;
      }
@@ -345,7 +475,7 @@ int OnCalculate(const int rates_total,
                              h_rsi, h_ma, h_upper, h_lower);
       g_data_ready = true;
 
-      // TWO-POINTER CHRONOLOGICAL SWEEP (Zero API calls, Nanosecond Execution!)
+      // TWO-POINTER CHRONOLOGICAL SWEEP
       int htf_ptr = 0;
       datetime oldest_htf = h_time[0];
 
@@ -389,7 +519,6 @@ int OnCalculate(const int rates_total,
          h_low[live_idx]   = htf_rate[0].low;
          h_close[live_idx] = htf_rate[0].close;
 
-         // Recompute strictly forming bar in RAM
          g_calculator.Calculate(g_htf_count, g_htf_count, price_type, h_open, h_high, h_low, h_close,
                                 h_rsi, h_ma, h_upper, h_lower);
         }
