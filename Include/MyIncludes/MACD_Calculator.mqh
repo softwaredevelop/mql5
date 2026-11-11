@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                               MACD_Calculator.mqh|
 //|      Engine for Gerald Appel's MACD & Convergence/Divergence     |
+//|      VERSION 6.00: 2026 Enterprise Edition with Capacity Memory  |
+//|                    & FMA-Optimized Price Kernel                  |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "5.00" // Full VWMA Support across Fast, Slow and Signal smoothing engines
+#property version   "6.00"
 
 #ifndef MACD_CALCULATOR_MQH
 #define MACD_CALCULATOR_MQH
@@ -25,12 +27,12 @@ protected:
    ENUM_MA_TYPE              m_sig_ma_type;
    ENUM_APPLIED_PRICE_HA_ALL m_source_price;
 
-   //--- Smoothing Engines
+   //--- Smoothing Engines (Composition Pattern)
    CMovingAverageCalculator *m_fast_ma_engine;
    CMovingAverageCalculator *m_slow_ma_engine;
    CMovingAverageCalculator *m_signal_ma_engine;
 
-   //--- Composition Engine
+   //--- Composition Engine for Heikin Ashi
    CHeikinAshi_Calculator    m_ha_engine;
 
    //--- Persistent State Buffers
@@ -168,17 +170,17 @@ CMACDCalculator::CMACDCalculator(void) : m_fast_p(12),
 //+------------------------------------------------------------------+
 CMACDCalculator::~CMACDCalculator(void)
   {
-   if(CheckPointer(m_fast_ma_engine) != POINTER_INVALID)
+   if(CheckPointer(m_fast_ma_engine) != POINTER_INVALID && m_fast_ma_engine != NULL)
      {
       delete m_fast_ma_engine;
       m_fast_ma_engine = NULL;
      }
-   if(CheckPointer(m_slow_ma_engine) != POINTER_INVALID)
+   if(CheckPointer(m_slow_ma_engine) != POINTER_INVALID && m_slow_ma_engine != NULL)
      {
       delete m_slow_ma_engine;
       m_slow_ma_engine = NULL;
      }
-   if(CheckPointer(m_signal_ma_engine) != POINTER_INVALID)
+   if(CheckPointer(m_signal_ma_engine) != POINTER_INVALID && m_signal_ma_engine != NULL)
      {
       delete m_signal_ma_engine;
       m_signal_ma_engine = NULL;
@@ -219,7 +221,7 @@ bool CMACDCalculator::Init(const int fast_p, const int slow_p, const int signal_
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price Series (Standard / Heikin Ashi)                    |
+//| Prepare Price Series (Standard / Heikin Ashi - ALU Optimized)    |
 //+------------------------------------------------------------------+
 bool CMACDCalculator::PreparePriceSeries(const int rates_total, const int start_index,
       const double &open[], const double &high[],
@@ -227,7 +229,7 @@ bool CMACDCalculator::PreparePriceSeries(const int rates_total, const int start_
   {
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price, rates_total);
+      ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
      }
 
@@ -237,10 +239,10 @@ bool CMACDCalculator::PreparePriceSeries(const int rates_total, const int start_
      {
       if(ArraySize(m_ha_open) != rates_total)
         {
-         ArrayResize(m_ha_open,  rates_total);
-         ArrayResize(m_ha_high,  rates_total);
-         ArrayResize(m_ha_low,   rates_total);
-         ArrayResize(m_ha_close, rates_total);
+         ArrayResize(m_ha_open,  rates_total, 2048);
+         ArrayResize(m_ha_high,  rates_total, 2048);
+         ArrayResize(m_ha_low,   rates_total, 2048);
+         ArrayResize(m_ha_close, rates_total, 2048);
 
          ArraySetAsSeries(m_ha_open,  false);
          ArraySetAsSeries(m_ha_high,  false);
@@ -265,13 +267,13 @@ bool CMACDCalculator::PreparePriceSeries(const int rates_total, const int start_
                m_price[i] = m_ha_low[i];
                break;
             case PRICE_HA_MEDIAN:
-               m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+               m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                break;
             case PRICE_HA_TYPICAL:
-               m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
+               m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) * 0.3333333333333333;
                break;
             case PRICE_HA_WEIGHTED:
-               m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+               m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
                break;
             case PRICE_HA_CLOSE:
             default:
@@ -296,13 +298,13 @@ bool CMACDCalculator::PreparePriceSeries(const int rates_total, const int start_
                m_price[i] = low[i];
                break;
             case PRICE_MEDIAN_STD:
-               m_price[i] = (high[i] + low[i]) / 2.0;
+               m_price[i] = (high[i] + low[i]) * 0.5;
                break;
             case PRICE_TYPICAL_STD:
-               m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
+               m_price[i] = (high[i] + low[i] + close[i]) * 0.3333333333333333;
                break;
             case PRICE_WEIGHTED_STD:
-               m_price[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+               m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
                break;
             case PRICE_CLOSE_STD:
             default:
@@ -328,7 +330,7 @@ void CMACDCalculator::Calculate(const int rates_total, const int prev_calculated
 
    if(ArraySize(m_vol_buf) != rates_total)
      {
-      ArrayResize(m_vol_buf, rates_total);
+      ArrayResize(m_vol_buf, rates_total, 2048);
       ArraySetAsSeries(m_vol_buf, false);
      }
 
@@ -351,7 +353,7 @@ void CMACDCalculator::Calculate(const int rates_total, const int prev_calculated
 
    if(ArraySize(m_vol_buf) != rates_total)
      {
-      ArrayResize(m_vol_buf, rates_total);
+      ArrayResize(m_vol_buf, rates_total, 2048);
       ArraySetAsSeries(m_vol_buf, false);
      }
 
@@ -375,42 +377,23 @@ void CMACDCalculator::ExecuteCalculation(const int rates_total, const int prev_c
       CheckPointer(m_slow_ma_engine) == POINTER_INVALID || CheckPointer(m_signal_ma_engine) == POINTER_INVALID)
       return;
 
-// Safe allocation of destination arrays
-   if(ArraySize(macd_line) != rates_total)
-     {
-      ArrayResize(macd_line, rates_total);
-      ArraySetAsSeries(macd_line, false);
-      ArrayInitialize(macd_line, EMPTY_VALUE);
-     }
-   if(ArraySize(signal_line) != rates_total)
-     {
-      ArrayResize(signal_line, rates_total);
-      ArraySetAsSeries(signal_line, false);
-      ArrayInitialize(signal_line, EMPTY_VALUE);
-     }
-   if(ArraySize(histogram) != rates_total)
-     {
-      ArrayResize(histogram, rates_total);
-      ArraySetAsSeries(histogram, false);
-      ArrayInitialize(histogram, 0.0);
-     }
-
    int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-// Resize internal buffers
+// Resize working registers with memory reservation capacity
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price,           rates_total);
+      ArrayResize(m_price,           rates_total, 2048);
+      ArrayResize(m_fast_ma,         rates_total, 2048);
+      ArrayResize(m_slow_ma,         rates_total, 2048);
+      ArrayResize(m_macd_internal,   rates_total, 2048);
+      ArrayResize(m_signal_internal, rates_total, 2048);
+      ArrayResize(m_hist_internal,   rates_total, 2048);
+
       ArraySetAsSeries(m_price,           false);
-      ArrayResize(m_fast_ma,         rates_total);
       ArraySetAsSeries(m_fast_ma,         false);
-      ArrayResize(m_slow_ma,         rates_total);
       ArraySetAsSeries(m_slow_ma,         false);
-      ArrayResize(m_macd_internal,   rates_total);
       ArraySetAsSeries(m_macd_internal,   false);
-      ArrayResize(m_signal_internal, rates_total);
       ArraySetAsSeries(m_signal_internal, false);
-      ArrayResize(m_hist_internal,   rates_total);
       ArraySetAsSeries(m_hist_internal,   false);
      }
 
@@ -474,6 +457,8 @@ void CMACDCalculator::CalculateHistogramOnly(const int rates_total, const int pr
       double &hist_out[])
   {
    double dummy_macd[], dummy_signal[];
+   ArrayResize(dummy_macd, rates_total, 2048);
+   ArrayResize(dummy_signal, rates_total, 2048);
    Calculate(rates_total, prev_calculated, open, high, low, close, dummy_macd, dummy_signal, hist_out);
   }
 
@@ -486,11 +471,13 @@ void CMACDCalculator::CalculateMACDLineOnly(const int rates_total, const int pre
       double &macd_out[])
   {
    double dummy_signal[], dummy_hist[];
+   ArrayResize(dummy_signal, rates_total, 2048);
+   ArrayResize(dummy_hist, rates_total, 2048);
    Calculate(rates_total, prev_calculated, open, high, low, close, macd_out, dummy_signal, dummy_hist);
   }
 
 //+==================================================================+
-//|             CLASS 2: CMACDCalculator_HA (Legacy Wrapper)         |
+//| CLASS 2: CMACDCalculator_HA (Legacy Specialization)              |
 //+==================================================================+
 class CMACDCalculator_HA : public CMACDCalculator
   {
