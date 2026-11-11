@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                   Bollinger_Bands_Calculator.mqh |
 //|      Engine for John Bollinger's Classic Bollinger Bands         |
+//|      VERSION 5.00: 2026 Enterprise Edition with Capacity Memory  |
+//|                    & FMA-Optimized Dispersion Kernel             |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "4.00" // Leak-free pointer lifecycle, bounds protection & full VWMA routing
+#property version   "5.00"
 
 #ifndef BOLLINGER_BANDS_CALCULATOR_MQH
 #define BOLLINGER_BANDS_CALCULATOR_MQH
@@ -19,6 +21,7 @@ class CBollingerBandsCalculator
   {
 protected:
    int                       m_period;
+   double                    m_inv_period;
    double                    m_deviation;
    ENUM_MA_TYPE              m_ma_type;
    ENUM_APPLIED_PRICE_HA_ALL m_source_price;
@@ -29,6 +32,7 @@ protected:
    //--- Persistent State Buffers
    double                    m_price[];
    double                    m_ma_buffer[];
+   double                    m_vol_buf[];
 
    virtual bool              PreparePriceSeries(const int rates_total, const int start_index, const ENUM_APPLIED_PRICE price_type,
          const double &open[], const double &high[], const double &low[], const double &close[]);
@@ -73,6 +77,7 @@ public:
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
 CBollingerBandsCalculator::CBollingerBandsCalculator(void) : m_period(20),
+   m_inv_period(1.0 / 20.0),
    m_deviation(2.0),
    m_ma_type(SMA),
    m_source_price(PRICE_CLOSE_STD),
@@ -80,6 +85,7 @@ CBollingerBandsCalculator::CBollingerBandsCalculator(void) : m_period(20),
   {
    ArraySetAsSeries(m_price,     false);
    ArraySetAsSeries(m_ma_buffer, false);
+   ArraySetAsSeries(m_vol_buf,   false);
   }
 
 //+------------------------------------------------------------------+
@@ -87,7 +93,7 @@ CBollingerBandsCalculator::CBollingerBandsCalculator(void) : m_period(20),
 //+------------------------------------------------------------------+
 CBollingerBandsCalculator::~CBollingerBandsCalculator(void)
   {
-   if(CheckPointer(m_ma_engine) != POINTER_INVALID)
+   if(CheckPointer(m_ma_engine) != POINTER_INVALID && m_ma_engine != NULL)
      {
       delete m_ma_engine;
       m_ma_engine = NULL;
@@ -99,7 +105,7 @@ CBollingerBandsCalculator::~CBollingerBandsCalculator(void)
 //+------------------------------------------------------------------+
 void CBollingerBandsCalculator::CreateEngine(void)
   {
-   if(CheckPointer(m_ma_engine) != POINTER_INVALID)
+   if(CheckPointer(m_ma_engine) != POINTER_INVALID && m_ma_engine != NULL)
      {
       delete m_ma_engine;
       m_ma_engine = NULL;
@@ -113,6 +119,7 @@ void CBollingerBandsCalculator::CreateEngine(void)
 bool CBollingerBandsCalculator::Init(const int period, const double deviation, const ENUM_MA_TYPE ma_type, const ENUM_APPLIED_PRICE_HA_ALL price_source)
   {
    m_period       = (period < 1) ? 1 : period;
+   m_inv_period   = 1.0 / (double)m_period;
    m_deviation    = deviation;
    m_ma_type      = ma_type;
    m_source_price = price_source;
@@ -125,14 +132,14 @@ bool CBollingerBandsCalculator::Init(const int period, const double deviation, c
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price Series (Standard - Optimized)                      |
+//| Prepare Price Series (Standard - ALU Optimized)                  |
 //+------------------------------------------------------------------+
 bool CBollingerBandsCalculator::PreparePriceSeries(const int rates_total, const int start_index, const ENUM_APPLIED_PRICE price_type,
       const double &open[], const double &high[], const double &low[], const double &close[])
   {
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price, rates_total);
+      ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
      }
 
@@ -153,13 +160,13 @@ bool CBollingerBandsCalculator::PreparePriceSeries(const int rates_total, const 
             m_price[i] = low[i];
             break;
          case PRICE_MEDIAN:
-            m_price[i] = (high[i] + low[i]) / 2.0;
+            m_price[i] = (high[i] + low[i]) * 0.5;
             break;
          case PRICE_TYPICAL:
-            m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
+            m_price[i] = (high[i] + low[i] + close[i]) * 0.3333333333333333;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (high[i] + low[i] + 2.0 * close[i]) / 4.0;
+            m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
             break;
          default:
             m_price[i] = close[i];
@@ -179,30 +186,27 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
    if(rates_total < m_period || CheckPointer(m_ma_engine) == POINTER_INVALID)
       return;
 
-// Safe allocation of destination arrays
+// Safe capacity allocation of destination arrays
    if(ArraySize(ma_out) != rates_total)
      {
-      ArrayResize(ma_out, rates_total);
+      ArrayResize(ma_out, rates_total, 2048);
       ArraySetAsSeries(ma_out, false);
-      ArrayInitialize(ma_out, EMPTY_VALUE);
      }
    if(ArraySize(upper_out) != rates_total)
      {
-      ArrayResize(upper_out, rates_total);
+      ArrayResize(upper_out, rates_total, 2048);
       ArraySetAsSeries(upper_out, false);
-      ArrayInitialize(upper_out, EMPTY_VALUE);
      }
    if(ArraySize(lower_out) != rates_total)
      {
-      ArrayResize(lower_out, rates_total);
+      ArrayResize(lower_out, rates_total, 2048);
       ArraySetAsSeries(lower_out, false);
-      ArrayInitialize(lower_out, EMPTY_VALUE);
      }
 
-// Resize internal buffers
+// Resize internal buffers with capacity reservation
    if(ArraySize(m_ma_buffer) != rates_total)
      {
-      ArrayResize(m_ma_buffer, rates_total);
+      ArrayResize(m_ma_buffer, rates_total, 2048);
       ArraySetAsSeries(m_ma_buffer, false);
      }
 
@@ -228,13 +232,13 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    int loop_start = MathMax(m_period - 1, start_index);
 
-// 4. Calculate Rolling Standard Deviation Bands
+// 4. Calculate Rolling Standard Deviation Bands (Optimized Reciprocal Multiplications)
    for(int i = loop_start; i < rates_total; i++)
      {
       double current_mean = m_ma_buffer[i];
       if(current_mean == EMPTY_VALUE)
         {
-         ma_out[i] = EMPTY_VALUE;
+         ma_out[i]    = EMPTY_VALUE;
          upper_out[i] = EMPTY_VALUE;
          lower_out[i] = EMPTY_VALUE;
          continue;
@@ -247,11 +251,12 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
          sum_sq += diff * diff;
         }
 
-      double std_dev_val = MathSqrt(sum_sq / (double)m_period);
+      double std_dev_val = MathSqrt(sum_sq * m_inv_period);
+      double band_dev    = m_deviation * std_dev_val;
 
       ma_out[i]    = current_mean;
-      upper_out[i] = current_mean + m_deviation * std_dev_val;
-      lower_out[i] = current_mean - m_deviation * std_dev_val;
+      upper_out[i] = current_mean + band_dev;
+      lower_out[i] = current_mean - band_dev;
      }
   }
 
@@ -268,27 +273,30 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    if(ArraySize(ma_out) != rates_total)
      {
-      ArrayResize(ma_out, rates_total);
+      ArrayResize(ma_out, rates_total, 2048);
       ArraySetAsSeries(ma_out, false);
-      ArrayInitialize(ma_out, EMPTY_VALUE);
      }
    if(ArraySize(upper_out) != rates_total)
      {
-      ArrayResize(upper_out, rates_total);
+      ArrayResize(upper_out, rates_total, 2048);
       ArraySetAsSeries(upper_out, false);
-      ArrayInitialize(upper_out, EMPTY_VALUE);
      }
    if(ArraySize(lower_out) != rates_total)
      {
-      ArrayResize(lower_out, rates_total);
+      ArrayResize(lower_out, rates_total, 2048);
       ArraySetAsSeries(lower_out, false);
-      ArrayInitialize(lower_out, EMPTY_VALUE);
      }
 
    if(ArraySize(m_ma_buffer) != rates_total)
      {
-      ArrayResize(m_ma_buffer, rates_total);
+      ArrayResize(m_ma_buffer, rates_total, 2048);
       ArraySetAsSeries(m_ma_buffer, false);
+     }
+
+   if(ArraySize(m_vol_buf) != rates_total)
+     {
+      ArrayResize(m_vol_buf, rates_total, 2048);
+      ArraySetAsSeries(m_vol_buf, false);
      }
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
@@ -296,15 +304,11 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-// Convert volume for VWMA
-   double vol_double[];
-   ArrayResize(vol_double, rates_total);
-   ArraySetAsSeries(vol_double, false);
    for(int k = start_index; k < rates_total; k++)
-      vol_double[k] = (volume[k] < 1) ? 1.0 : (double)volume[k];
+      m_vol_buf[k] = (volume[k] < 1) ? 1.0 : (double)volume[k];
 
 // 2. Calculate Centerline MA with Volume
-   m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_price, vol_double, m_ma_buffer, 0);
+   m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_price, m_vol_buf, m_ma_buffer, 0);
 
    if(prev_calculated == 0)
      {
@@ -324,7 +328,7 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
       double current_mean = m_ma_buffer[i];
       if(current_mean == EMPTY_VALUE)
         {
-         ma_out[i] = EMPTY_VALUE;
+         ma_out[i]    = EMPTY_VALUE;
          upper_out[i] = EMPTY_VALUE;
          lower_out[i] = EMPTY_VALUE;
          continue;
@@ -337,11 +341,12 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
          sum_sq += diff * diff;
         }
 
-      double std_dev_val = MathSqrt(sum_sq / (double)m_period);
+      double std_dev_val = MathSqrt(sum_sq * m_inv_period);
+      double band_dev    = m_deviation * std_dev_val;
 
       ma_out[i]    = current_mean;
-      upper_out[i] = current_mean + m_deviation * std_dev_val;
-      lower_out[i] = current_mean - m_deviation * std_dev_val;
+      upper_out[i] = current_mean + band_dev;
+      lower_out[i] = current_mean - band_dev;
      }
   }
 
@@ -358,26 +363,23 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    if(ArraySize(ma_out) != rates_total)
      {
-      ArrayResize(ma_out, rates_total);
+      ArrayResize(ma_out, rates_total, 2048);
       ArraySetAsSeries(ma_out, false);
-      ArrayInitialize(ma_out, EMPTY_VALUE);
      }
    if(ArraySize(upper_out) != rates_total)
      {
-      ArrayResize(upper_out, rates_total);
+      ArrayResize(upper_out, rates_total, 2048);
       ArraySetAsSeries(upper_out, false);
-      ArrayInitialize(upper_out, EMPTY_VALUE);
      }
    if(ArraySize(lower_out) != rates_total)
      {
-      ArrayResize(lower_out, rates_total);
+      ArrayResize(lower_out, rates_total, 2048);
       ArraySetAsSeries(lower_out, false);
-      ArrayInitialize(lower_out, EMPTY_VALUE);
      }
 
    if(ArraySize(m_ma_buffer) != rates_total)
      {
-      ArrayResize(m_ma_buffer, rates_total);
+      ArrayResize(m_ma_buffer, rates_total, 2048);
       ArraySetAsSeries(m_ma_buffer, false);
      }
 
@@ -407,7 +409,7 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
       double current_mean = m_ma_buffer[i];
       if(current_mean == EMPTY_VALUE)
         {
-         ma_out[i] = EMPTY_VALUE;
+         ma_out[i]    = EMPTY_VALUE;
          upper_out[i] = EMPTY_VALUE;
          lower_out[i] = EMPTY_VALUE;
          continue;
@@ -420,11 +422,12 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
          sum_sq += diff * diff;
         }
 
-      double std_dev_val = MathSqrt(sum_sq / (double)m_period);
+      double std_dev_val = MathSqrt(sum_sq * m_inv_period);
+      double band_dev    = m_deviation * std_dev_val;
 
       ma_out[i]    = current_mean;
-      upper_out[i] = current_mean + m_deviation * std_dev_val;
-      lower_out[i] = current_mean - m_deviation * std_dev_val;
+      upper_out[i] = current_mean + band_dev;
+      lower_out[i] = current_mean - band_dev;
      }
   }
 
@@ -436,7 +439,7 @@ void CBollingerBandsCalculator::GetPriceBuffer(double &dest_array[])
    int size = ArraySize(m_price);
    if(size > 0)
      {
-      ArrayResize(dest_array, size);
+      ArrayResize(dest_array, size, 2048);
       ArraySetAsSeries(dest_array, false);
       ArrayCopy(dest_array, m_price, 0, 0, size);
      }
@@ -464,13 +467,14 @@ bool CBollingerBandsCalculator_HA::PreparePriceSeries(const int rates_total, con
   {
    if(ArraySize(m_ha_open) != rates_total)
      {
-      ArrayResize(m_ha_open,  rates_total);
+      ArrayResize(m_ha_open,  rates_total, 2048);
+      ArrayResize(m_ha_high,  rates_total, 2048);
+      ArrayResize(m_ha_low,   rates_total, 2048);
+      ArrayResize(m_ha_close, rates_total, 2048);
+
       ArraySetAsSeries(m_ha_open,  false);
-      ArrayResize(m_ha_high,  rates_total);
       ArraySetAsSeries(m_ha_high,  false);
-      ArrayResize(m_ha_low,   rates_total);
       ArraySetAsSeries(m_ha_low,   false);
-      ArrayResize(m_ha_close, rates_total);
       ArraySetAsSeries(m_ha_close, false);
      }
 
@@ -479,7 +483,7 @@ bool CBollingerBandsCalculator_HA::PreparePriceSeries(const int rates_total, con
 
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price, rates_total);
+      ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
      }
 
@@ -500,13 +504,13 @@ bool CBollingerBandsCalculator_HA::PreparePriceSeries(const int rates_total, con
             m_price[i] = m_ha_low[i];
             break;
          case PRICE_MEDIAN:
-            m_price[i] = (m_ha_high[i] + m_ha_low[i]) / 2.0;
+            m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
             break;
          case PRICE_TYPICAL:
-            m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
+            m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) * 0.3333333333333333;
             break;
          case PRICE_WEIGHTED:
-            m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) / 4.0;
+            m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
             break;
          default:
             m_price[i] = m_ha_close[i];
