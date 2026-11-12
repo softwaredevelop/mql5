@@ -1,204 +1,367 @@
 //+------------------------------------------------------------------+
-//|                                               MFI_Calculator.mqh |
-//|         Calculation engine for Standard and Heikin Ashi MFI.     |
-//|      VERSION 2.00: Optimized for incremental calculation.        |
-//|                                        Copyright 2025, xxxxxxxx  |
+//|                                           MFI_Calculator.mqh     |
+//|      DSP Engine for Quong & Soudack's Money Flow Index (MFI)     |
+//|      VERSION 1.00: 2026 Enterprise Edition with Modular 14-MA    |
+//|                    Signal Line & Dynamic Volume Routing          |
+//|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2025, xxxxxxxx"
+#property copyright "Copyright 2026, xxxxxxxx"
+#property version   "1.00"
+
+#ifndef MFI_CALCULATOR_MQH
+#define MFI_CALCULATOR_MQH
 
 #include <MyIncludes\HeikinAshi_Tools.mqh>
 #include <MyIncludes\MovingAverage_Engine.mqh>
 
 //+==================================================================+
-//|             CLASS 1: CMFICalculator (Base Class)                 |
+//| CLASS: CMFICalculator                                            |
 //+==================================================================+
 class CMFICalculator
   {
 protected:
-   int               m_mfi_period;
-   ENUM_APPLIED_VOLUME m_volume_type;
+   int                       m_mfi_period;
+   int                       m_signal_period;
+   ENUM_MA_TYPE              m_signal_ma_type;
+   ENUM_APPLIED_PRICE_HA_ALL m_source_price;
 
-   //--- Engine for Signal Line
-   CMovingAverageCalculator m_signal_engine;
+   //--- Smoothing & Composition Engines
+   CMovingAverageCalculator *m_signal_engine;
+   CHeikinAshi_Calculator    m_ha_engine;
 
-   //--- Persistent Buffers for Incremental Calculation
-   double            m_typical_price[];
-   double            m_pos_mf[]; // Positive Money Flow
-   double            m_neg_mf[]; // Negative Money Flow
-   double            m_mfi_buffer[];
+   //--- Persistent Working Buffers
+   double                    m_tp[];
+   double                    m_vol_buf[];
+   double                    m_pos_mf[];
+   double                    m_neg_mf[];
+   double                    m_mfi_internal[];
+   double                    m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
 
-   //--- Updated: Accepts start_index
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]);
+   virtual bool              PrepareData(const int rates_total, const int start_index,
+                                         const double &open[], const double &high[],
+                                         const double &low[], const double &close[]);
+
+   void                      ExecuteCalculation(const int rates_total, const int prev_calculated,
+         const double &open[], const double &high[],
+         const double &low[], const double &close[],
+         double &mfi_out[], double &signal_out[]);
 
 public:
-                     CMFICalculator(void) {};
-   virtual          ~CMFICalculator(void) {};
+                     CMFICalculator(void);
+   virtual                  ~CMFICalculator(void);
 
-   //--- Init now takes ENUM_MA_TYPE
-   bool              Init(int mfi_p, int ma_p, ENUM_MA_TYPE ma_m, ENUM_APPLIED_VOLUME vol_t);
+   bool                      Init(const int mfi_period, const int signal_period,
+                                  const ENUM_MA_TYPE signal_ma_type,
+                                  const ENUM_APPLIED_PRICE_HA_ALL price_source);
 
-   //--- Updated: Accepts prev_calculated
-   void              Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[],
-                               double &mfi_buffer[], double &signal_buffer[]);
+   //--- Overloaded Calculate for Long Volume (Native Tick / Real Volume)
+   void                      Calculate(const int rates_total, const int prev_calculated,
+                                       const double &open[], const double &high[],
+                                       const double &low[], const double &close[],
+                                       const long &volume[],
+                                       double &mfi_out[], double &signal_out[]);
+
+   //--- Overloaded Calculate for Double Volume (MTF Volume Routing)
+   void                      Calculate(const int rates_total, const int prev_calculated,
+                                       const double &open[], const double &high[],
+                                       const double &low[], const double &close[],
+                                       const double &volume[],
+                                       double &mfi_out[], double &signal_out[]);
+
+   int                       GetMFIPeriod(void)    const { return m_mfi_period; }
+   int                       GetSignalPeriod(void) const { return m_signal_period; }
+   ENUM_MA_TYPE              GetSignalMAType(void) const { return m_signal_ma_type; }
   };
+
+//+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CMFICalculator::CMFICalculator(void) : m_mfi_period(14),
+   m_signal_period(9),
+   m_signal_ma_type(EMA),
+   m_source_price(PRICE_CLOSE_STD),
+   m_signal_engine(NULL)
+  {
+   m_signal_engine = new CMovingAverageCalculator();
+
+   ArraySetAsSeries(m_tp,           false);
+   ArraySetAsSeries(m_vol_buf,      false);
+   ArraySetAsSeries(m_pos_mf,       false);
+   ArraySetAsSeries(m_neg_mf,       false);
+   ArraySetAsSeries(m_mfi_internal, false);
+   ArraySetAsSeries(m_ha_open,      false);
+   ArraySetAsSeries(m_ha_high,      false);
+   ArraySetAsSeries(m_ha_low,       false);
+   ArraySetAsSeries(m_ha_close,     false);
+  }
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CMFICalculator::~CMFICalculator(void)
+  {
+   if(CheckPointer(m_signal_engine) != POINTER_INVALID && m_signal_engine != NULL)
+     {
+      delete m_signal_engine;
+      m_signal_engine = NULL;
+     }
+  }
 
 //+------------------------------------------------------------------+
 //| Init                                                             |
 //+------------------------------------------------------------------+
-bool CMFICalculator::Init(int mfi_p, int ma_p, ENUM_MA_TYPE ma_m, ENUM_APPLIED_VOLUME vol_t)
+bool CMFICalculator::Init(const int mfi_period, const int signal_period,
+                          const ENUM_MA_TYPE signal_ma_type,
+                          const ENUM_APPLIED_PRICE_HA_ALL price_source)
   {
-   m_mfi_period  = (mfi_p < 1) ? 1 : mfi_p;
-   m_volume_type = vol_t;
+   m_mfi_period     = MathMax(1, mfi_period);
+   m_signal_period  = MathMax(1, signal_period);
+   m_signal_ma_type = signal_ma_type;
+   m_source_price   = price_source;
 
-// Initialize Signal Engine
-   if(!m_signal_engine.Init(ma_p, ma_m))
+   if(CheckPointer(m_signal_engine) == POINTER_INVALID ||
+      !m_signal_engine.Init(m_signal_period, m_signal_ma_type))
       return false;
 
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Main Calculation (Optimized)                                     |
+//| Prepare Price Data (Typical Price Derivation)                    |
 //+------------------------------------------------------------------+
-void CMFICalculator::Calculate(int rates_total, int prev_calculated, const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[],
-                               double &mfi_buffer[], double &signal_buffer[])
+bool CMFICalculator::PrepareData(const int rates_total, const int start_index,
+                                 const double &open[], const double &high[],
+                                 const double &low[], const double &close[])
+  {
+   if(ArraySize(m_tp) != rates_total)
+     {
+      ArrayResize(m_tp, rates_total, 2048);
+      ArraySetAsSeries(m_tp, false);
+     }
+
+   bool is_heikin_ashi = (m_source_price <= PRICE_HA_CLOSE);
+
+   if(is_heikin_ashi)
+     {
+      if(ArraySize(m_ha_open) != rates_total)
+        {
+         ArrayResize(m_ha_open,  rates_total, 2048);
+         ArrayResize(m_ha_high,  rates_total, 2048);
+         ArrayResize(m_ha_low,   rates_total, 2048);
+         ArrayResize(m_ha_close, rates_total, 2048);
+
+         ArraySetAsSeries(m_ha_open,  false);
+         ArraySetAsSeries(m_ha_high,  false);
+         ArraySetAsSeries(m_ha_low,   false);
+         ArraySetAsSeries(m_ha_close, false);
+        }
+
+      m_ha_engine.Calculate(rates_total, start_index, open, high, low, close,
+                            m_ha_open, m_ha_high, m_ha_low, m_ha_close);
+
+      for(int i = start_index; i < rates_total; i++)
+        {
+         switch(m_source_price)
+           {
+            case PRICE_HA_OPEN:
+               m_tp[i] = m_ha_open[i];
+               break;
+            case PRICE_HA_HIGH:
+               m_tp[i] = m_ha_high[i];
+               break;
+            case PRICE_HA_LOW:
+               m_tp[i] = m_ha_low[i];
+               break;
+            case PRICE_HA_CLOSE:
+               m_tp[i] = m_ha_close[i];
+               break;
+            case PRICE_HA_MEDIAN:
+               m_tp[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
+               break;
+            case PRICE_HA_WEIGHTED:
+               m_tp[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
+               break;
+            case PRICE_HA_TYPICAL:
+            default:
+               m_tp[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) * 0.3333333333333333;
+               break;
+           }
+        }
+     }
+   else
+     {
+      for(int i = start_index; i < rates_total; i++)
+        {
+         switch(m_source_price)
+           {
+            case PRICE_OPEN_STD:
+               m_tp[i] = open[i];
+               break;
+            case PRICE_HIGH_STD:
+               m_tp[i] = high[i];
+               break;
+            case PRICE_LOW_STD:
+               m_tp[i] = low[i];
+               break;
+            case PRICE_CLOSE_STD:
+               m_tp[i] = close[i];
+               break;
+            case PRICE_MEDIAN_STD:
+               m_tp[i] = (high[i] + low[i]) * 0.5;
+               break;
+            case PRICE_WEIGHTED_STD:
+               m_tp[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
+               break;
+            case PRICE_TYPICAL_STD:
+            default:
+               m_tp[i] = (high[i] + low[i] + close[i]) * 0.3333333333333333;
+               break;
+           }
+        }
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate with Long Volume (Native Tick / Real Volume)           |
+//+------------------------------------------------------------------+
+void CMFICalculator::Calculate(const int rates_total, const int prev_calculated,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               const long &volume[],
+                               double &mfi_out[], double &signal_out[])
   {
    if(rates_total <= m_mfi_period)
       return;
 
-//--- 1. Determine Start Index
-   int start_index;
-   if(prev_calculated == 0)
-      start_index = 0;
-   else
-      start_index = prev_calculated - 1;
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-//--- 2. Resize Buffers
-   if(ArraySize(m_typical_price) != rates_total)
+   if(ArraySize(m_vol_buf) != rates_total)
      {
-      ArrayResize(m_typical_price, rates_total);
-      ArrayResize(m_pos_mf, rates_total);
-      ArrayResize(m_neg_mf, rates_total);
-      ArrayResize(m_mfi_buffer, rates_total);
+      ArrayResize(m_vol_buf, rates_total, 2048);
+      ArraySetAsSeries(m_vol_buf, false);
      }
 
-//--- 3. Prepare Price (Optimized)
-   if(!PreparePriceSeries(rates_total, start_index, open, high, low, close))
+   for(int k = start_index; k < rates_total; k++)
+      m_vol_buf[k] = (volume[k] < 1) ? 1.0 : (double)volume[k];
+
+   ExecuteCalculation(rates_total, prev_calculated, open, high, low, close, mfi_out, signal_out);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate with Double Volume (MTF Volume Routing)                |
+//+------------------------------------------------------------------+
+void CMFICalculator::Calculate(const int rates_total, const int prev_calculated,
+                               const double &open[], const double &high[],
+                               const double &low[], const double &close[],
+                               const double &volume[],
+                               double &mfi_out[], double &signal_out[])
+  {
+   if(rates_total <= m_mfi_period)
       return;
 
-//--- 4. Calculate Money Flow (Incremental)
-   int loop_start_mf = MathMax(1, start_index);
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
 
-   for(int i = loop_start_mf; i < rates_total; i++)
+   if(ArraySize(m_vol_buf) != rates_total)
      {
-      double raw_mf = m_typical_price[i] * ((m_volume_type == VOLUME_TICK) ? tick_volume[i] : volume[i]);
+      ArrayResize(m_vol_buf, rates_total, 2048);
+      ArraySetAsSeries(m_vol_buf, false);
+     }
 
-      if(m_typical_price[i] > m_typical_price[i-1])
+   for(int k = start_index; k < rates_total; k++)
+      m_vol_buf[k] = (volume[k] < 1.0) ? 1.0 : volume[k];
+
+   ExecuteCalculation(rates_total, prev_calculated, open, high, low, close, mfi_out, signal_out);
+  }
+
+//+------------------------------------------------------------------+
+//| Core Execution Pipeline (Algebraic Zero-Division Shield)         |
+//+------------------------------------------------------------------+
+void CMFICalculator::ExecuteCalculation(const int rates_total, const int prev_calculated,
+                                        const double &open[], const double &high[],
+                                        const double &low[], const double &close[],
+                                        double &mfi_out[], double &signal_out[])
+  {
+   int start_index = (prev_calculated == 0) ? 0 : prev_calculated - 1;
+
+   if(ArraySize(m_pos_mf) != rates_total)
+     {
+      ArrayResize(m_pos_mf,       rates_total, 2048);
+      ArrayResize(m_neg_mf,       rates_total, 2048);
+      ArrayResize(m_mfi_internal, rates_total, 2048);
+
+      ArraySetAsSeries(m_pos_mf,       false);
+      ArraySetAsSeries(m_neg_mf,       false);
+      ArraySetAsSeries(m_mfi_internal, false);
+     }
+
+// Prepare Typical Price vector
+   if(!PrepareData(rates_total, start_index, open, high, low, close))
+      return;
+
+   int i = start_index;
+   if(i == 0)
+     {
+      m_pos_mf[0]       = 0.0;
+      m_neg_mf[0]       = 0.0;
+      m_mfi_internal[0] = 50.0;
+      mfi_out[0]        = 50.0;
+      i = 1;
+     }
+
+// 1. Calculate Raw Money Flow Polarity
+   for(; i < rates_total; i++)
+     {
+      double rmf = m_tp[i] * m_vol_buf[i];
+
+      if(m_tp[i] > m_tp[i - 1])
         {
-         m_pos_mf[i] = raw_mf;
-         m_neg_mf[i] = 0;
+         m_pos_mf[i] = rmf;
+         m_neg_mf[i] = 0.0;
         }
       else
-         if(m_typical_price[i] < m_typical_price[i-1])
+         if(m_tp[i] < m_tp[i - 1])
            {
-            m_pos_mf[i] = 0;
-            m_neg_mf[i] = raw_mf;
+            m_pos_mf[i] = 0.0;
+            m_neg_mf[i] = rmf;
            }
          else
            {
-            m_pos_mf[i] = 0;
-            m_neg_mf[i] = 0;
+            m_pos_mf[i] = 0.0;
+            m_neg_mf[i] = 0.0;
            }
-     }
 
-//--- 5. Calculate MFI (Incremental Sliding Window)
-   int loop_start_mfi = MathMax(m_mfi_period, start_index);
-
-// If full recalc, we need to handle the first value specially or just loop
-   if(prev_calculated == 0)
-     {
-      // Initialize first few values
-      for(int i=0; i<m_mfi_period; i++)
-         m_mfi_buffer[i] = 50.0;
-     }
-
-   for(int i = loop_start_mfi; i < rates_total; i++)
-     {
-      double sum_pos = 0;
-      double sum_neg = 0;
-
-      // Sum over the lookback period
-      // Optimization: We could use a running sum, but for MFI period (usually 14), a loop is fast enough and safer.
-      for(int j = 0; j < m_mfi_period; j++)
+      // 2. Window Summation & Algebraic Zero-Division Immune Formula
+      if(i < m_mfi_period)
         {
-         sum_pos += m_pos_mf[i-j];
-         sum_neg += m_neg_mf[i-j];
-        }
-
-      if(sum_neg > 0)
-        {
-         double ratio = sum_pos / sum_neg;
-         m_mfi_buffer[i] = 100.0 - (100.0 / (1.0 + ratio));
+         m_mfi_internal[i] = 50.0;
+         mfi_out[i]        = 50.0;
         }
       else
-         m_mfi_buffer[i] = 100.0;
+        {
+         double pos_sum = 0.0;
+         double neg_sum = 0.0;
+
+         for(int j = 0; j < m_mfi_period; j++)
+           {
+            pos_sum += m_pos_mf[i - j];
+            neg_sum += m_neg_mf[i - j];
+           }
+
+         double total_flow = pos_sum + neg_sum;
+         if(total_flow > 0.0)
+            m_mfi_internal[i] = (100.0 * pos_sum) / total_flow;
+         else
+            m_mfi_internal[i] = 50.0;
+
+         mfi_out[i] = m_mfi_internal[i];
+        }
      }
 
-//--- 6. Calculate Signal Line (Using Engine)
-// MFI is valid from index: m_mfi_period
-   int mfi_offset = m_mfi_period;
-   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, m_mfi_buffer, signal_buffer, mfi_offset);
-
-//--- 7. Copy MFI to Output
-   ArrayCopy(mfi_buffer, m_mfi_buffer, 0, 0, rates_total);
+// 3. Compute 14-Model Signal Line over the MFI Series
+   m_signal_engine.CalculateOnArray(rates_total, prev_calculated, m_mfi_internal, signal_out, m_mfi_period);
   }
 
-//+------------------------------------------------------------------+
-//| Prepare Price (Standard - Optimized)                             |
-//+------------------------------------------------------------------+
-bool CMFICalculator::PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-   for(int i = start_index; i < rates_total; i++)
-      m_typical_price[i] = (high[i] + low[i] + close[i]) / 3.0;
-   return true;
-  }
-
-//+==================================================================+
-//|             CLASS 2: CMFICalculator_HA (Heikin Ashi)             |
-//+==================================================================+
-class CMFICalculator_HA : public CMFICalculator
-  {
-private:
-   CHeikinAshi_Calculator m_ha_calculator;
-   // Internal HA buffers
-   double            m_ha_open[], m_ha_high[], m_ha_low[], m_ha_close[];
-
-protected:
-   virtual bool      PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[]) override;
-  };
-
-//+------------------------------------------------------------------+
-//| Prepare Price (Heikin Ashi - Optimized)                          |
-//+------------------------------------------------------------------+
-bool CMFICalculator_HA::PreparePriceSeries(int rates_total, int start_index, const double &open[], const double &high[], const double &low[], const double &close[])
-  {
-// Resize internal HA buffers
-   if(ArraySize(m_ha_open) != rates_total)
-     {
-      ArrayResize(m_ha_open, rates_total);
-      ArrayResize(m_ha_high, rates_total);
-      ArrayResize(m_ha_low, rates_total);
-      ArrayResize(m_ha_close, rates_total);
-     }
-
-//--- STRICT CALL: Use the optimized 10-param HA calculation
-   m_ha_calculator.Calculate(rates_total, start_index, open, high, low, close,
-                             m_ha_open, m_ha_high, m_ha_low, m_ha_close);
-
-//--- Copy to typical price (Optimized loop)
-   for(int i = start_index; i < rates_total; i++)
-      m_typical_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
-   return true;
-  }
-//+------------------------------------------------------------------+
+#endif // MFI_CALCULATOR_MQH
 //+------------------------------------------------------------------+
