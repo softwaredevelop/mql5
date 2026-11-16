@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "2.20" // Fixed: Invariant 2-Buffer Plot Allocation for Signal Line Integrity
+#property version     "2.30" // Enterprise Edition: Threshold-Based Neutral Zone Coloring (-20 to +20)
 #property description "Ensemble Consensus Oscillator with Line/Histogram views, Signal MA, MTF, and Universal Pricing."
 
 #property indicator_separate_window
@@ -47,17 +47,17 @@ input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice           = PRICE_CLOSE_STD;     
 
 input group "=== Consensus Core & Visual Mode ==="
 input ENUM_ENSEMBLE_PLOT_MODE   InpPlotMode              = PLOT_MODE_HISTOGRAM;  // Visual Mode (Histogram vs Line)
-input color                     InpColorConsensusLine    = clrDodgerBlue;        // Line Mode: Consensus Line Color
-input ENUM_LINE_STYLE           InpStyleConsensusLine    = STYLE_SOLID;          // Line Mode: Consensus Line Style
-input int                       InpWidthConsensusLine    = 2;                    // Line Mode: Consensus Line Width
-input color                     InpColorHistBull         = clrMediumSeaGreen;    // Histogram: Bullish Color (>0)
-input color                     InpColorHistBear         = clrCrimson;           // Histogram: Bearish Color (<0)
-input color                     InpColorHistNeutral      = clrDarkGray;          // Histogram: Neutral Color (=0)
+input color                     InpColorConsensusLine    = clrDodgerBlue;        // Line Mode: Color
+input ENUM_LINE_STYLE           InpStyleConsensusLine    = STYLE_SOLID;          // Line Mode: Style
+input int                       InpWidthConsensusLine    = 2;                    // Line Mode: Width
+input color                     InpColorHistBull         = clrMediumSeaGreen;    // Histogram: Bullish Color (> +Threshold)
+input color                     InpColorHistBear         = clrCrimson;           // Histogram: Bearish Color (< -Threshold)
+input color                     InpColorHistNeutral      = clrDarkGray;          // Histogram: Neutral Zone Color (-Threshold to +Threshold)
 input int                       InpWidthHist             = 2;                    // Histogram: Bar Width
-input int                       InpSignalThreshold       = 20;                   // Buy / Sell Threshold Level
+input int                       InpSignalThreshold       = 20;                   // Buy / Sell Threshold Level (Neutral Zone Boundary)
 input int                       InpStrongThreshold       = 60;                   // Strong Consensus Threshold Level
 input int                       InpConsensusSmoothing    = 3;                    // Consensus Smoothing (EMA Length)
-input double                    InpNeutralZone           = 5.0;                  // Neutral Zone (Half-Width around 50)
+input double                    InpNeutralZone           = 5.0;                  // Component Neutral Zone (Half-Width around 50)
 
 input group "=== Signal Line Settings & Visuals ==="
 input bool                      InpShowSignalLine        = true;                 // Enable Signal Line
@@ -151,8 +151,8 @@ int OnInit()
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
 // 2. Bind Output Buffers
-// Plot 0 consumes Buffer 0 (Data) and Buffer 1 (Colors) in BOTH modes!
-// Plot 1 consumes Buffer 2 (Signal Line) in BOTH modes!
+// Plot 0 consumes Buffer 0 (Data) and Buffer 1 (Colors) in BOTH modes
+// Plot 1 consumes Buffer 2 (Signal Line) in BOTH modes
    SetIndexBuffer(0, BufferConsensus,  INDICATOR_DATA);
    SetIndexBuffer(1, BufferColors,     INDICATOR_COLOR_INDEX);
    SetIndexBuffer(2, BufferSignalLine, INDICATOR_DATA);
@@ -316,8 +316,16 @@ int OnCalculate(const int rates_total,
       for(int i = loop_start; i < rates_total; i++)
         {
          double c_val = BufferConsensus[i];
-         // Color index: 0 = Bull, 1 = Bear, 2 = Neutral
-         BufferColors[i] = (c_val > 0.0) ? 0 : (c_val < 0.0 ? 1 : 2);
+
+         // Threshold-Based Neutral Zone Coloring (-Threshold to +Threshold is Neutral/Gray!)
+         int col_idx = 2; // Default: Neutral Zone (Gray)
+         if(c_val > (double)InpSignalThreshold)
+            col_idx = 0; // Bullish Consensus (> +20: Green)
+         else
+            if(c_val < -(double)InpSignalThreshold)
+               col_idx = 1; // Bearish Consensus (< -20: Red)
+
+         BufferColors[i] = col_idx;
         }
 
       return rates_total;
@@ -424,7 +432,16 @@ int OnCalculate(const int rates_total,
          double c_val = h_res_consensus[htf_ptr];
          BufferConsensus[i]  = c_val;
          BufferSignalLine[i] = h_res_signal[htf_ptr];
-         BufferColors[i]     = (c_val > 0.0) ? 0 : (c_val < 0.0 ? 1 : 2);
+
+         // Threshold-Based Neutral Zone Coloring in MTF Sweep
+         int col_idx = 2;
+         if(c_val > (double)InpSignalThreshold)
+            col_idx = 0;
+         else
+            if(c_val < -(double)InpSignalThreshold)
+               col_idx = 1;
+
+         BufferColors[i] = col_idx;
         }
 
       return rates_total;
@@ -468,11 +485,18 @@ int OnCalculate(const int rates_total,
    double val_cons = h_res_consensus[live_idx];
    double val_sig  = h_res_signal[live_idx];
 
+   int col_idx = 2;
+   if(val_cons > (double)InpSignalThreshold)
+      col_idx = 0;
+   else
+      if(val_cons < -(double)InpSignalThreshold)
+         col_idx = 1;
+
    for(int i = start; i < rates_total; i++)
      {
       BufferConsensus[i]  = val_cons;
       BufferSignalLine[i] = val_sig;
-      BufferColors[i]     = (val_cons > 0.0) ? 0 : (val_cons < 0.0 ? 1 : 2);
+      BufferColors[i]     = col_idx;
      }
 
    return rates_total;
