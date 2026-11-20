@@ -2,7 +2,7 @@
 
 ## Institutional Multi-Timeframe Multi-Model Consensus Oscillator Suite Across Trend, Momentum, Volatility & Volume
 
-** Ultra Edition — High-Concurrency DSP Engine for MetaTrader 5*
+**Ultra Edition — High-Concurrency DSP Engine for MetaTrader 5*
 
 ---
 
