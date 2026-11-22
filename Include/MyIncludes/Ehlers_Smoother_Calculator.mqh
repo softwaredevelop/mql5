@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                   Ehlers_Smoother_Calculator.mqh |
 //|      Engine for John Ehlers' SuperSmoother & UltimateSmoother    |
+//|      VERSION 4.00: 2026 Enterprise Edition with Capacity Memory  |
+//|                    & Hardware-Pipelined Math                     |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "3.40" // Optimized: Precomputed DSP coefficients & hardware-pipelined math
+#property version   "4.00"
 
 #ifndef EHLERS_SMOOTHER_CALCULATOR_MQH
 #define EHLERS_SMOOTHER_CALCULATOR_MQH
@@ -48,7 +50,7 @@ protected:
 
 public:
                      CEhlersSmootherCalculator(void);
-   virtual                  ~CEhlersSmootherCalculator(void) {};
+   virtual                  ~CEhlersSmootherCalculator(void) {}
 
    //--- Enhanced Pro Init (4 Parameters)
    bool                      Init(const int period, const ENUM_SMOOTHER_TYPE type,
@@ -79,14 +81,16 @@ public:
       Calculate(rates_total, prev_calculated, open, high, low, close, filter_buffer);
      }
 
-   int                       GetPeriod(void) const { return m_period; }
+   int                       GetPeriod(void)       const { return m_period; }
+   ENUM_SMOOTHER_TYPE        GetSmootherType(void) const { return m_type; }
+   ENUM_INPUT_SOURCE         GetInputSource(void)  const { return m_source_type; }
+   int                       GetWarmupBars(void)   const { return m_period; }
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CEhlersSmootherCalculator::CEhlersSmootherCalculator(void) :
-   m_period(20),
+CEhlersSmootherCalculator::CEhlersSmootherCalculator(void) : m_period(20),
    m_type(SUPERSMOOTHER),
    m_source_type(SOURCE_PRICE),
    m_applied_price(PRICE_CLOSE_STD),
@@ -150,7 +154,7 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
   {
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price, rates_total);
+      ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
      }
 
@@ -160,10 +164,10 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
      {
       if(ArraySize(m_ha_open) != rates_total)
         {
-         ArrayResize(m_ha_open,  rates_total);
-         ArrayResize(m_ha_high,  rates_total);
-         ArrayResize(m_ha_low,   rates_total);
-         ArrayResize(m_ha_close, rates_total);
+         ArrayResize(m_ha_open,  rates_total, 2048);
+         ArrayResize(m_ha_high,  rates_total, 2048);
+         ArrayResize(m_ha_low,   rates_total, 2048);
+         ArrayResize(m_ha_close, rates_total, 2048);
 
          ArraySetAsSeries(m_ha_open,  false);
          ArraySetAsSeries(m_ha_high,  false);
@@ -193,7 +197,7 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
                   m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                   break;
                case PRICE_HA_TYPICAL:
-                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
+                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) * 0.3333333333333333;
                   break;
                case PRICE_HA_WEIGHTED:
                   m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
@@ -231,7 +235,7 @@ bool CEhlersSmootherCalculator::PreparePriceSeries(const int rates_total, const 
                   m_price[i] = (high[i] + low[i]) * 0.5;
                   break;
                case PRICE_TYPICAL_STD:
-                  m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
+                  m_price[i] = (high[i] + low[i] + close[i]) * 0.3333333333333333;
                   break;
                case PRICE_WEIGHTED_STD:
                   m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
@@ -263,10 +267,10 @@ void CEhlersSmootherCalculator::Calculate(const int rates_total, const int prev_
    if(rates_total < 4)
       return;
 
-// Safe array resizing
+// Safe capacity allocation of destination array
    if(ArraySize(filter_buffer) != rates_total)
      {
-      ArrayResize(filter_buffer, rates_total);
+      ArrayResize(filter_buffer, rates_total, 2048);
       ArraySetAsSeries(filter_buffer, false);
      }
 
