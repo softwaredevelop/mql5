@@ -3,8 +3,8 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.10" // Enterprise Refactor: Precomputed DSP & Zero-Lag MTF Fast-Path
-#property description "John Ehlers' SuperSmoother and UltimateSmoother filters with Native & MTF support."
+#property version     "4.00" // Enterprise Edition: Two-Pointer MTF Fast-Path, Atomic CopyRates & Full Visual Panel
+#property description "John Ehlers' SuperSmoother and UltimateSmoother filters with Native MTF Fast-Path."
 
 #property indicator_chart_window
 #property indicator_buffers 1
@@ -17,33 +17,33 @@
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
-//--- Included Engines & Core Tools
+//--- Included Engines & Core Tools ---
 #include <MyIncludes\Ehlers_Smoother_Calculator.mqh>
 #include <MyIncludes\DataSync_Tools.mqh>
 
 //--- Input Parameters ---
-input group "--- Timeframe Settings ---"
+input group "=== Timeframe Settings ==="
 input ENUM_TIMEFRAMES           InpTimeframe    = PERIOD_CURRENT;    // Calculation Timeframe (Current or HTF)
 
-input group "--- Smoother Settings ---"
+input group "=== Smoother Settings ==="
 input ENUM_SMOOTHER_TYPE        InpSmootherType = SUPERSMOOTHER;     // Smoother Type (SuperSmoother / UltimateSmoother)
 input int                       InpPeriod       = 20;                // Smoothing Period
 input ENUM_APPLIED_PRICE_HA_ALL InpSourcePrice  = PRICE_CLOSE_STD;   // Price Source (Standard / HA)
 
-input group "--- Visual Settings ---"
+input group "=== Visual Settings ==="
 input color                     InpColorFilter  = clrBlueViolet;     // Line Color
 input ENUM_LINE_STYLE           InpStyleFilter  = STYLE_SOLID;       // Line Style
 input int                       InpWidthFilter  = 2;                 // Line Width
 
-//--- Indicator Buffers ---
+//--- Indicator Output Buffers ---
 double BufferFilter[];
 
-//--- Internal HTF Data Caches (Chronological Arrays)
-double h_open[], h_high[], h_low[], h_close[];
-double h_res_filter[];
+//--- Internal HTF Data Caches (Chronological Arrays) ---
+double   h_open[], h_high[], h_low[], h_close[];
+double   h_res_filter[];
 datetime h_time[];
 
-//--- Static Global Engine Instance (Zero heap allocation, zero pointer overhead)
+//--- Static Global Engine Instance (Zero Heap Allocation) ---
 CEhlersSmootherCalculator g_calculator;
 
 bool            g_is_mtf_mode   = false;
@@ -63,7 +63,7 @@ int OnInit()
    g_htf_count     = 0;
    g_last_htf_time = 0;
 
-// 1. Resolve Timeframe and validate direction
+// 1. Timeframe Resolution & Direction Guard
    g_calc_timeframe = InpTimeframe;
    if(g_calc_timeframe == PERIOD_CURRENT)
       g_calc_timeframe = (ENUM_TIMEFRAMES)Period();
@@ -76,16 +76,14 @@ int OnInit()
      }
    g_is_mtf_mode = (g_calc_timeframe > Period());
 
-// 2. Bind Buffers
+// 2. Bind Output Buffers
    SetIndexBuffer(0, BufferFilter, INDICATOR_DATA);
    ArraySetAsSeries(BufferFilter, false);
-   ArrayInitialize(BufferFilter, EMPTY_VALUE);
 
-// Configure Visuals
+   PlotIndexSetDouble(0,  PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, InpColorFilter);
    PlotIndexSetInteger(0, PLOT_LINE_STYLE, InpStyleFilter);
    PlotIndexSetInteger(0, PLOT_LINE_WIDTH, InpWidthFilter);
-   PlotIndexSetDouble(0,  PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    int draw_begin = InpPeriod + 3;
    if(g_is_mtf_mode)
@@ -109,11 +107,11 @@ int OnInit()
    IndicatorSetString(INDICATOR_SHORTNAME, short_name);
    PlotIndexSetString(0, PLOT_LABEL, short_name);
 
-// 4. Initialize Background Synchronization Timer (Only for MTF mode)
+// 4. Background MTF Sync Daemon
    if(g_is_mtf_mode)
       EventSetTimer(1);
 
-   return(INIT_SUCCEEDED);
+   return INIT_SUCCEEDED;
   }
 
 //+------------------------------------------------------------------+
@@ -143,7 +141,7 @@ int OnCalculate(const int rates_total,
    if(rates_total < required_bars)
       return 0;
 
-// Enforce chronological indexing
+// Enforce chronological indexing (0 = oldest bar)
    ArraySetAsSeries(time,  false);
    ArraySetAsSeries(open,  false);
    ArraySetAsSeries(high,  false);
@@ -162,7 +160,8 @@ int OnCalculate(const int rates_total,
 //===================================================================
 // MODE 2: Multi-Timeframe Engine (High-Performance Fast-Path)
 //===================================================================
-   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars))
+   int required_bars_mtf = InpPeriod + 10;
+   if(!CDataSync::EnsureHTFDataReady(_Symbol, g_calc_timeframe, required_bars_mtf))
      {
       g_data_synced = false;
       return 0;
@@ -173,92 +172,103 @@ int OnCalculate(const int rates_total,
    datetime htf_time_current = iTime(_Symbol, g_calc_timeframe, 0);
    bool htf_updated = (htf_time_current != g_last_htf_time);
 
-// A) HTF Bar Closure / Startup: Perform full history sync once
+// A) HTF Bar Closure / Startup: Perform atomic full history sync once
    if(htf_updated || prev_calculated == 0)
      {
       g_last_htf_time = htf_time_current;
 
       int htf_bars = iBars(_Symbol, g_calc_timeframe);
-      if(htf_bars < required_bars)
+      if(htf_bars < required_bars_mtf)
         {
          g_data_ready = false;
          return 0;
         }
 
-      g_htf_count = MathMin(htf_bars, 3000); // Memory safeguard
+      g_htf_count = MathMin(htf_bars, 3000);
 
-      // Resize all HTF caching arrays
-      ArrayResize(h_time,       g_htf_count);
-      ArrayResize(h_open,       g_htf_count);
-      ArrayResize(h_high,       g_htf_count);
-      ArrayResize(h_low,        g_htf_count);
-      ArrayResize(h_close,      g_htf_count);
-      ArrayResize(h_res_filter, g_htf_count);
+      // Resize all HTF caching arrays with capacity reservation
+      if(ArraySize(h_time) != g_htf_count)
+        {
+         ArrayResize(h_time,       g_htf_count, 2048);
+         ArrayResize(h_open,       g_htf_count, 2048);
+         ArrayResize(h_high,       g_htf_count, 2048);
+         ArrayResize(h_low,        g_htf_count, 2048);
+         ArrayResize(h_close,      g_htf_count, 2048);
+         ArrayResize(h_res_filter, g_htf_count, 2048);
 
-      ArraySetAsSeries(h_time,       false);
-      ArraySetAsSeries(h_open,       false);
-      ArraySetAsSeries(h_high,       false);
-      ArraySetAsSeries(h_low,        false);
-      ArraySetAsSeries(h_close,      false);
-      ArraySetAsSeries(h_res_filter, false);
+         ArraySetAsSeries(h_time,       false);
+         ArraySetAsSeries(h_open,       false);
+         ArraySetAsSeries(h_high,       false);
+         ArraySetAsSeries(h_low,        false);
+         ArraySetAsSeries(h_close,      false);
+         ArraySetAsSeries(h_res_filter, false);
+        }
 
-      if(CopyTime(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_time)  != g_htf_count ||
-         CopyOpen(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_open)  != g_htf_count ||
-         CopyHigh(_Symbol,  g_calc_timeframe, 0, g_htf_count, h_high)  != g_htf_count ||
-         CopyLow(_Symbol,   g_calc_timeframe, 0, g_htf_count, h_low)   != g_htf_count ||
-         CopyClose(_Symbol, g_calc_timeframe, 0, g_htf_count, h_close) != g_htf_count)
+      // Single Atomic Bulk Rates Copy
+      MqlRates htf_bulk_rates[];
+      if(CopyRates(_Symbol, g_calc_timeframe, 0, g_htf_count, htf_bulk_rates) != g_htf_count)
         {
          g_data_ready = false;
          return 0;
         }
 
-      // Compute HTF Ehlers Smoother
+      for(int i = 0; i < g_htf_count; i++)
+        {
+         h_time[i]  = htf_bulk_rates[i].time;
+         h_open[i]  = htf_bulk_rates[i].open;
+         h_high[i]  = htf_bulk_rates[i].high;
+         h_low[i]   = htf_bulk_rates[i].low;
+         h_close[i] = htf_bulk_rates[i].close;
+        }
+
+      // Compute HTF Ehlers Smoother on Clean HTF Domain
       g_calculator.Calculate(g_htf_count, 0, h_open, h_high, h_low, h_close, h_res_filter);
       g_data_ready = true;
 
-      // Full Historical Projection to Chart Buffers (Only on new HTF candle)
+      // TWO-POINTER CHRONOLOGICAL SWEEP (Zero API calls, Nanosecond Execution!)
+      int htf_ptr = 0;
+      datetime oldest_htf = h_time[0];
+
       for(int i = 0; i < rates_total; i++)
         {
          datetime t = time[i];
-         int shift_htf = iBarShift(_Symbol, g_calc_timeframe, t, false);
-         if(shift_htf >= 0)
-           {
-            int idx_htf = g_htf_count - 1 - shift_htf;
-            if(idx_htf >= 0 && idx_htf < g_htf_count)
-               BufferFilter[i] = h_res_filter[idx_htf];
-            else
-               BufferFilter[i] = EMPTY_VALUE;
-           }
-         else
+         if(t < oldest_htf)
            {
             BufferFilter[i] = EMPTY_VALUE;
+            continue;
            }
+
+         while(htf_ptr + 1 < g_htf_count && h_time[htf_ptr + 1] <= t)
+            htf_ptr++;
+
+         BufferFilter[i] = h_res_filter[htf_ptr];
         }
+
       return rates_total;
      }
 
    if(!g_data_ready)
       return 0;
 
-// B) LIVE TICK FAST-PATH: HTF bar did not close. Update strictly forming block!
+// B) LIVE TICK FAST-PATH: Update forming candle strictly in RAM
    int live_idx = g_htf_count - 1;
-   if(live_idx >= required_bars)
+   if(live_idx >= required_bars_mtf)
      {
       MqlRates htf_rate[1];
-      // Single atomic API call instead of 4 separate copies!
       if(CopyRates(_Symbol, g_calc_timeframe, 0, 1, htf_rate) == 1)
         {
+         h_time[live_idx]  = htf_rate[0].time;
          h_open[live_idx]  = htf_rate[0].open;
          h_high[live_idx]  = htf_rate[0].high;
          h_low[live_idx]   = htf_rate[0].low;
          h_close[live_idx] = htf_rate[0].close;
 
-         // Mock update on live HTF bar
+         // Recompute strictly forming bar in RAM
          g_calculator.Calculate(g_htf_count, g_htf_count, h_open, h_high, h_low, h_close, h_res_filter);
         }
      }
 
-// Instant Binary Search for Forming Block Start (Zero iBarShift API calls!)
+// Binary Search for forming bar block start (Zero iBarShift API calls!)
    int first_bar_of_forming_htf = ArrayBsearch(time, htf_time_current);
    if(first_bar_of_forming_htf < 0)
       first_bar_of_forming_htf = 0;
@@ -269,8 +279,8 @@ int OnCalculate(const int rates_total,
    if(start > first_bar_of_forming_htf)
       start = first_bar_of_forming_htf;
 
-// Direct Vectorized Assignment (Zero API calls, Nanosecond Execution)
    double filter_val = h_res_filter[live_idx];
+
    for(int i = start; i < rates_total; i++)
      {
       BufferFilter[i] = filter_val;
@@ -284,7 +294,7 @@ int OnCalculate(const int rates_total,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   int required_bars = InpPeriod + 10;
+   int required_bars = InpPeriod + 15;
    CDataSync::OnTimerUpdate(_Symbol, g_calc_timeframe, required_bars, g_data_synced);
   }
 //+------------------------------------------------------------------+
