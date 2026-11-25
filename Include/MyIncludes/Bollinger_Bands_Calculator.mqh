@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                   Bollinger_Bands_Calculator.mqh |
 //|      Engine for John Bollinger's Classic Bollinger Bands         |
-//|      VERSION 5.00: 2026 Enterprise Edition with Capacity Memory  |
-//|                    & FMA-Optimized Dispersion Kernel             |
+//|      VERSION 5.10: 2026 Enterprise Edition with Capacity Memory, |
+//|                    FMA Dispersion Kernel & Extended Getters      |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "5.00"
+#property version   "5.10"
 
 #ifndef BOLLINGER_BANDS_CALCULATOR_MQH
 #define BOLLINGER_BANDS_CALCULATOR_MQH
@@ -69,8 +69,11 @@ public:
                                        const double &volume[],
                                        double &ma_out[], double &upper_out[], double &lower_out[]);
 
-   void                      GetPriceBuffer(double &dest_array[]);
-   int                       GetPeriod(void) const { return m_period; }
+   void                      GetPriceBuffer(double &dest_array[]) const;
+   int                       GetPeriod(void)     const { return m_period; }
+   double                    GetDeviation(void)  const { return m_deviation; }
+   ENUM_MA_TYPE              GetMAType(void)     const { return m_ma_type; }
+   int                       GetWarmupBars(void) const { return m_period - 1; }
   };
 
 //+------------------------------------------------------------------+
@@ -186,7 +189,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
    if(rates_total < m_period || CheckPointer(m_ma_engine) == POINTER_INVALID)
       return;
 
-// Safe capacity allocation of destination arrays
    if(ArraySize(ma_out) != rates_total)
      {
       ArrayResize(ma_out, rates_total, 2048);
@@ -203,7 +205,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
       ArraySetAsSeries(lower_out, false);
      }
 
-// Resize internal buffers with capacity reservation
    if(ArraySize(m_ma_buffer) != rates_total)
      {
       ArrayResize(m_ma_buffer, rates_total, 2048);
@@ -212,14 +213,11 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    int start_index = (prev_calculated == 0) ? 0 : (prev_calculated - 1);
 
-// 1. Prepare Price Series
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-// 2. Calculate Centerline MA
    m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_price, m_ma_buffer, 0);
 
-// 3. Clean invalid warmup range on fresh calculation
    if(prev_calculated == 0)
      {
       for(int i = 0; i < m_period - 1; i++)
@@ -232,7 +230,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    int loop_start = MathMax(m_period - 1, start_index);
 
-// 4. Calculate Rolling Standard Deviation Bands (Optimized Reciprocal Multiplications)
    for(int i = loop_start; i < rates_total; i++)
      {
       double current_mean = m_ma_buffer[i];
@@ -307,7 +304,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
    for(int k = start_index; k < rates_total; k++)
       m_vol_buf[k] = (volume[k] < 1) ? 1.0 : (double)volume[k];
 
-// 2. Calculate Centerline MA with Volume
    m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_price, m_vol_buf, m_ma_buffer, 0);
 
    if(prev_calculated == 0)
@@ -322,7 +318,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    int loop_start = MathMax(m_period - 1, start_index);
 
-// 3. Calculate Rolling Standard Deviation Bands
    for(int i = loop_start; i < rates_total; i++)
      {
       double current_mean = m_ma_buffer[i];
@@ -388,7 +383,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
    if(!PreparePriceSeries(rates_total, start_index, price_type, open, high, low, close))
       return;
 
-// Calculate Centerline MA with Double Volume Array
    m_ma_engine.CalculateOnArray(rates_total, prev_calculated, m_price, volume, m_ma_buffer, 0);
 
    if(prev_calculated == 0)
@@ -403,7 +397,6 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 
    int loop_start = MathMax(m_period - 1, start_index);
 
-// Calculate Rolling Standard Deviation Bands
    for(int i = loop_start; i < rates_total; i++)
      {
       double current_mean = m_ma_buffer[i];
@@ -434,7 +427,7 @@ void CBollingerBandsCalculator::Calculate(const int rates_total, const int prev_
 //+------------------------------------------------------------------+
 //| Get Internal Price Buffer                                        |
 //+------------------------------------------------------------------+
-void CBollingerBandsCalculator::GetPriceBuffer(double &dest_array[])
+void CBollingerBandsCalculator::GetPriceBuffer(double &dest_array[]) const
   {
    int size = ArraySize(m_price);
    if(size > 0)
