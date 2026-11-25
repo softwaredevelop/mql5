@@ -1,10 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                     KeltnerChannel_Calculator.mqh|
 //|      Engine for Classic Keltner Channels (MA + ATR Envelope)     |
+//|      VERSION 5.00: 2026 Enterprise Edition with Capacity Memory, |
+//|                    DRY Band Kernel & Strict 64-Bit Pointer Guard |
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, xxxxxxxx"
-#property version   "4.00" // Leak-free pointer lifecycle, bounds protection & full VWMA routing
+#property version   "5.00"
 
 #ifndef KELTNER_CHANNEL_CALCULATOR_MQH
 #define KELTNER_CHANNEL_CALCULATOR_MQH
@@ -33,6 +35,9 @@ protected:
    double                    m_atr_buffer[];
 
    virtual void              CreateCalculators(void);
+   bool                      EnsureBufferSizes(const int rates_total, double &middle_buffer[], double &upper_buffer[], double &lower_buffer[]);
+   void                      ComputeBands(const int rates_total, const int prev_calculated,
+                                          double &middle_buffer[], double &upper_buffer[], double &lower_buffer[]);
 
 public:
                      CKeltnerChannelCalculator(void);
@@ -68,6 +73,10 @@ public:
                                        const double &volume[],
                                        double &middle_buffer[], double &upper_buffer[], double &lower_buffer[]);
 
+   int                       GetMAPeriod(void)       const { return m_ma_period; }
+   int                       GetATRPeriod(void)      const { return m_atr_period; }
+   double                    GetMultiplier(void)     const { return m_multiplier; }
+   ENUM_MA_TYPE              GetMAType(void)         const { return m_ma_type; }
    int                       GetRequiredWarmup(void) const { return MathMax(m_ma_period, m_atr_period); }
   };
 
@@ -91,12 +100,12 @@ CKeltnerChannelCalculator::CKeltnerChannelCalculator(void) : m_multiplier(2.0),
 //+------------------------------------------------------------------+
 CKeltnerChannelCalculator::~CKeltnerChannelCalculator(void)
   {
-   if(CheckPointer(m_ma_calc) != POINTER_INVALID)
+   if(CheckPointer(m_ma_calc) != POINTER_INVALID && m_ma_calc != NULL)
      {
       delete m_ma_calc;
       m_ma_calc = NULL;
      }
-   if(CheckPointer(m_atr_calc) != POINTER_INVALID)
+   if(CheckPointer(m_atr_calc) != POINTER_INVALID && m_atr_calc != NULL)
      {
       delete m_atr_calc;
       m_atr_calc = NULL;
@@ -108,7 +117,7 @@ CKeltnerChannelCalculator::~CKeltnerChannelCalculator(void)
 //+------------------------------------------------------------------+
 void CKeltnerChannelCalculator::CreateCalculators(void)
   {
-   if(CheckPointer(m_ma_calc) != POINTER_INVALID)
+   if(CheckPointer(m_ma_calc) != POINTER_INVALID && m_ma_calc != NULL)
      {
       delete m_ma_calc;
       m_ma_calc = NULL;
@@ -131,11 +140,11 @@ bool CKeltnerChannelCalculator::Init(const int ma_p, const ENUM_MA_TYPE ma_m, co
 
 // 1. Initialize MA Calculator (Virtual Factory handles HA subclass)
    CreateCalculators();
-   if(CheckPointer(m_ma_calc) == POINTER_INVALID || !m_ma_calc.Init(m_ma_period, m_ma_type))
+   if(CheckPointer(m_ma_calc) == POINTER_INVALID || m_ma_calc == NULL || !m_ma_calc.Init(m_ma_period, m_ma_type))
       return false;
 
 // 2. Initialize ATR Calculator
-   if(CheckPointer(m_atr_calc) != POINTER_INVALID)
+   if(CheckPointer(m_atr_calc) != POINTER_INVALID && m_atr_calc != NULL)
      {
       delete m_atr_calc;
       m_atr_calc = NULL;
@@ -146,61 +155,57 @@ bool CKeltnerChannelCalculator::Init(const int ma_p, const ENUM_MA_TYPE ma_m, co
    else
       m_atr_calc = new CATRCalculator();
 
-   if(CheckPointer(m_atr_calc) == POINTER_INVALID || !m_atr_calc.Init(m_atr_period, ATR_POINTS))
+   if(CheckPointer(m_atr_calc) == POINTER_INVALID || m_atr_calc == NULL || !m_atr_calc.Init(m_atr_period, ATR_POINTS))
       return false;
 
    return true;
   }
 
 //+------------------------------------------------------------------+
-//| Calculate (Standard - No Volume)                                 |
+//| Helper: Ensure Destination & Internal Buffers (With 2048 Reserve)|
 //+------------------------------------------------------------------+
-void CKeltnerChannelCalculator::Calculate(const int rates_total, const int prev_calculated,
-      const double &open[], const double &high[], const double &low[], const double &close[],
-      const ENUM_APPLIED_PRICE price_type,
-      double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
+bool CKeltnerChannelCalculator::EnsureBufferSizes(const int rates_total, double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
   {
    int warmup = GetRequiredWarmup();
    if(rates_total <= warmup || CheckPointer(m_ma_calc) == POINTER_INVALID || CheckPointer(m_atr_calc) == POINTER_INVALID)
-      return;
+      return false;
 
-// Safe allocation of destination arrays
    if(ArraySize(middle_buffer) != rates_total)
      {
-      ArrayResize(middle_buffer, rates_total);
+      ArrayResize(middle_buffer, rates_total, 2048);
       ArraySetAsSeries(middle_buffer, false);
-      ArrayInitialize(middle_buffer, EMPTY_VALUE);
      }
    if(ArraySize(upper_buffer) != rates_total)
      {
-      ArrayResize(upper_buffer, rates_total);
+      ArrayResize(upper_buffer, rates_total, 2048);
       ArraySetAsSeries(upper_buffer, false);
-      ArrayInitialize(upper_buffer, EMPTY_VALUE);
      }
    if(ArraySize(lower_buffer) != rates_total)
      {
-      ArrayResize(lower_buffer, rates_total);
+      ArrayResize(lower_buffer, rates_total, 2048);
       ArraySetAsSeries(lower_buffer, false);
-      ArrayInitialize(lower_buffer, EMPTY_VALUE);
      }
-
-// Resize internal ATR buffer
    if(ArraySize(m_atr_buffer) != rates_total)
      {
-      ArrayResize(m_atr_buffer, rates_total);
+      ArrayResize(m_atr_buffer, rates_total, 2048);
       ArraySetAsSeries(m_atr_buffer, false);
      }
 
-// 1. Calculate Middle Line (MA) - Incremental
-   m_ma_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, middle_buffer);
+   return true;
+  }
 
-// 2. Calculate ATR - Incremental
-   m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
+//+------------------------------------------------------------------+
+//| Helper: Shared DRY Band Computation & Warmup Cleanup             |
+//+------------------------------------------------------------------+
+void CKeltnerChannelCalculator::ComputeBands(const int rates_total, const int prev_calculated,
+      double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
+  {
+   int warmup = GetRequiredWarmup();
 
-// 3. Clean invalid warmup range on fresh calculation
    if(prev_calculated == 0)
      {
-      for(int i = 0; i < warmup; i++)
+      int clear_limit = MathMin(warmup, rates_total);
+      for(int i = 0; i < clear_limit; i++)
         {
          middle_buffer[i] = EMPTY_VALUE;
          upper_buffer[i]  = EMPTY_VALUE;
@@ -212,15 +217,16 @@ void CKeltnerChannelCalculator::Calculate(const int rates_total, const int prev_
    if(start_index < warmup)
       start_index = warmup;
 
-// 4. Calculate Bands
    for(int i = start_index; i < rates_total; i++)
      {
-      if(middle_buffer[i] != EMPTY_VALUE && middle_buffer[i] > 0.0 &&
-         m_atr_buffer[i] != EMPTY_VALUE && m_atr_buffer[i] > 0.0)
+      double mid = middle_buffer[i];
+      double atr = m_atr_buffer[i];
+
+      if(mid != EMPTY_VALUE && mid > 0.0 && atr != EMPTY_VALUE && atr > 0.0)
         {
-         double channel_width = m_atr_buffer[i] * m_multiplier;
-         upper_buffer[i] = middle_buffer[i] + channel_width;
-         lower_buffer[i] = middle_buffer[i] - channel_width;
+         double channel_width = atr * m_multiplier;
+         upper_buffer[i] = mid + channel_width;
+         lower_buffer[i] = mid - channel_width;
         }
       else
         {
@@ -228,6 +234,23 @@ void CKeltnerChannelCalculator::Calculate(const int rates_total, const int prev_
          lower_buffer[i] = EMPTY_VALUE;
         }
      }
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate (Standard - No Volume)                                 |
+//+------------------------------------------------------------------+
+void CKeltnerChannelCalculator::Calculate(const int rates_total, const int prev_calculated,
+      const double &open[], const double &high[], const double &low[], const double &close[],
+      const ENUM_APPLIED_PRICE price_type,
+      double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
+  {
+   if(!EnsureBufferSizes(rates_total, middle_buffer, upper_buffer, lower_buffer))
+      return;
+
+   m_ma_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, middle_buffer);
+   m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
+
+   ComputeBands(rates_total, prev_calculated, middle_buffer, upper_buffer, lower_buffer);
   }
 
 //+------------------------------------------------------------------+
@@ -239,71 +262,13 @@ void CKeltnerChannelCalculator::Calculate(const int rates_total, const int prev_
       const long &volume[],
       double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
   {
-   int warmup = GetRequiredWarmup();
-   if(rates_total <= warmup || CheckPointer(m_ma_calc) == POINTER_INVALID || CheckPointer(m_atr_calc) == POINTER_INVALID)
+   if(!EnsureBufferSizes(rates_total, middle_buffer, upper_buffer, lower_buffer))
       return;
 
-   if(ArraySize(middle_buffer) != rates_total)
-     {
-      ArrayResize(middle_buffer, rates_total);
-      ArraySetAsSeries(middle_buffer, false);
-      ArrayInitialize(middle_buffer, EMPTY_VALUE);
-     }
-   if(ArraySize(upper_buffer) != rates_total)
-     {
-      ArrayResize(upper_buffer, rates_total);
-      ArraySetAsSeries(upper_buffer, false);
-      ArrayInitialize(upper_buffer, EMPTY_VALUE);
-     }
-   if(ArraySize(lower_buffer) != rates_total)
-     {
-      ArrayResize(lower_buffer, rates_total);
-      ArraySetAsSeries(lower_buffer, false);
-      ArrayInitialize(lower_buffer, EMPTY_VALUE);
-     }
-
-   if(ArraySize(m_atr_buffer) != rates_total)
-     {
-      ArrayResize(m_atr_buffer, rates_total);
-      ArraySetAsSeries(m_atr_buffer, false);
-     }
-
-// 1. Calculate Middle Line with Volume
    m_ma_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, middle_buffer);
-
-// 2. Calculate ATR
    m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
 
-   if(prev_calculated == 0)
-     {
-      for(int i = 0; i < warmup; i++)
-        {
-         middle_buffer[i] = EMPTY_VALUE;
-         upper_buffer[i]  = EMPTY_VALUE;
-         lower_buffer[i]  = EMPTY_VALUE;
-        }
-     }
-
-   int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : warmup;
-   if(start_index < warmup)
-      start_index = warmup;
-
-// 3. Calculate Bands
-   for(int i = start_index; i < rates_total; i++)
-     {
-      if(middle_buffer[i] != EMPTY_VALUE && middle_buffer[i] > 0.0 &&
-         m_atr_buffer[i] != EMPTY_VALUE && m_atr_buffer[i] > 0.0)
-        {
-         double channel_width = m_atr_buffer[i] * m_multiplier;
-         upper_buffer[i] = middle_buffer[i] + channel_width;
-         lower_buffer[i] = middle_buffer[i] - channel_width;
-        }
-      else
-        {
-         upper_buffer[i] = EMPTY_VALUE;
-         lower_buffer[i] = EMPTY_VALUE;
-        }
-     }
+   ComputeBands(rates_total, prev_calculated, middle_buffer, upper_buffer, lower_buffer);
   }
 
 //+------------------------------------------------------------------+
@@ -315,71 +280,13 @@ void CKeltnerChannelCalculator::Calculate(const int rates_total, const int prev_
       const double &volume[],
       double &middle_buffer[], double &upper_buffer[], double &lower_buffer[])
   {
-   int warmup = GetRequiredWarmup();
-   if(rates_total <= warmup || CheckPointer(m_ma_calc) == POINTER_INVALID || CheckPointer(m_atr_calc) == POINTER_INVALID)
+   if(!EnsureBufferSizes(rates_total, middle_buffer, upper_buffer, lower_buffer))
       return;
 
-   if(ArraySize(middle_buffer) != rates_total)
-     {
-      ArrayResize(middle_buffer, rates_total);
-      ArraySetAsSeries(middle_buffer, false);
-      ArrayInitialize(middle_buffer, EMPTY_VALUE);
-     }
-   if(ArraySize(upper_buffer) != rates_total)
-     {
-      ArrayResize(upper_buffer, rates_total);
-      ArraySetAsSeries(upper_buffer, false);
-      ArrayInitialize(upper_buffer, EMPTY_VALUE);
-     }
-   if(ArraySize(lower_buffer) != rates_total)
-     {
-      ArrayResize(lower_buffer, rates_total);
-      ArraySetAsSeries(lower_buffer, false);
-      ArrayInitialize(lower_buffer, EMPTY_VALUE);
-     }
-
-   if(ArraySize(m_atr_buffer) != rates_total)
-     {
-      ArrayResize(m_atr_buffer, rates_total);
-      ArraySetAsSeries(m_atr_buffer, false);
-     }
-
-// 1. Calculate Middle Line with Double Volume Array
    m_ma_calc.Calculate(rates_total, prev_calculated, price_type, open, high, low, close, volume, middle_buffer);
-
-// 2. Calculate ATR
    m_atr_calc.Calculate(rates_total, prev_calculated, open, high, low, close, m_atr_buffer);
 
-   if(prev_calculated == 0)
-     {
-      for(int i = 0; i < warmup; i++)
-        {
-         middle_buffer[i] = EMPTY_VALUE;
-         upper_buffer[i]  = EMPTY_VALUE;
-         lower_buffer[i]  = EMPTY_VALUE;
-        }
-     }
-
-   int start_index = (prev_calculated > 0) ? (prev_calculated - 1) : warmup;
-   if(start_index < warmup)
-      start_index = warmup;
-
-// 3. Calculate Bands
-   for(int i = start_index; i < rates_total; i++)
-     {
-      if(middle_buffer[i] != EMPTY_VALUE && middle_buffer[i] > 0.0 &&
-         m_atr_buffer[i] != EMPTY_VALUE && m_atr_buffer[i] > 0.0)
-        {
-         double channel_width = m_atr_buffer[i] * m_multiplier;
-         upper_buffer[i] = middle_buffer[i] + channel_width;
-         lower_buffer[i] = middle_buffer[i] - channel_width;
-        }
-      else
-        {
-         upper_buffer[i] = EMPTY_VALUE;
-         lower_buffer[i] = EMPTY_VALUE;
-        }
-     }
+   ComputeBands(rates_total, prev_calculated, middle_buffer, upper_buffer, lower_buffer);
   }
 
 //+==================================================================+
@@ -394,7 +301,7 @@ protected:
 //+------------------------------------------------------------------+
 void CKeltnerChannelCalculator_HA::CreateCalculators(void)
   {
-   if(CheckPointer(m_ma_calc) != POINTER_INVALID)
+   if(CheckPointer(m_ma_calc) != POINTER_INVALID && m_ma_calc != NULL)
      {
       delete m_ma_calc;
       m_ma_calc = NULL;
