@@ -1,191 +1,265 @@
-# Classic Keltner Channel (Keltner Channel) Pro (v4.00)
+# Keltner Channel Pro (v5.00)
 
-Quantitative Multi-Algorithm Moving Average & ATR Volatility Envelope Suite
+## Institutional Multi-Timeframe ATR Volatility Envelope Suite with 14 Centerline Smoothing Models, VWMA Routing & Hybrid Heikin Ashi
+
+**Enterprise Ultra Edition — High-Concurrency DSP Engine for MetaTrader 5*
 
 ---
 
-## 1. Summary (Introduction)
+## 1. Executive Summary & System Overview
 
-**Keltner Channel Pro** is an institutional-grade volatility envelope indicator based on the classic formula originated by Chester Keltner and refined by Linda Bradford Raschke. It constructs a dynamic, volatility-adjusted price corridor by projecting **Average True Range (ATR)** bands above and below a central **Moving Average baseline**.
+**Keltner Channel Pro (v5.00)** is the institutional True Range volatility channel overlay of the Professional MQL5 Suite. Built upon the decoupled **Engine-Wrapper Component Architecture (`KeltnerChannel_Calculator.mqh` v5.00)**, it modernizes Chester Keltner’s (1960) and Linda Bradford Raschke’s classic ATR channel framework with 14 pluggable moving average centerlines, full volume routing, hybrid Standard/Heikin Ashi source decoupling, and the zero-lag 2026 MTF Fast-Path protocol.
 
-Unlike standard Bollinger Bands which rely on standard deviation and are prone to sudden, erratic spikes, **Keltner Channels expand and contract smoothly in direct proportion to true market range**. This creates a reliable envelope for identifying institutional breakout expansion, trend riding, and over-extended mean-reversion exhaustion.
+Unlike standard Bollinger Bands that rely on price dispersion and balloon artificially during steep directional slopes, **Keltner Channels expand steadily based on realized Average True Range (ATR)—making them the premier mechanical channel for trend pullbacks and the external boundary for `Squeeze_Pro`**:
 
 ```text
-
 ┌────────────────────────────────────────────────────────────────────────┐
-│                      KELTNER CHANNEL ARCHITECTURE                      │
+│               KELTNER CHANNEL PRO ARCHITECTURAL OVERVIEW               │
 ├────────────────────────────────────────────────────────────────────────┤
-│  Upper Band:  Moving Average(t) + [Multiplier × ATR(t)]                │
-│  Middle Band: Universal Centerline Basis (SMA/EMA/LWMA/VWMA)           │
-│  Lower Band:  Moving Average(t) - [Multiplier × ATR(t)]                │
+│ 1. 14-Model Centerline Engine  • Powered by MovingAverage_Engine.mqh   │
+│                                • Supports SMA, EMA, HMA, ZLEMA, VWMA.. │
+├────────────────────────────────────────────────────────────────────────┤
+│ 2. Wilder's RMA ATR Envelope   • Powered by ATR_Calculator.mqh         │
+│                                • Gap-sensitive True Range boundaries   │
+├────────────────────────────────────────────────────────────────────────┤
+│ 3. Hybrid Heikin Ashi Matrix   • Independent Basis Price & ATR Sources │
+│                                • Exact off-by-one free HA routing      │
+├────────────────────────────────────────────────────────────────────────┤
+│ 4. Volume Routing Pipeline     • Broker capability arbitration via     │
+│                                  SYMBOL_VOLUME_LIMIT                   │
+│                                • Real Volume & Tick Volume VWMA support│
+├────────────────────────────────────────────────────────────────────────┤
+│ 5. 2026 MTF Fast-Path Protocol • Atomic single-query CopyRates() sync  │
+│                                • Two-Pointer Chronological Sweep (O(N))│
+│                                • Binary search snapping (ArrayBsearch) │
 └────────────────────────────────────────────────────────────────────────┘
-
 ```
 
-### Key Capabilities
-
-* **8 Native Centerline Models:** Centerline basis can utilize any moving average algorithm (SMA, EMA, SMMA, LWMA, TMA, DEMA, TEMA, and Volume-Weighted VWMA).
-* **Independent Hybrid Routing:** Allows independent price sourcing (e.g., Typical Price EMA Centerline combined with Standard True Range ATR Bands).
-* **Full Volume-Weighted Support (VWMA-KC):** Routes Real Volume (`VOLUME_REAL`) and Tick Volume (`VOLUME_TICK`) into the centerline moving average engine.
-* **Unified 2026 MTF Framework:** Higher-timeframe Keltner Channels (e.g., H1 or H4) map onto lower-timeframe execution charts (M1, M5, M15) with flat, non-warping steps via `DataSync_Tools.mqh`.
-* **Synthetic Heikin Ashi Support:** Fully compatible with filtered Heikin Ashi price series via `CKeltnerChannelCalculator_HA` composition.
-
 ---
 
-## 2. Mathematical Foundations & Volatility Envelope Mechanics
+## 2. Mathematical Foundations & DSP Pipeline
 
 ```text
-
-                         Upper Band: Middle + (Multiplier · ATR)
-       ══════════════════════════════════════════════════════════════════ clrOliveDrab (Dot)
-                         ▲ ATR Volatility Corridor
-                         │
-       ──────────────────┼─────────────────────────────────────────────── clrOliveDrab (Solid)
-                         │ Middle Centerline Basis (MA / VWMA)
-                         ▼
-       ══════════════════════════════════════════════════════════════════ clrOliveDrab (Dot)
-                         Lower Band: Middle - (Multiplier · ATR)
-
+                  RAW MARKET OHLCV INPUT (Standard or Heikin Ashi)
+                                           │
+       ┌───────────────────────────────────┴───────────────────────────────────┐
+       ▼                                                                       ▼
+Centerline Moving Average Engine                                     Average True Range Engine
+(14 Selectable MA Models + VWMA)                                     CATRCalculator (Std or HA)
+(Period: InpMaPeriod, Price: InpSourcePrice)                         (Period: InpAtrPeriod)
+       │                                                                       │
+       ▼                                                                       ▼
+Centerline Basis (t)                                                 Wilder's RMA ATR (t)
+                                                                     Multiplied by InpMultiplier
+       │                                                                       │
+       └───────────────────────────────────┬───────────────────────────────────┘
+                                           │
+                                           ▼
+                 Upper = Basis + Width,   Lower = Basis - Width
 ```
 
-### 2.1. Centerline Moving Average Basis ($\text{Middle}_t$)
+### 2.1. Stage 1: Centerline Moving Average (Basis) & VWMA Routing
 
-Given input price series $P_t$ (e.g., Typical Price $\frac{H + L + C}{3}$):
-$$\text{Middle}_t = \mathcal{MA}\left( P, \text{Period} = P_{\text{MA}}, \text{Type} = \text{InpMaMethod} \right)$$
-*where standard parameters are $P_{\text{MA}} = 20$ and $\text{InpMaMethod} = \text{EMA}$.*
+The central tendency baseline $\text{Basis}_t$ is evaluated via `CMovingAverageCalculator` over `InpMaPeriod` ($P_{\text{ma}}$). Defaults to Linda Raschke's Typical Price `(H+L+C)/3` and 20-period EMA:
+$$\text{Basis}_t = \mathcal{M}_{\text{type}}(P, P_{\text{ma}})_t$$
+When `InpMaMethod == VWMA`, the engine queries `SYMBOL_VOLUME_LIMIT` to automatically weight price bars by Real Exchange Volume or Tick Volume:
+$$\text{Basis}_{\text{VWMA}, t} = \frac{\sum_{j=0}^{P_{\text{ma}}-1} P_{t-j} \cdot V_{t-j}}{\sum_{j=0}^{P_{\text{ma}}-1} V_{t-j}}$$
 
----
+### 2.2. Stage 2: Wilder's Average True Range (ATR)
 
-### 2.2. Wilder's Average True Range ($\text{ATR}_t$)
+Channel half-width is governed by `CATRCalculator` (`ATR_Calculator.mqh`) across lookback `InpAtrPeriod` ($P_{\text{atr}}$). True Range captures both intra-bar excursion and overnight market gaps:
+$$\text{TR}_t = \max\left(\text{High}_t - \text{Low}_t, \; |\text{High}_t - \text{Close}_{t-1}|, \; |\text{Low}_t - \text{Close}_{t-1}|\right)$$
+$$\text{ATR}_t = \frac{\text{ATR}_{t-1} \cdot (P_{\text{atr}} - 1) + \text{TR}_t}{P_{\text{atr}}}$$
 
-The True Range ($TR$) captures gap volatility across adjacent bars:
-$$TR_t = \max\left( H_t - L_t, \; |H_t - C_{t-1}|, \; |L_t - C_{t-1}| \right)$$
-$$\text{ATR}_t = \text{Wilder's RMA}(TR_t, P_{\text{ATR}})$$
-*where $P_{\text{ATR}} = \text{InpAtrPeriod}$ (default: $10$).*
+### 2.3. Stage 3: Channel Envelope Boundaries
 
----
-
-### 2.3. Dynamic Volatility Band Projections
-
-$$\text{Upper Band}_t = \text{Middle}_t + (M \cdot \text{ATR}_t)$$
-$$\text{Lower Band}_t = \text{Middle}_t - (M \cdot \text{ATR}_t)$$
-*where $M = \text{InpMultiplier}$ (default: $2.0$).*
+$$\text{Width}_t = \text{ATR}_t \times \text{InpMultiplier}$$
+$$\text{UpperBand}_t = \text{Basis}_t + \text{Width}_t$$
+$$\text{LowerBand}_t = \text{Basis}_t - \text{Width}_t$$
 
 ---
 
-### 2.4. Volume-Weighted Keltner Model (VWMA-KC)
+## 3. Hybrid Heikin Ashi & 14 Centerline Models Matrix
 
-When `InpMaMethod = VWMA`, the centerline weights prices directly by committed volume:
-$$\text{Middle}_{\text{VWMA}, t} = \frac{\sum_{j=0}^{P_{\text{MA}}-1} P_{t-j} \cdot V_{t-j}}{\sum_{j=0}^{P_{\text{MA}}-1} V_{t-j}}$$
-$$\text{Upper Band}_t = \text{Middle}_{\text{VWMA}, t} + (M \cdot \text{ATR}_t), \quad\quad \text{Lower Band}_t = \text{Middle}_{\text{VWMA}, t} - (M \cdot \text{ATR}_t)$$
+### 3.1. Hybrid Heikin Ashi Configuration Matrix
+
+`KeltnerChannel_Pro` completely decouples the **Centerline Price Source** (`InpSourcePrice`) from the **ATR Volatility Source** (`InpAtrSource`):
+
+| Centerline Source (`InpSourcePrice`) | ATR Source (`InpAtrSource`) | Quantitative Behavior & Optimal Role |
+| :--- | :--- | :--- |
+| **Standard Price** | `ATR_SOURCE_STANDARD` | **Classical Keltner:** Raw market tracking and gap sensitivity. |
+| **Heikin Ashi Price** | `ATR_SOURCE_STANDARD` | **Institutional Hybrid (Recommended):** Smoothed HA trend basis + true gap-aware volatility boundaries. |
+| **Standard Price** | `ATR_SOURCE_HEIKIN_ASHI` | **Smoothed Range Hybrid:** Tighter, wick-filtered ATR channels around a raw price basis. |
+| **Heikin Ashi Price** | `ATR_SOURCE_HEIKIN_ASHI` | **Full Synthetic Noise Shield:** Completely eliminates microstructure wicks from both trend and volatility. |
+
+### 3.2. Supported Centerline Algorithms (`InpMaMethod`)
+
+Supports all 14 modular moving averages from `MovingAverage_Engine.mqh`:
+`SMA`, `EMA`, `SMMA`, `LWMA`, `TMA`, `DEMA`, `TEMA`, `VWMA`, `HMA`, `ZLEMA`, `MCGINLEY`, `EHMA`, `MEDIAN_MA`, `SWMA`.
 
 ---
 
-## 3. MQL5 Architecture & Engineering Standards
+## 4. Enterprise MTF Fast-Path Protocol
+
+When projecting higher-timeframe Keltner Channels onto lower-timeframe execution charts (`InpTimeframe > Period()`), the engine eliminates legacy MTF architectural bottlenecks:
 
 ```text
-
-┌────────────────────────────────────────────────────────┐
-│               KeltnerChannel_Calculator.mqh            │
-│    (Core Engine: MovingAverage_Engine + ATR_Calculator)│
-├──────────────────────────┬─────────────────────────────┤
-│   Volume Routing Layer   │   Composition Engine        │
-│   • Real Volume Support  │   • CKeltnerChannelCalc_HA  │
-│   • Tick Volume Fallback │   • Leak-Free Destructors   │
-└──────────────────────────┴─────────────────────────────┘
-                           │ Outputs Middle, Upper, Lower in O(1)
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│                 KeltnerChannel_Pro.mq5                 │
-│    (Unified Wrapper: Native Timeframe & MTF Engine)    │
-├──────────────────────────┬─────────────────────────────┤
-│   Direct Mode (O(1))     │   Synchronized MTF Pipeline │
-│   • Current Timeframe    │   • DataSync_Tools Daemon   │
-│   • 3 Output Plots       │   • Staircase Flat-Force    │
-└──────────────────────────┴─────────────────────────────┘
-
+  HTF Domain (e.g. H1)
+  [ HTF Bar 0 ]────────────────────────>[ HTF Bar 1 ]────────────────────────>[ HTF Forming ]
+        │                                     │                                     │
+        ▼ (Chronological 2-Pointer Projection)▼                                     ▼
+  LTF Domain (e.g. M5)
+  [m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5][m5]
+  └───────────────────┘ └───────────────────┘ └───────────────────┘ └───────────────────────┘
+     Flat Step 0           Flat Step 1           Flat Step 2           Forming Block (Live)
 ```
 
-1. **Dual-Engine Composition Architecture:** `CKeltnerChannelCalculator` coordinates `CMovingAverageCalculator` and `CATRCalculator` with zero heap memory leaks and safe pointer destruction (`CheckPointer`).
-2. **Full VWMA Volume Routing:** Volume arrays (`h_vol[]` in MTF and `volume[]` in Native) are routed directly into the centerline calculation pipeline.
-3. **2026 MTF Framework with Staircase Solution:**
-   * Asynchronous 1-second timer daemon (`OnTimerUpdate`) ensures higher-timeframe data synchronization without UI lag.
-   * Dynamic staircase anchor (`first_bar_of_forming_htf`) synchronizes all lower-timeframe sub-bars belonging to the active higher-timeframe candle.
+1. **Atomic Single-Query Rates Synchronization:** A single `CopyRates()` query acquires all OHLCV bars (including Real and Tick volume) for the HTF domain simultaneously in nanoseconds.
+2. **Two-Pointer Chronological Sweep ($O(N)$ Projection):** Sweeps forward in a single linear pass, projecting `BufferUpper`, `BufferLower`, and `BufferMiddle` onto chart candles with zero `iBarShift()` API calls.
+3. **Live-Tick Isolated RAM Mocking:** On incoming live ticks within an open HTF bar, only the active forming candle in RAM (`live_idx = g_htf_count - 1`) is recalculated. An $O(\log N)$ binary search (`ArrayBsearch`) snaps to the forming block start and vector-assigns values in nanoseconds.
 
 ---
 
-## 4. Parameters Reference
+## 5. Parameters Reference
 
-### Timeframe Settings
+### === Timeframe Settings ===
 
-* `InpTimeframe` (*default: `PERIOD_CURRENT`*): Calculation timeframe. When set to `PERIOD_CURRENT`, it operates in native zero-lag mode. When set to a higher timeframe (e.g., `PERIOD_H1`, `PERIOD_D1`), it activates the synchronized MTF engine.
+* **`InpTimeframe`** (*default: `PERIOD_CURRENT`*): Calculation timeframe. Set to `PERIOD_CURRENT` for standard zero-lag execution, or choose any higher timeframe (`PERIOD_M15` through `PERIOD_MN1`) to project a synchronized staircase MTF baseline.
 
-### Middle Line (MA) Settings
+### === Middle Line (MA) Settings ===
 
-* `InpMaPeriod` (*default: `20`*): Smoothing period ($P_{\text{MA}}$) for the centerline basis.
-* `InpMaMethod` (*default: `EMA`*): Smoothing algorithm for centerline (`SMA`, `EMA`, `SMMA`, `LWMA`, `TMA`, `DEMA`, `TEMA`, `VWMA`).
-* `InpSourcePrice` (*default: `PRICE_TYPICAL_STD`*): Applied price source (Supports all 7 Standard and 7 Heikin Ashi modes).
+* **`InpMaPeriod`** (*default: `20`*): Lookback period for the Centerline Moving Average.
 
-### Channel (ATR) Settings
+* **`InpMaMethod`** (*default: `EMA`*): Moving average algorithm used for the Centerline Basis (Selectable across all 14 modular models, including `VWMA` and `HMA`).
+* **`InpSourcePrice`** (*default: `PRICE_TYPICAL_STD`*): Input price source for the Centerline. Supports all 7 Standard applied prices and all 7 filtered Heikin Ashi prices (`PRICE_HA_CLOSE` through `PRICE_HA_WEIGHTED`).
 
-* `InpAtrPeriod` (*default: `10`*): Lookback period ($P_{\text{ATR}}$) for volatility calculation.
-* `InpMultiplier` (*default: `2.0`*): Volatility band multiplier ($M$).
-* `InpAtrSource` (*default: `ATR_SOURCE_STANDARD`*): Selects whether True Range is derived from Standard candles or filtered Heikin Ashi candles.
+### === Channel (ATR) Settings ===
 
-### Visual Settings - Centerline (Basis)
+* **`InpAtrPeriod`** (*default: `10`*): Lookback window for Wilder's Average True Range.
 
-* `InpColorMiddle` (*default: `clrOliveDrab`*): Centerline color (Width: 2, Solid).
-* `InpStyleMiddle` (*default: `STYLE_SOLID`*): Line style of the centerline.
-* `InpWidthMiddle` (*default: `2`*): Line thickness.
+* **`InpMultiplier`** (*default: `2.0`*): Multiplier applied to ATR to define channel half-width.
+* **`InpAtrSource`** (*default: `ATR_SOURCE_STANDARD`*): Selects Standard or Heikin Ashi True Range calculation.
 
-### Visual Settings - Outer Bands
+### === Visual Settings - Outer Bands ===
 
-* `InpColorBands` (*default: `clrOliveDrab`*): Color applied to Upper and Lower volatility bands.
-* `InpStyleBands` (*default: `STYLE_DOT`*): Line style for outer bands.
-* `InpWidthBands` (*default: `1`*): Line thickness for outer bands.
+* **`InpColorUpper`** (*default: `clrOliveDrab`*): Color of the Upper Band.
+
+* **`InpColorLower`** (*default: `clrOliveDrab`*): Color of the Lower Band.
+* **`InpStyleBands`** (*default: `STYLE_DOT`*): Line style for both outer bands.
+* **`InpWidthBands`** (*default: `1`*): Line thickness for both outer bands.
+
+### === Visual Settings - Centerline (Basis) ===
+
+* **`InpShowMiddle`** (*default: `true`*): Toggles drawing the Centerline Basis.
+
+* **`InpColorMiddle`** (*default: `clrOliveDrab`*): Color of the Centerline.
+* **`InpStyleMiddle`** (*default: `STYLE_SOLID`*): Line style for the Centerline.
+* **`InpWidthMiddle`** (*default: `2`*): Line thickness for the Centerline.
 
 ---
 
-## 5. Quantitative Trading Playbooks
+## 6. Quantitative Trading Playbooks
 
 ```text
-
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   KELTNER CHANNEL TRADING PLAYBOOKS                    │
+│                     KELTNER CHANNEL PLAYBOOKS                          │
 ├────────────────────────────────────────────────────────────────────────┤
-│ 1. Volatility Squeeze:   Bollinger Bands contract inside Keltner       │
-│                          Channel; breakout outside Keltner = Surge.    │
-│ 2. Band Riding Trend:    Candles closing outside Upper/Lower band with │
-│                          expanding ATR confirm institutional markup.   │
-│ 3. Mean Reversion Fade:  Candles rejecting outer bands in consolidation │
-│                          target mean reversion back to Centerline.     │
+│ 1. Classic Channel Breakout:   Decisive close outside Upper/Lower Band │
+│                                confirms ATR volatility expansion.      │
+│ 2. Raschke 20-EMA Pullback:    Following breakout, enter pullbacks     │
+│                                rejecting the Centerline Basis.         │
+│ 3. Gap-Aware Trailing Stop:    Trail stops strictly on the opposite    │
+│                                band or Centerline (2.0 ATR buffer).    │
+│ 4. MTF Macro Step Alignment:   Only take M5 long breakouts when price  │
+│                                holds above the H4 Centerline Basis.    │
 └────────────────────────────────────────────────────────────────────────┘
-
 ```
 
-### 5.1. The Bollinger-Keltner Volatility Squeeze (John Carter Model)
+### 6.1. Playbook 1: Classic Keltner Channel Breakout
 
-* **Pre-Condition (Squeeze):** Standard Bollinger Bands ($2.0\sigma$) contract **entirely inside** the Keltner Channel ($20\text{ EMA}, 1.5\text{ ATR}$). This indicates that market volatility has compressed to statistical extremes.
-* **Trigger (The "Firing" Breakout):** Bollinger Bands expand and break **outside** the Keltner Channel while price decisively closes above the `Upper Band` (Long) or below the `Lower Band` (Short) $\rightarrow$ Enter in the direction of the breakout.
+* **Configuration:** `InpMaPeriod = 20`, `InpMaMethod = EMA`, `InpAtrPeriod = 10`, `InpMultiplier = 2.0`.
 
-### 5.2. Trend Riding & Trailing Stop Management
+* **Mechanism:** Because ATR expands steadily without overreacting to single-bar outliers, a bar closing decisively outside the $+2.0 \text{ ATR}$ boundary signals true institutional initiative.
+* **Execution:** Enter in the direction of the breakout candle; place protective stop at the **Centerline Basis**.
 
-* **Bullish Momentum:** During strong trend expansion, price "rides" the `Upper Band`.
-* **Execution Rule:** Hold long positions as long as candles continue closing above the `Centerline (Basis)`. Use the Centerline as a dynamic trailing stop.
+### 6.2. Playbook 2: Trend Pullback Continuation (The Raschke Setup)
 
-### 5.3. Multi-Timeframe Macro Envelope Alignment
+* **Mechanism:** Linda Bradford Raschke popularized using Keltner Channels to enter established trends on low-risk retracements.
 
-* Attach an **H1-calculated Keltner Channel** onto an **M5 execution chart**.
-* **Rule:** Only take M5 long pullback trades when price is trading in the upper half of the macro channel (between H1 Centerline and H1 Upper Band).
+* **Setup:** Price tags or breaches the Upper Band ($+2.0 \text{ ATR}$), confirming strong upward momentum. Wait for price to pull back and tag the **20 EMA Centerline Basis**.
+* **Execution:** Enter Long on the first bullish rejection candle off the Centerline, targeting the Upper Band.
+
+### 6.3. Playbook 3: ATR-Normalized Dynamic Trailing Stop
+
+* **Mechanism:** Once a strong trend develops, use the **Opposite Channel Band** or the **Centerline** as a volatility-adaptive trailing stop, preventing premature stop-outs during normal intraday volatility noise.
+
+### 6.4. Playbook 4: Multi-Timeframe Macro Step Alignment
+
+* Attach an **H4-calculated Keltner Channel Pro** onto an **M15 execution chart**.
+
+* **Quantitative Execution Rule:**
+  $$\text{If } \text{Bid} > \text{BufferMiddle}_{\text{H4 Step}} \implies \text{Long Trades Permitted Only}$$
+  $$\text{If } \text{Bid} < \text{BufferMiddle}_{\text{H4 Step}} \implies \text{Short Trades Permitted Only}$$
+* Eliminates counter-trend scalping against macro higher-timeframe trend regimes.
 
 ---
 
-## 6. Indicator Buffer Map (For Developers & EA Integration)
+## 7. Indicator Buffer Map & Developer API
 
-| Buffer Index | Name | Type | Description |
-| :---: | :---: | :--- | :--- |
-| **0** | `BufferUpper` | `INDICATOR_DATA` | Upper Volatility Band ($\text{Middle} + M \cdot \text{ATR}$) |
-| **1** | `BufferLower` | `INDICATOR_DATA` | Lower Volatility Band ($\text{Middle} - M \cdot \text{ATR}$) |
-| **2** | `BufferMiddle` | `INDICATOR_DATA` | Centerline Moving Average Basis ($\text{Middle}$) |
+The indicator outputs its values through 3 native `INDICATOR_DATA` buffers, maintaining sub-millisecond execution speeds for Expert Advisors and multi-asset scanners.
 
-*All buffers strictly maintain non-series chronological order (`ArraySetAsSeries = false`), ensuring instant compatibility with Expert Advisors and scanner dashboards via `iCustom()`.*
+### Output Buffer Indexing
+
+| Buffer Index | Identifier | Plot Type | Default Color | Description |
+| :---: | :---: | :---: | :---: | :--- |
+| **0** | `BufferUpper` | `DRAW_LINE` | `clrOliveDrab` | Upper Keltner ATR Volatility Band |
+| **1** | `BufferLower` | `DRAW_LINE` | `clrOliveDrab` | Lower Keltner ATR Volatility Band |
+| **2** | `BufferMiddle` | `DRAW_LINE` | `clrOliveDrab` | Centerline Moving Average Basis |
+
+*Buffers strictly maintain non-series chronological ordering (`ArraySetAsSeries = false`), where the currently forming live bar resides at index `rates_total - 1`.*
+
+### Expert Advisor / Scanner Integration (`iCustom`)
+
+Example MQL5 snippet demonstrating how to read Keltner Channel Pro values from an automated trading robot:
+
+```mql5
+//--- Create handle for Native or MTF Keltner Channel Pro (VWMA Basis + Standard ATR)
+int handle = iCustom(_Symbol, _Period, "KeltnerChannel_Pro",
+                     PERIOD_CURRENT,         // InpTimeframe
+                     20,                     // InpMaPeriod
+                     VWMA,                   // InpMaMethod (Volume-Weighted Basis)
+                     PRICE_TYPICAL_STD,      // InpSourcePrice (Typical Price)
+                     10,                     // InpAtrPeriod
+                     2.0,                    // InpMultiplier
+                     ATR_SOURCE_STANDARD     // InpAtrSource
+                     // ... visual parameters fall back to defaults
+                    );
+
+if(handle == INVALID_HANDLE)
+  {
+   Print("Critical Error: Failed to create KeltnerChannel_Pro handle.");
+   return;
+  }
+
+//--- Read the latest finalized (closed bar) values (Bar 1 and Bar 2)
+double upper_val[], lower_val[], mid_val[];
+ArraySetAsSeries(upper_val, true);
+ArraySetAsSeries(lower_val, true);
+ArraySetAsSeries(mid_val,   true);
+
+if(CopyBuffer(handle, 0, 1, 2, upper_val) == 2 &&
+   CopyBuffer(handle, 1, 1, 2, lower_val) == 2 &&
+   CopyBuffer(handle, 2, 1, 2, mid_val)   == 2)
+  {
+   double upper_curr = upper_val[0];    // Closed bar (Bar 1)
+   double lower_curr = lower_val[0];
+   double mid_curr   = mid_val[0];
+   double close_curr = iClose(_Symbol, _Period, 1);
+
+   // Example Strategy: Bullish Channel Breakout above Upper ATR Band
+   if(close_curr > upper_curr)
+     {
+      // Execute Buy Order (Keltner Channel Volatility Expansion)
+     }
+  }
+```
