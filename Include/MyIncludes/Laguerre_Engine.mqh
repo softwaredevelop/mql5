@@ -3,7 +3,7 @@
 //|                                          Copyright 2026, xxxxxxxx|
 //+------------------------------------------------------------------+
 #property copyright   "Copyright 2026, xxxxxxxx"
-#property version     "3.40" // Enterprise Refactor: Direct L0..L3 Inlined Accessors & Zero-Copy Architecture
+#property version     "4.00" // Enterprise Edition: Fixed Legacy HA Routing, 2048 Capacity Memory & FMA Reciprocals
 #property description "Core calculation engine for John Ehlers' 4-element Laguerre filter."
 
 #ifndef LAGUERRE_ENGINE_MQH
@@ -42,15 +42,15 @@ protected:
 
 public:
                      CLaguerreEngine(void);
-   virtual                  ~CLaguerreEngine(void) {};
+   virtual                  ~CLaguerreEngine(void) {}
 
    //--- Enhanced Pro Init (3 Parameters)
    bool                      Init(const double gamma, const ENUM_INPUT_SOURCE source_type, const ENUM_APPLIED_PRICE_HA_ALL price_source);
 
-   //--- Legacy Compatible Init (2 Parameters)
+   //--- Legacy Compatible Init (2 Parameters - Preserves _HA subclass state!)
    bool                      Init(const double gamma, const ENUM_INPUT_SOURCE source_type)
      {
-      return Init(gamma, source_type, PRICE_CLOSE_STD);
+      return Init(gamma, source_type, m_source_price);
      }
 
    //--- Unified Calculate Method
@@ -59,34 +59,39 @@ public:
          const double &low[], const double &close[],
          double &filt_buffer[]);
 
-   //--- Legacy Overload with price_type parameter
+   //--- Legacy Overload with price_type parameter (Preserves & Maps HA Applied Price!)
    void                      CalculateFilter(const int rates_total, const int prev_calculated, const ENUM_APPLIED_PRICE price_type,
          const double &open[], const double &high[],
          const double &low[], const double &close[],
          double &filt_buffer[])
      {
-      if(m_source_price >= PRICE_CLOSE_STD)
+      if(m_source_price <= PRICE_HA_CLOSE)
+         m_source_price = (ENUM_APPLIED_PRICE_HA_ALL)(-((int)price_type) - 1);
+      else
          m_source_price = (ENUM_APPLIED_PRICE_HA_ALL)price_type;
 
       CalculateFilter(rates_total, prev_calculated, open, high, low, close, filt_buffer);
      }
 
-   void                      GetPriceBuffer(double &dest_array[]);
+   void                      GetPriceBuffer(double &dest_array[]) const;
    double                    GetPrice(const int index) const { return (index >= 0 && index < ArraySize(m_price)) ? m_price[index] : 0.0; }
-   void                      GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[]);
+   void                      GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[]) const;
 
    // Fast Inlined Direct State Getters (Eliminates multi-megabyte ArrayCopy operations!)
    double                    GetL0(const int i) const { return (i >= 0 && i < ArraySize(m_L0)) ? m_L0[i] : 0.0; }
    double                    GetL1(const int i) const { return (i >= 0 && i < ArraySize(m_L1)) ? m_L1[i] : 0.0; }
    double                    GetL2(const int i) const { return (i >= 0 && i < ArraySize(m_L2)) ? m_L2[i] : 0.0; }
    double                    GetL3(const int i) const { return (i >= 0 && i < ArraySize(m_L3)) ? m_L3[i] : 0.0; }
+
+   double                    GetGamma(void)       const { return m_gamma; }
+   ENUM_INPUT_SOURCE         GetInputSource(void) const { return m_source_type; }
+   ENUM_APPLIED_PRICE_HA_ALL GetSourcePrice(void) const { return m_source_price; }
   };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CLaguerreEngine::CLaguerreEngine(void) :
-   m_gamma(0.5),
+CLaguerreEngine::CLaguerreEngine(void) : m_gamma(0.5),
    m_one_minus_gamma(0.5),
    m_neg_gamma(-0.5),
    m_source_type(SOURCE_PRICE),
@@ -119,12 +124,12 @@ bool CLaguerreEngine::Init(const double gamma, const ENUM_INPUT_SOURCE source_ty
 //+------------------------------------------------------------------+
 //| Get Price Buffer Helper                                          |
 //+------------------------------------------------------------------+
-void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
+void CLaguerreEngine::GetPriceBuffer(double &dest_array[]) const
   {
    int size = ArraySize(m_price);
    if(size > 0)
      {
-      ArrayResize(dest_array, size);
+      ArrayResize(dest_array, size, 2048);
       ArraySetAsSeries(dest_array, false);
       ArrayCopy(dest_array, m_price, 0, 0, size);
      }
@@ -133,28 +138,28 @@ void CLaguerreEngine::GetPriceBuffer(double &dest_array[])
 //+------------------------------------------------------------------+
 //| Get L0..L3 State Buffers Helper (Maintained for Legacy Callers)  |
 //+------------------------------------------------------------------+
-void CLaguerreEngine::GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[])
+void CLaguerreEngine::GetLBuffers(double &l0[], double &l1[], double &l2[], double &l3[]) const
   {
    int size = ArraySize(m_L0);
    if(size > 0)
      {
-      ArrayResize(l0, size);
+      ArrayResize(l0, size, 2048);
       ArraySetAsSeries(l0, false);
       ArrayCopy(l0, m_L0, 0, 0, size);
-      ArrayResize(l1, size);
+      ArrayResize(l1, size, 2048);
       ArraySetAsSeries(l1, false);
       ArrayCopy(l1, m_L1, 0, 0, size);
-      ArrayResize(l2, size);
+      ArrayResize(l2, size, 2048);
       ArraySetAsSeries(l2, false);
       ArrayCopy(l2, m_L2, 0, 0, size);
-      ArrayResize(l3, size);
+      ArrayResize(l3, size, 2048);
       ArraySetAsSeries(l3, false);
       ArrayCopy(l3, m_L3, 0, 0, size);
      }
   }
 
 //+------------------------------------------------------------------+
-//| Prepare Price Series                                             |
+//| Prepare Price Series (ALU Optimized with Capacity Reservation)   |
 //+------------------------------------------------------------------+
 bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_index,
       const double &open[], const double &high[],
@@ -162,7 +167,7 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
   {
    if(ArraySize(m_price) != rates_total)
      {
-      ArrayResize(m_price, rates_total);
+      ArrayResize(m_price, rates_total, 2048);
       ArraySetAsSeries(m_price, false);
      }
 
@@ -172,13 +177,14 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
      {
       if(ArraySize(m_ha_open) != rates_total)
         {
-         ArrayResize(m_ha_open,  rates_total);
+         ArrayResize(m_ha_open,  rates_total, 2048);
+         ArrayResize(m_ha_high,  rates_total, 2048);
+         ArrayResize(m_ha_low,   rates_total, 2048);
+         ArrayResize(m_ha_close, rates_total, 2048);
+
          ArraySetAsSeries(m_ha_open,  false);
-         ArrayResize(m_ha_high,  rates_total);
          ArraySetAsSeries(m_ha_high,  false);
-         ArrayResize(m_ha_low,   rates_total);
          ArraySetAsSeries(m_ha_low,   false);
-         ArrayResize(m_ha_close, rates_total);
          ArraySetAsSeries(m_ha_close, false);
         }
 
@@ -204,7 +210,7 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
                   m_price[i] = (m_ha_high[i] + m_ha_low[i]) * 0.5;
                   break;
                case PRICE_HA_TYPICAL:
-                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) / 3.0;
+                  m_price[i] = (m_ha_high[i] + m_ha_low[i] + m_ha_close[i]) * 0.3333333333333333;
                   break;
                case PRICE_HA_WEIGHTED:
                   m_price[i] = (m_ha_high[i] + m_ha_low[i] + 2.0 * m_ha_close[i]) * 0.25;
@@ -242,7 +248,7 @@ bool CLaguerreEngine::PreparePriceSeries(const int rates_total, const int start_
                   m_price[i] = (high[i] + low[i]) * 0.5;
                   break;
                case PRICE_TYPICAL_STD:
-                  m_price[i] = (high[i] + low[i] + close[i]) / 3.0;
+                  m_price[i] = (high[i] + low[i] + close[i]) * 0.3333333333333333;
                   break;
                case PRICE_WEIGHTED_STD:
                   m_price[i] = (high[i] + low[i] + 2.0 * close[i]) * 0.25;
@@ -274,22 +280,23 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
    if(rates_total < 2)
       return;
 
-// Safe allocation of internal state arrays
+// Safe capacity allocation of internal state arrays
    if(ArraySize(m_L0) != rates_total)
      {
-      ArrayResize(m_L0, rates_total);
+      ArrayResize(m_L0, rates_total, 2048);
+      ArrayResize(m_L1, rates_total, 2048);
+      ArrayResize(m_L2, rates_total, 2048);
+      ArrayResize(m_L3, rates_total, 2048);
+
       ArraySetAsSeries(m_L0, false);
-      ArrayResize(m_L1, rates_total);
       ArraySetAsSeries(m_L1, false);
-      ArrayResize(m_L2, rates_total);
       ArraySetAsSeries(m_L2, false);
-      ArrayResize(m_L3, rates_total);
       ArraySetAsSeries(m_L3, false);
      }
 
    if(ArraySize(filt_buffer) != rates_total)
      {
-      ArrayResize(filt_buffer, rates_total);
+      ArrayResize(filt_buffer, rates_total, 2048);
       ArraySetAsSeries(filt_buffer, false);
      }
 
@@ -302,16 +309,16 @@ void CLaguerreEngine::CalculateFilter(const int rates_total, const int prev_calc
 
    if(i == 0)
      {
-      double p0 = m_price[0];
-      m_L0[0] = p0;
-      m_L1[0] = p0;
-      m_L2[0] = p0;
-      m_L3[0] = p0;
+      double p0      = m_price[0];
+      m_L0[0]        = p0;
+      m_L1[0]        = p0;
+      m_L2[0]        = p0;
+      m_L3[0]        = p0;
       filt_buffer[0] = p0;
       i = 1;
      }
 
-   const double inv_six = 1.0 / 6.0;
+   const double inv_six = 0.16666666666666666666666666666667;
 
 // Recursive 4-Element Difference Equations
    for(; i < rates_total; i++)
