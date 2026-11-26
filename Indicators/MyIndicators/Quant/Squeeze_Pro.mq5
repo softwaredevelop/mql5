@@ -11,10 +11,6 @@
 #property indicator_buffers 4
 #property indicator_plots   2
 
-#property indicator_level1 0.0
-#property indicator_levelcolor clrDarkGray
-#property indicator_levelstyle STYLE_DOT
-
 //--- Plot 1: TTM Linear Regression Momentum Histogram
 #property indicator_label1  "Momentum"
 #property indicator_type1   DRAW_COLOR_HISTOGRAM
