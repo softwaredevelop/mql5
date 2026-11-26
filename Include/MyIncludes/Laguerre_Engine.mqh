@@ -13,7 +13,7 @@
 
 #ifndef ENUM_INPUT_SOURCE_DEFINED
 #define ENUM_INPUT_SOURCE_DEFINED
-enum ENUM_INPUT_SOURCE { SOURCE_PRICE, SOURCE_MOMENTUM };
+enum ENUM_INPUT_SOURCE  { SOURCE_PRICE, SOURCE_MOMENTUM };
 #endif
 
 //+==================================================================+
